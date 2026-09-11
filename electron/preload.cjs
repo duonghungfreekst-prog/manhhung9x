@@ -41,6 +41,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── HIS Call (TCP LAN) ────────────────────────────────────────────────────
   sendTcpCommand: (ip, port, message) => ipcRenderer.invoke('his-call:send-tcp', ip, port, message),
+
+  // ── Máy Chấm Công (Biometric LAN IP) ───────────────────────────────────
+  biometric: {
+    testConnection: (ip, port, timeoutMs) => ipcRenderer.invoke('biometric:test-connection', ip, port, timeoutMs),
+    pullLogs: (ip, port, timeoutMs) => ipcRenderer.invoke('biometric:pull-logs', ip, port, timeoutMs),
+    scanLan: (subnet, port) => ipcRenderer.invoke('biometric:scan-lan', subnet, port),
+    getLocalIp: () => ipcRenderer.invoke('biometric:get-local-ip'),
+  },
   fetchHisPatients: (connStr, roomCode) => ipcRenderer.invoke('his-call:fetch-patients', connStr, roomCode),
   updateHisPatientStatus: (connStr, maBenhNhan) => ipcRenderer.invoke('his-call:update-patient', connStr, maBenhNhan),
   fetchHisRooms: (connStr) => ipcRenderer.invoke('his-call:fetch-rooms', connStr),

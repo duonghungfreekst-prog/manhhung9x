@@ -1238,6 +1238,41 @@ function stopCompareServer() {
     });
   });
 
+  // ── IPC: Máy Chấm Công (Biometric LAN IP - ZKTeco / Ronald Jack) ───────────
+  const biometricService = require('./biometricNetworkService.cjs');
+
+  ipcMain.handle('biometric:get-local-ip', async () => {
+    try {
+      return biometricService.getLocalNetworkInfo();
+    } catch (e) {
+      return { primaryIp: '192.168.1.1', defaultSubnet: '192.168.1', subnets: [] };
+    }
+  });
+
+  ipcMain.handle('biometric:scan-lan', async (_event, subnet, port) => {
+    try {
+      return await biometricService.scanLanBiometricDevices(subnet, port);
+    } catch (e) {
+      return { ok: false, error: e.message, count: 0, devices: [] };
+    }
+  });
+
+  ipcMain.handle('biometric:test-connection', async (_event, ip, port, timeoutMs) => {
+    try {
+      return await biometricService.testBiometricConnection(ip, port, timeoutMs);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('biometric:pull-logs', async (_event, ip, port, timeoutMs) => {
+    try {
+      return await biometricService.pullBiometricAttendanceLogs(ip, port, timeoutMs);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   // ── IPC: HIS Database (SQL Server) ─────────────────────────────────────────
   // roomCode có thể là '2' hoặc '2,3,5' (nhiều phòng cách nhau bởi dấu phẩy)
   ipcMain.handle('his-call:fetch-patients', async (_event, connStr, roomCode) => {

@@ -5,7 +5,7 @@ import {
   Download, Search, RefreshCw, ChevronDown, X, Clock,
   Settings, CheckCircle2, AlertTriangle, AlertCircle,
   Plus, Trash2, Edit2, RotateCcw, FileSpreadsheet, Filter,
-  Stethoscope
+  Stethoscope, Wifi, Save, Zap
 } from 'lucide-react';
 import type {
   ShiftPreset,
@@ -132,6 +132,172 @@ export function AttendanceTab() {
   const [bioViewMode, setBioViewMode] = useState<'grid' | 'details'>('grid');
   const [selectedBioEmp, setSelectedBioEmp] = useState<EmployeeMonthlySummary | null>(null);
   const bioFileRef = useRef<HTMLInputElement>(null);
+
+  // ── Phương thức nạp dữ liệu: 'lan' (IP mạng) hoặc 'file' (USB / Excel) ──
+  const [dataInputMode, setDataInputMode] = useState<'lan' | 'file'>('lan');
+  const [lanIp, setLanIp] = useState(() => localStorage.getItem('dmh_bio_last_ip') || '192.168.1.201');
+  const [lanPort, setLanPort] = useState<number>(() => +(localStorage.getItem('dmh_bio_last_port') || 4370));
+  const [lanMachineName, setLanMachineName] = useState(() => localStorage.getItem('dmh_bio_last_name') || 'Máy Cổng Chính');
+  const [lanLoading, setLanLoading] = useState(false);
+  const [lanStatus, setLanStatus] = useState<{ ok: boolean; message: string; details?: any } | null>(null);
+  const [lanScanning, setLanScanning] = useState(false);
+  const [scanResults, setScanResults] = useState<Array<{ ip: string; port: number }>>([]);
+  const [savedMachines, setSavedMachines] = useState<Array<{ id: string; name: string; ip: string; port: number }>>(() => {
+    try {
+      const saved = localStorage.getItem('dmh_saved_biometric_machines');
+      return saved ? JSON.parse(saved) : [
+        { id: 'm1', name: 'Máy Cổng Chính (ZKTeco)', ip: '192.168.1.201', port: 4370 },
+        { id: 'm2', name: 'Máy Phòng Khám (Ronald Jack)', ip: '192.168.3.201', port: 4370 },
+      ];
+    } catch {
+      return [];
+    }
+  });
+
+  // Tự động phát hiện dải mạng LAN khi vào tab
+  useEffect(() => {
+    const eAPI = (window as any).electronAPI?.biometric;
+    if (eAPI?.getLocalIp) {
+      eAPI.getLocalIp().then((res: any) => {
+        if (res?.defaultSubnet && !localStorage.getItem('dmh_bio_last_ip')) {
+          setLanIp(`${res.defaultSubnet}.201`);
+        }
+      }).catch(() => {});
+    }
+  }, []);
+
+  const handleTestLanConnection = async () => {
+    setLanLoading(true);
+    setLanStatus(null);
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.testConnection) {
+        setLanStatus({ ok: false, message: 'Tính năng kết nối IP chỉ khả dụng trên ứng dụng Desktop DMH_Tools.' });
+        return;
+      }
+      const res = await eAPI.testConnection(lanIp.trim(), lanPort, 4000);
+      if (res.ok) {
+        setLanStatus({
+          ok: true,
+          message: `Kết nối máy chấm công thành công! (${res.userCount ?? 0} nhân viên, ${res.logCount ?? 0} bản ghi trên máy)`,
+          details: res
+        });
+      } else {
+        setLanStatus({
+          ok: false,
+          message: res.error || 'Không kết nối được tới máy chấm công qua IP.'
+        });
+      }
+    } catch (e: any) {
+      setLanStatus({ ok: false, message: e.message || 'Lỗi kiểm tra kết nối.' });
+    } finally {
+      setLanLoading(false);
+    }
+  };
+
+  const handlePullLanLogs = async () => {
+    setLanLoading(true);
+    setLanStatus(null);
+    setBioError('');
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.pullLogs) {
+        setLanStatus({ ok: false, message: 'Tính năng kết nối IP chỉ khả dụng trên ứng dụng Desktop DMH_Tools.' });
+        return;
+      }
+      const res = await eAPI.pullLogs(lanIp.trim(), lanPort, 15000);
+      if (res.ok && res.logs) {
+        const punchLogs: RawPunchLog[] = res.logs.map((l: any) => ({
+          empId: l.empId,
+          empName: l.empName,
+          timestamp: new Date(l.timestamp),
+          punchType: l.punchType || 'UNKNOWN',
+          deviceId: l.deviceId,
+        }));
+
+        if (!punchLogs.length) {
+          setLanStatus({
+            ok: true,
+            message: 'Đã kết nối thành công nhưng máy chấm công hiện chưa có dữ liệu quẹt thẻ mới.',
+          });
+        } else {
+          setRawPunchLogs(punchLogs);
+          const lastLog = punchLogs[punchLogs.length - 1];
+          setSelectedMonth(lastLog.timestamp.getMonth() + 1);
+          setSelectedYear(lastLog.timestamp.getFullYear());
+          setBioFileName(`Máy ${lanIp}:${lanPort} (${punchLogs.length} lượt quẹt)`);
+          setLanStatus({
+            ok: true,
+            message: `Đã kéo thành công ${punchLogs.length} lượt quẹt thẻ từ máy chấm công!`,
+          });
+          localStorage.setItem('dmh_bio_last_ip', lanIp);
+          localStorage.setItem('dmh_bio_last_port', String(lanPort));
+          localStorage.setItem('dmh_bio_last_name', lanMachineName);
+        }
+      } else {
+        setLanStatus({
+          ok: false,
+          message: res.error || 'Lỗi khi kéo dữ liệu từ máy chấm công qua IP.',
+        });
+      }
+    } catch (e: any) {
+      setLanStatus({ ok: false, message: e.message || 'Lỗi trong quá trình kéo dữ liệu.' });
+    } finally {
+      setLanLoading(false);
+    }
+  };
+
+  const handleScanLan = async () => {
+    setLanScanning(true);
+    setScanResults([]);
+    setLanStatus(null);
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.scanLan) {
+        setLanStatus({ ok: false, message: 'Tính năng quét mạng LAN chỉ hỗ trợ trên ứng dụng Electron.' });
+        return;
+      }
+      const parts = lanIp.split('.');
+      const subnet = parts.length === 4 ? `${parts[0]}.${parts[1]}.${parts[2]}` : '';
+      const res = await eAPI.scanLan(subnet, lanPort);
+      if (res?.devices && res.devices.length > 0) {
+        setScanResults(res.devices);
+        setLanStatus({
+          ok: true,
+          message: `Đã tìm thấy ${res.devices.length} máy chấm công đang mở cổng ${lanPort} trong dải mạng ${res.subnet}.x!`
+        });
+      } else {
+        setLanStatus({
+          ok: false,
+          message: `Không phát hiện máy chấm công nào đang mở cổng ${lanPort} trong dải mạng ${res?.subnet || subnet}.x.`
+        });
+      }
+    } catch (e: any) {
+      setLanStatus({ ok: false, message: e.message || 'Lỗi khi quét mạng LAN.' });
+    } finally {
+      setLanScanning(false);
+    }
+  };
+
+  const handleSaveCurrentMachine = () => {
+    if (!lanIp.trim()) return;
+    const newMachine = {
+      id: `m_${Date.now()}`,
+      name: lanMachineName.trim() || `Máy ${lanIp}`,
+      ip: lanIp.trim(),
+      port: lanPort,
+    };
+    const updated = [newMachine, ...savedMachines.filter(m => m.ip !== newMachine.ip)];
+    setSavedMachines(updated);
+    localStorage.setItem('dmh_saved_biometric_machines', JSON.stringify(updated));
+    setLanStatus({ ok: true, message: `Đã lưu cấu hình máy "${newMachine.name}" vào danh mục!` });
+  };
+
+  const handleDeleteSavedMachine = (id: string) => {
+    const updated = savedMachines.filter(m => m.id !== id);
+    setSavedMachines(updated);
+    localStorage.setItem('dmh_saved_biometric_machines', JSON.stringify(updated));
+  };
 
   // ── Tính toán tổng hợp Bảng công tháng ──
   const monthlySummaries = useMemo(() => {
@@ -553,51 +719,315 @@ export function AttendanceTab() {
           <div style={{ flex: 1, display: 'flex', gap: '0.75rem', overflow: 'hidden', minWidth: 0 }}>
 
             {/* Cột trái: Tải file & Thống kê */}
-            <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
-              {/* Thẻ Upload */}
+            <div style={{ width: 330, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
+              {/* Thẻ Nạp Dữ Liệu: LAN IP & File USB */}
               <div style={cardStyle}>
-                <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, color: '#1e293b' }}>
-                  <Upload size={16} color="#3b82f6" /> Nạp Dữ Liệu Máy Chấm Công
+                {/* Header chuyển chế độ LAN / File */}
+                <div style={{ display: 'flex', background: '#f1f5f9', padding: '3px', borderRadius: 7, marginBottom: 12 }}>
+                  <button
+                    onClick={() => setDataInputMode('lan')}
+                    style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      padding: '6px 8px', borderRadius: 5, border: 'none', cursor: 'pointer',
+                      fontSize: '0.78rem', fontWeight: dataInputMode === 'lan' ? 700 : 500,
+                      background: dataInputMode === 'lan' ? '#3b82f6' : 'transparent',
+                      color: dataInputMode === 'lan' ? 'white' : '#475569',
+                      boxShadow: dataInputMode === 'lan' ? '0 1px 3px rgba(59,130,246,0.3)' : 'none',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <Wifi size={13} /> Kéo Qua Mạng LAN
+                  </button>
+                  <button
+                    onClick={() => setDataInputMode('file')}
+                    style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      padding: '6px 8px', borderRadius: 5, border: 'none', cursor: 'pointer',
+                      fontSize: '0.78rem', fontWeight: dataInputMode === 'file' ? 700 : 500,
+                      background: dataInputMode === 'file' ? '#3b82f6' : 'transparent',
+                      color: dataInputMode === 'file' ? 'white' : '#475569',
+                      boxShadow: dataInputMode === 'file' ? '0 1px 3px rgba(59,130,246,0.3)' : 'none',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <Upload size={13} /> Tệp USB / Excel
+                  </button>
                 </div>
-                <div
-                  onClick={() => bioFileRef.current?.click()}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleBioFileUpload(f); }}
-                  style={{
-                    border: '2px dashed #93c5fd',
-                    borderRadius: 8,
-                    padding: '1.25rem 0.75rem',
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                    background: '#eff6ff',
-                    transition: 'border .2s'
-                  }}
-                >
-                  <Clock size={32} color="#3b82f6" style={{ margin: '0 auto 8px', display: 'block' }} />
-                  <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1d4ed8' }}>
-                    {bioFileName || 'Kéo thả hoặc nhấp để chọn tệp'}
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 4 }}>
-                    Excel (.xlsx, .xls), CSV, hoặc Text/DAT từ USB ZKTeco/Ronald Jack
-                  </div>
-                </div>
-                <input
-                  ref={bioFileRef}
-                  type="file"
-                  accept=".xlsx,.xls,.csv,.txt,.dat"
-                  style={{ display: 'none' }}
-                  onChange={e => { const f = e.target.files?.[0]; if (f) handleBioFileUpload(f); }}
-                />
 
-                {bioLoading && (
-                  <div style={{ textAlign: 'center', marginTop: 10, fontSize: '0.78rem', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                    <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Đang xử lý dữ liệu...
+                {dataInputMode === 'lan' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>
+                        🌐 Máy Chấm Công IP
+                      </span>
+                      <span style={{ fontSize: '0.68rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>
+                        ZKTeco / Ronald Jack
+                      </span>
+                    </div>
+
+                    {/* Danh sách máy đã lưu */}
+                    {savedMachines.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: 3, fontWeight: 600 }}>
+                          Chọn máy đã cấu hình:
+                        </div>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <select
+                            id="saved-machines-sel"
+                            onChange={(e) => {
+                              const found = savedMachines.find(m => m.id === e.target.value);
+                              if (found) {
+                                setLanIp(found.ip);
+                                setLanPort(found.port);
+                                setLanMachineName(found.name);
+                                setLanStatus(null);
+                              }
+                            }}
+                            style={{
+                              flex: 1, padding: '5px 8px', borderRadius: 6,
+                              border: '1px solid #cbd5e1', fontSize: '0.78rem', background: '#f8fafc'
+                            }}
+                          >
+                            <option value="">-- Danh mục máy đã lưu ({savedMachines.length}) --</option>
+                            {savedMachines.map(m => (
+                              <option key={m.id} value={m.id}>
+                                {m.name} ({m.ip}:{m.port})
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const sel = document.getElementById('saved-machines-sel') as HTMLSelectElement | null;
+                              if (sel && sel.value) {
+                                handleDeleteSavedMachine(sel.value);
+                              }
+                            }}
+                            title="Xóa máy đã chọn khỏi danh mục"
+                            style={{
+                              padding: '4px 6px', borderRadius: 6, border: '1px solid #cbd5e1',
+                              background: '#f8fafc', color: '#94a3b8', cursor: 'pointer'
+                            }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Nhập IP & Port */}
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: 2, fontWeight: 600 }}>
+                          Địa chỉ IP máy:
+                        </div>
+                        <input
+                          type="text"
+                          value={lanIp}
+                          onChange={e => { setLanIp(e.target.value); setLanStatus(null); }}
+                          placeholder="VD: 192.168.1.201"
+                          style={{
+                            width: '100%', padding: '6px 8px', borderRadius: 6,
+                            border: '1px solid #cbd5e1', fontSize: '0.82rem', boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+                      <div style={{ width: 75 }}>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: 2, fontWeight: 600 }}>
+                          Cổng:
+                        </div>
+                        <input
+                          type="number"
+                          value={lanPort}
+                          onChange={e => setLanPort(+e.target.value)}
+                          placeholder="4370"
+                          style={{
+                            width: '100%', padding: '6px 8px', borderRadius: 6,
+                            border: '1px solid #cbd5e1', fontSize: '0.82rem', boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Tên gợi nhớ */}
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: 2, fontWeight: 600 }}>
+                        Tên máy gợi nhớ:
+                      </div>
+                      <div style={{ display: 'flex', gap: 5 }}>
+                        <input
+                          type="text"
+                          value={lanMachineName}
+                          onChange={e => setLanMachineName(e.target.value)}
+                          placeholder="VD: Máy Cửa Chính, Máy Tầng 2"
+                          style={{
+                            flex: 1, padding: '5px 8px', borderRadius: 6,
+                            border: '1px solid #cbd5e1', fontSize: '0.78rem'
+                          }}
+                        />
+                        <button
+                          onClick={handleSaveCurrentMachine}
+                          title="Lưu cấu hình máy này để dùng lại lần sau"
+                          style={{
+                            padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1',
+                            background: '#f8fafc', color: '#475569', cursor: 'pointer', fontSize: '0.72rem',
+                            display: 'flex', alignItems: 'center', gap: 3
+                          }}
+                        >
+                          <Save size={12} /> Lưu
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Hàng nút Thao tác: Kiểm tra & Quét LAN */}
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={handleTestLanConnection}
+                        disabled={lanLoading || lanScanning}
+                        style={{
+                          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                          padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1',
+                          background: '#f8fafc', color: '#334155', cursor: 'pointer',
+                          fontSize: '0.76rem', fontWeight: 600
+                        }}
+                      >
+                        {lanLoading ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Zap size={13} color="#eab308" />}
+                        Kiểm Tra
+                      </button>
+
+                      <button
+                        onClick={handleScanLan}
+                        disabled={lanLoading || lanScanning}
+                        style={{
+                          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                          padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1',
+                          background: '#f8fafc', color: '#334155', cursor: 'pointer',
+                          fontSize: '0.76rem', fontWeight: 600
+                        }}
+                        title="Tự động dò tìm tất cả máy chấm công mở cổng 4370 trong mạng LAN"
+                      >
+                        {lanScanning ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={13} color="#3b82f6" />}
+                        {lanScanning ? 'Đang dò...' : 'Quét Dò IP'}
+                      </button>
+                    </div>
+
+                    {/* NÚT CHÍNH: KÉO DỮ LIỆU TỪ MÁY */}
+                    <button
+                      onClick={handlePullLanLogs}
+                      disabled={lanLoading || lanScanning}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                        padding: '10px 12px', borderRadius: 7, border: 'none',
+                        background: lanLoading ? '#94a3b8' : 'linear-gradient(135deg, #10b981, #059669)',
+                        color: 'white', cursor: lanLoading ? 'not-allowed' : 'pointer',
+                        fontSize: '0.86rem', fontWeight: 700,
+                        boxShadow: '0 2px 8px rgba(16,185,129,0.3)',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {lanLoading ? (
+                        <>
+                          <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                          <span>Đang kết nối & tải dữ liệu...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download size={16} />
+                          <span>KÉO DỮ LIỆU CHẤM CÔNG</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Hiển thị kết quả quét dò LAN nếu có */}
+                    {scanResults.length > 0 && (
+                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '6px 8px' }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#166534', marginBottom: 4 }}>
+                          🔍 Tìm thấy {scanResults.length} máy chấm công trong mạng:
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          {scanResults.map(dev => (
+                            <div
+                              key={dev.ip}
+                              onClick={() => { setLanIp(dev.ip); setLanPort(dev.port); }}
+                              style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '4px 6px', background: 'white', borderRadius: 4,
+                                border: '1px solid #dcfce7', cursor: 'pointer', fontSize: '0.74rem'
+                              }}
+                              title="Bấm để chọn máy này"
+                            >
+                              <span style={{ fontWeight: 600, color: '#15803d' }}>{dev.ip}:{dev.port}</span>
+                              <span style={{ fontSize: '0.68rem', color: '#3b82f6', textDecoration: 'underline' }}>Chọn</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Hộp trạng thái kết nối */}
+                    {lanStatus && (
+                      <div style={{
+                        padding: '8px', borderRadius: 6, fontSize: '0.75rem',
+                        background: lanStatus.ok ? '#f0fdf4' : '#fef2f2',
+                        border: `1px solid ${lanStatus.ok ? '#bbf7d0' : '#fecaca'}`,
+                        color: lanStatus.ok ? '#15803d' : '#b91c1c',
+                        display: 'flex', alignItems: 'flex-start', gap: 6
+                      }}>
+                        {lanStatus.ok ? (
+                          <CheckCircle2 size={15} color="#16a34a" style={{ flexShrink: 0, marginTop: 1 }} />
+                        ) : (
+                          <AlertCircle size={15} color="#dc2626" style={{ flexShrink: 0, marginTop: 1 }} />
+                        )}
+                        <div style={{ wordBreak: 'break-word', lineHeight: 1.35 }}>
+                          {lanStatus.message}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-                {bioError && (
-                  <div style={{ marginTop: 8, padding: '8px', background: '#fef2f2', borderRadius: 6, fontSize: '0.75rem', color: '#dc2626', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                    <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-                    <div>{bioError}</div>
+                ) : (
+                  /* Giao diện Upload File USB/Excel */
+                  <div>
+                    <div
+                      onClick={() => bioFileRef.current?.click()}
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleBioFileUpload(f); }}
+                      style={{
+                        border: '2px dashed #93c5fd',
+                        borderRadius: 8,
+                        padding: '1.25rem 0.75rem',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        background: '#eff6ff',
+                        transition: 'border .2s'
+                      }}
+                    >
+                      <Clock size={32} color="#3b82f6" style={{ margin: '0 auto 8px', display: 'block' }} />
+                      <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1d4ed8' }}>
+                        {bioFileName || 'Kéo thả hoặc nhấp để chọn tệp'}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 4 }}>
+                        Excel (.xlsx, .xls), CSV, hoặc Text/DAT từ USB ZKTeco/Ronald Jack
+                      </div>
+                    </div>
+                    <input
+                      ref={bioFileRef}
+                      type="file"
+                      accept=".xlsx,.xls,.csv,.txt,.dat"
+                      style={{ display: 'none' }}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) handleBioFileUpload(f); }}
+                    />
+
+                    {bioLoading && (
+                      <div style={{ textAlign: 'center', marginTop: 10, fontSize: '0.78rem', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Đang xử lý dữ liệu...
+                      </div>
+                    )}
+                    {bioError && (
+                      <div style={{ marginTop: 8, padding: '8px', background: '#fef2f2', borderRadius: 6, fontSize: '0.75rem', color: '#dc2626', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                        <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                        <div>{bioError}</div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
