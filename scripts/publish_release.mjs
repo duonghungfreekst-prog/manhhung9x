@@ -194,7 +194,7 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🎉 DMH Tools ${tagName} Commercial Release\n\n- Tự động hóa tải module động theo License Key từ GitHub.\n- Nâng cấp Trạm Nội Soi AI 4K: Bộ lọc NBI, Thước Caliper ảo, HDMI Trigger.\n- Bổ sung trọn bộ 12 Bảng XML QĐ 130/QĐ-BYT và 11 quy tắc kiểm soát xuất toán BHYT.\n- Khóa cứng bản quyền thương hiệu DMH cố định vĩnh viễn.\n\n*Hệ Thống Y Tế & Kỹ Thuật Máy Tính DMH*`,
+        body: `### 🎉 DMH Tools ${tagName} Commercial Release\n\n- **Tích hợp Phân hệ Máy Chấm Công & Bảng Công**:\n  + Hỗ trợ kết nối trực tiếp máy chấm công ZKTeco, Ronald Jack qua IP mạng LAN (Cổng 4370 TCP/UDP).\n  + Tự động quét dò IP các máy chấm công đang mở trong mạng LAN nội bộ.\n  + Hỗ trợ nạp file offline từ USB (.dat, .txt) hoặc file xuất Excel / CSV.\n- **Cài đặt Ca làm việc & Phân ca Lịch biểu**:\n  + Thiết lập giờ vào, giờ ra, ca đêm, ân hạn đi muộn / về sớm, tính công ngày và giờ tăng ca (OT).\n  + Xếp ca cố định theo tuần hoặc phân ca linh hoạt theo nhân viên/khoa phòng.\n  + Xuất báo cáo bảng công tháng (Grid 1..31) và bảng kê chi tiết lượt quẹt chuẩn HR.\n- **Bảo lưu và tối ưu hóa hệ thống**:\n  + Giữ nguyên 100% Chấm công khám bệnh HIS, Trạm nội soi AI 4K, Màn chờ TV, Đối chiếu BHYT QĐ 130.\n\n*Hệ Thống Y Tế & Kỹ Thuật Máy Tính DMH*`,
         draft: false,
         prerelease: false,
       });
