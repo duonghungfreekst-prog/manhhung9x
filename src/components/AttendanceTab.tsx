@@ -6,7 +6,7 @@ import {
   Settings, CheckCircle2, AlertTriangle, AlertCircle,
   Plus, Trash2, Edit2, RotateCcw, FileSpreadsheet, Filter,
   Stethoscope, Wifi, Save, Zap,
-  Volume2, Lock, Unlock, Power, Key
+  Volume2, Unlock, Power, Key, Wrench
 } from 'lucide-react';
 import type {
   ShiftPreset,
@@ -79,7 +79,7 @@ function computeHisSummaries(rows: RawDoctorRow[]): DoctorSummary[] {
 
 export function AttendanceTab() {
   // ── Phân hệ con (Sub-Tabs) ──
-  const [activeSubTab, setActiveSubTab] = useState<'biometric' | 'shifts' | 'schedule' | 'his_counter'>('biometric');
+  const [activeSubTab, setActiveSubTab] = useState<'biometric' | 'device_setup' | 'shifts' | 'schedule' | 'his_counter'>('biometric');
 
   // ── Cấu hình Ca làm việc (Shifts) ──
   const [shifts, setShifts] = useState<ShiftPreset[]>(() => {
@@ -301,8 +301,6 @@ export function AttendanceTab() {
   };
 
   // ── Quản trị & Cài đặt máy chấm công từ xa ──
-  const [showDeviceSetupModal, setShowDeviceSetupModal] = useState(false);
-  const [deviceActiveTab, setDeviceActiveTab] = useState<'status' | 'time' | 'control' | 'users'>('status');
   const [deviceStatusLoading, setDeviceStatusLoading] = useState(false);
   const [deviceStatus, setDeviceStatus] = useState<any>(null);
   const [deviceUsersLoading, setDeviceUsersLoading] = useState(false);
@@ -346,13 +344,6 @@ export function AttendanceTab() {
     } finally {
       setDeviceUsersLoading(false);
     }
-  };
-
-  const handleOpenDeviceSetup = () => {
-    setDeviceActionMsg(null);
-    setShowDeviceSetupModal(true);
-    fetchDeviceStatus();
-    fetchDeviceUsers();
   };
 
   const handleSyncTime = async () => {
@@ -507,6 +498,14 @@ export function AttendanceTab() {
       setDeviceActionLoading(null);
     }
   };
+
+  // Tự động tải thông số máy khi người dùng chuyển sang tab Cài Đặt Máy Chấm Công
+  useEffect(() => {
+    if (activeSubTab === 'device_setup') {
+      fetchDeviceStatus();
+      fetchDeviceUsers();
+    }
+  }, [activeSubTab]);
 
   // ── Tính toán tổng hợp Bảng công tháng ──
   const monthlySummaries = useMemo(() => {
@@ -806,6 +805,7 @@ export function AttendanceTab() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f1f5f9', padding: '3px', borderRadius: 8 }}>
           {[
             { id: 'biometric' as const, label: 'Máy Chấm Công & Bảng Công', icon: <Clock size={15} /> },
+            { id: 'device_setup' as const, label: 'Cài Đặt Máy Chấm Công', icon: <Wrench size={15} /> },
             { id: 'shifts' as const, label: 'Cài Đặt Ca Làm Việc', icon: <Settings size={15} /> },
             { id: 'schedule' as const, label: 'Lịch Biểu & Phân Ca', icon: <Calendar size={15} /> },
             { id: 'his_counter' as const, label: 'Chấm Công Khám Bệnh (HIS)', icon: <Stethoscope size={15} /> },
@@ -872,6 +872,31 @@ export function AttendanceTab() {
               }}
             >
               <FileSpreadsheet size={14} color="#10b981" /> Xuất Chi Tiết Quẹt Thẻ
+            </button>
+          </div>
+        )}
+
+        {activeSubTab === 'device_setup' && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => { fetchDeviceStatus(); fetchDeviceUsers(); }}
+              disabled={deviceStatusLoading || deviceUsersLoading}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                borderRadius: 6,
+                border: '1px solid #cbd5e1',
+                background: 'white',
+                color: '#334155',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: '0.8rem'
+              }}
+            >
+              <RefreshCw size={13} style={{ animation: (deviceStatusLoading || deviceUsersLoading) ? 'spin 1s linear infinite' : 'none' }} />
+              Làm Mới Thông Số Máy
             </button>
           </div>
         )}
@@ -1120,7 +1145,7 @@ export function AttendanceTab() {
                       </button>
 
                       <button
-                        onClick={handleOpenDeviceSetup}
+                        onClick={() => setActiveSubTab('device_setup')}
                         disabled={lanLoading || lanScanning}
                         style={{
                           flex: 1.1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
@@ -1128,7 +1153,7 @@ export function AttendanceTab() {
                           background: '#eef2ff', color: '#4338ca', cursor: 'pointer',
                           fontSize: '0.74rem', fontWeight: 700
                         }}
-                        title="Cài đặt đồng bộ giờ, điều khiển máy từ xa, thử chuông, xóa quyền admin, quản lý nhân viên trên máy"
+                        title="Chuyển sang tab cài đặt đồng bộ giờ, điều khiển máy từ xa, thử chuông, xóa quyền admin, quản lý nhân viên trên máy"
                       >
                         <Settings size={12} color="#4f46e5" />
                         Cài Đặt Máy
@@ -1718,6 +1743,438 @@ export function AttendanceTab() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════════
+            SUB-TAB: CÀI ĐẶT MÁY CHẤM CÔNG (HARDWARE CONTROL & SETUP)
+        ══════════════════════════════════════════════════════════════════════ */}
+        {activeSubTab === 'device_setup' && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto', minWidth: 0 }}>
+            {/* Thanh cấu hình IP kết nối & Trạng thái hoạt động */}
+            <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, padding: '0.75rem 1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 8, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                  <Wrench size={22} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <strong style={{ fontSize: '0.95rem', color: '#1e293b' }}>Trung Tâm Cài Đặt & Điều Khiển Máy Chấm Công</strong>
+                    <span style={{ fontSize: '0.72rem', background: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: 12, fontWeight: 600 }}>
+                      ZKTeco / Ronald Jack (Protocol UDP/TCP 4370)
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: 2 }}>
+                    Đồng bộ thời gian chuẩn, kiểm tra loa, mở cửa, cứu hộ phá khóa Admin và quản lý danh sách nhân viên trực tiếp trên thiết bị.
+                  </div>
+                </div>
+              </div>
+
+              {/* Nhập IP & Port nhanh để điều khiển */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc', padding: '4px 8px', borderRadius: 6, border: '1px solid #cbd5e1' }}>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>IP Thiết Bị:</span>
+                  <input
+                    type="text"
+                    value={lanIp}
+                    onChange={e => setLanIp(e.target.value)}
+                    placeholder="192.168.3.250"
+                    style={{ width: 115, border: 'none', background: 'transparent', fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', outline: 'none' }}
+                  />
+                  <span style={{ color: '#cbd5e1' }}>:</span>
+                  <input
+                    type="number"
+                    value={lanPort}
+                    onChange={e => setLanPort(parseInt(e.target.value, 10) || 4370)}
+                    style={{ width: 50, border: 'none', background: 'transparent', fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', outline: 'none' }}
+                  />
+                </div>
+
+                <button
+                  onClick={() => { fetchDeviceStatus(); fetchDeviceUsers(); }}
+                  disabled={deviceStatusLoading || deviceUsersLoading}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '7px 12px', borderRadius: 6, border: '1px solid #cbd5e1',
+                    background: 'white', color: '#1e293b', cursor: 'pointer',
+                    fontSize: '0.78rem', fontWeight: 600,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+                  }}
+                  title="Kết nối và cập nhật toàn bộ thông số máy"
+                >
+                  <RefreshCw size={13} style={{ animation: (deviceStatusLoading || deviceUsersLoading) ? 'spin 1s linear infinite' : 'none' }} />
+                  {deviceStatusLoading ? 'Đang đọc...' : 'Kiểm Tra & Đọc Máy'}
+                </button>
+              </div>
+            </div>
+
+            {/* Thông báo kết quả thao tác thiết bị (nếu có) */}
+            {deviceActionMsg && (
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '0.65rem 1rem', borderRadius: 8, fontSize: '0.82rem', fontWeight: 500,
+                background: deviceActionMsg.ok ? '#ecfdf5' : '#fef2f2',
+                border: `1px solid ${deviceActionMsg.ok ? '#a7f3d0' : '#fecaca'}`,
+                color: deviceActionMsg.ok ? '#065f46' : '#991b1b',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {deviceActionMsg.ok ? <CheckCircle2 size={16} color="#059669" /> : <AlertCircle size={16} color="#dc2626" />}
+                  <span>{deviceActionMsg.message}</span>
+                </div>
+                <button
+                  onClick={() => setDeviceActionMsg(null)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            {/* Hàng 4 Thẻ Thống Kê Nhanh Về Thiết Bị */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
+              <div style={{ ...cardStyle, padding: '0.85rem 1rem', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 8, background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
+                  <Wifi size={20} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>Trạng Thái Kết Nối</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: deviceStatus ? '#16a34a' : '#ea580c', display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: deviceStatus ? '#16a34a' : '#ea580c', display: 'inline-block' }} />
+                    {deviceStatus ? 'Đang Kết Nối (Online)' : (deviceStatusLoading ? 'Đang kiểm tra...' : 'Chưa Kết Nối')}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ ...cardStyle, padding: '0.85rem 1rem', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 8, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                  <Users size={20} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>Nhân Viên Trên Máy</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#1e293b', marginTop: 2 }}>
+                    {deviceUsersLoading ? '...' : (deviceUsers.length || deviceStatus?.usersCount || 0)} <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#64748b' }}>người</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ ...cardStyle, padding: '0.85rem 1rem', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 8, background: '#faf5ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9333ea' }}>
+                  <Clock size={20} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>Lịch Sử Quẹt Thẻ Trong Máy</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#1e293b', marginTop: 2 }}>
+                    {deviceStatusLoading ? '...' : (deviceStatus?.logsCount?.toLocaleString() || rawPunchLogs.length.toLocaleString() || '0')} <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#64748b' }}>lượt</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ ...cardStyle, padding: '0.85rem 1rem', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 8, background: '#fffbeb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
+                  <BarChart2 size={20} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>Dung Lượng Bộ Nhớ Máy</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#1e293b', marginTop: 2 }}>
+                    {deviceStatus?.logsCount ? `${((deviceStatus.logsCount / 200000) * 100).toFixed(1)}%` : 'Ổn định'} <span style={{ fontSize: '0.72rem', fontWeight: 400, color: '#94a3b8' }}>(max 200k)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bố cục 2 Cột chính: Cột trái Điều Khiển - Cột phải Quản trị Danh Sách Nhân Viên */}
+            <div style={{ display: 'flex', gap: '0.75rem', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              
+              {/* CỘT TRÁI: ĐỒNG BỘ GIỜ & ĐIỀU KHIỂN THIẾT BỊ TỪ XA */}
+              <div style={{ width: 440, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
+                
+                {/* Khối 1: ĐỒNG BỘ THỜI GIAN */}
+                <div style={cardStyle}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 6, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                      <Clock size={16} />
+                    </div>
+                    <div>
+                      <strong style={{ fontSize: '0.88rem', color: '#1e293b' }}>Đồng Bộ Thời Gian Chuẩn (Clock Sync)</strong>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Đồng bộ tức thì giờ máy chấm công theo đồng hồ máy tính</div>
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: '0.76rem', color: '#64748b' }}>🕒 Giờ Máy Tính (PC):</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#0f172a', fontFamily: 'monospace' }}>
+                        {new Date().toLocaleTimeString('vi-VN')} ({new Date().toLocaleDateString('vi-VN')})
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.76rem', color: '#64748b' }}>📟 Giờ Trên Máy Chấm Công:</span>
+                      <strong style={{ fontSize: '0.85rem', color: deviceStatus?.deviceTime ? '#059669' : '#d97706', fontFamily: 'monospace' }}>
+                        {deviceStatus?.deviceTime ? new Date(deviceStatus.deviceTime).toLocaleTimeString('vi-VN') + ' (' + new Date(deviceStatus.deviceTime).toLocaleDateString('vi-VN') + ')' : '(Nhấn đồng bộ để lấy giờ)'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleSyncTime}
+                    disabled={deviceActionLoading === 'syncTime'}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      padding: '10px 14px', borderRadius: 7, border: 'none',
+                      background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                      color: 'white', cursor: deviceActionLoading === 'syncTime' ? 'not-allowed' : 'pointer',
+                      fontSize: '0.84rem', fontWeight: 700,
+                      boxShadow: '0 2px 6px rgba(37,99,235,0.25)',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {deviceActionLoading === 'syncTime' ? <RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Zap size={15} />}
+                    {deviceActionLoading === 'syncTime' ? 'Đang đồng bộ giờ sang máy...' : '⚡ ĐỒNG BỘ GIỜ PC SANG MÁY CHẤM CÔNG'}
+                  </button>
+                  <p style={{ margin: '8px 0 0', fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center' }}>
+                    * Giúp loại bỏ hoàn toàn sai lệch giờ, đảm bảo chấm công đi muộn / về sớm chính xác 100%.
+                  </p>
+                </div>
+
+                {/* Khối 2: CÁC LỆNH ĐIỀU KHIỂN TỪ XA */}
+                <div style={cardStyle}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 6, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#b45309' }}>
+                      <Settings size={16} />
+                    </div>
+                    <div>
+                      <strong style={{ fontSize: '0.88rem', color: '#1e293b' }}>Điều Khiển Phần Cứng Thiết Bị (Remote Control)</strong>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Gửi tín hiệu trực tiếp qua giao thức mạng LAN</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {/* Thử loa */}
+                    <button
+                      onClick={handleTestVoice}
+                      disabled={deviceActionLoading === 'testVoice'}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '9px 12px', borderRadius: 7, border: '1px solid #cbd5e1',
+                        background: '#f8fafc', color: '#1e293b', cursor: 'pointer',
+                        fontSize: '0.8rem', fontWeight: 600
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Volume2 size={16} color="#2563eb" />
+                        <span>Thử Loa Máy ("Xin Cảm Ơn")</span>
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Kiểm tra âm thanh & phản hồi</span>
+                    </button>
+
+                    {/* Khởi động lại máy */}
+                    <button
+                      onClick={handleRebootDevice}
+                      disabled={deviceActionLoading === 'reboot'}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '9px 12px', borderRadius: 7, border: '1px solid #fed7aa',
+                        background: '#fffaf5', color: '#c2410c', cursor: 'pointer',
+                        fontSize: '0.8rem', fontWeight: 600
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Power size={16} color="#ea580c" />
+                        <span>Khởi Động Lại Máy (Reboot)</span>
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: '#ea580c' }}>Khắc phục máy đơ / treo</span>
+                    </button>
+
+                    {/* Phá khóa Admin */}
+                    <button
+                      onClick={handleClearAdmin}
+                      disabled={deviceActionLoading === 'clearAdmin'}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '9px 12px', borderRadius: 7, border: '1px solid #fecaca',
+                        background: '#fef2f2', color: '#b91c1c', cursor: 'pointer',
+                        fontSize: '0.8rem', fontWeight: 600
+                      }}
+                      title="Cứu hộ khi máy bị khóa mật khẩu admin không vào được menu"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Key size={16} color="#dc2626" />
+                        <span>Xóa Quyền Admin (Phá Khóa Menu)</span>
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: '#dc2626' }}>Cứu hộ quên mật khẩu</span>
+                    </button>
+
+                    {/* Kích hoạt Mở Khóa Cửa Access Control */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                      <Unlock size={16} color="#16a34a" />
+                      <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#1e293b', flex: 1 }}>
+                        Mở Chốt Cửa Ra Vào:
+                      </span>
+                      <select
+                        value={unlockDuration}
+                        onChange={e => setUnlockDuration(Number(e.target.value))}
+                        style={{ padding: '4px 6px', borderRadius: 4, border: '1px solid #cbd5e1', fontSize: '0.75rem', background: 'white' }}
+                      >
+                        <option value={3}>3 giây</option>
+                        <option value={5}>5 giây</option>
+                        <option value={10}>10 giây</option>
+                        <option value={15}>15 giây</option>
+                      </select>
+                      <button
+                        onClick={handleUnlockDoor}
+                        disabled={deviceActionLoading === 'unlockDoor'}
+                        style={{
+                          padding: '5px 10px', borderRadius: 5, border: 'none',
+                          background: '#16a34a', color: 'white', cursor: 'pointer',
+                          fontSize: '0.74rem', fontWeight: 700
+                        }}
+                      >
+                        Mở Ngay
+                      </button>
+                    </div>
+
+                    {/* Dọn Dẹp Bộ Nhớ / Xóa Nhật Ký Quẹt Thẻ */}
+                    <div style={{ marginTop: 4, paddingTop: 8, borderTop: '1px dashed #e2e8f0' }}>
+                      <button
+                        onClick={handleClearDeviceLogs}
+                        disabled={deviceActionLoading === 'clearLogs'}
+                        style={{
+                          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1',
+                          background: 'white', color: '#64748b', cursor: 'pointer',
+                          fontSize: '0.76rem', fontWeight: 600
+                        }}
+                        title="Chỉ thực hiện sau khi đã tải hết dữ liệu chấm công về máy tính"
+                      >
+                        <Trash2 size={13} color="#94a3b8" />
+                        <span>Dọn Dẹp & Xóa Lịch Sử Quẹt Thẻ Trên Máy</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CỘT PHẢI: BẢNG QUẢN TRỊ DANH SÁCH NHÂN VIÊN TRÊN MÁY */}
+              <div style={{ ...cardStyle, flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}>
+                {/* Header Bảng */}
+                <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 6, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                      <Users size={15} />
+                    </div>
+                    <div>
+                      <strong style={{ fontSize: '0.88rem', color: '#1e293b' }}>
+                        Danh Sách Nhân Viên Đang Lưu Trên Máy ({deviceUsers.length})
+                      </strong>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Đồng bộ trực tiếp từ bộ nhớ ROM máy chấm công</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ position: 'relative', width: 200 }}>
+                      <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                      <input
+                        type="text"
+                        value={deviceUserSearch}
+                        onChange={e => setDeviceUserSearch(e.target.value)}
+                        placeholder="Tìm tên hoặc mã..."
+                        style={{
+                          width: '100%', padding: '5px 8px 5px 26px', borderRadius: 6,
+                          border: '1px solid #cbd5e1', fontSize: '0.76rem', boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+
+                    <button
+                      onClick={fetchDeviceUsers}
+                      disabled={deviceUsersLoading}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 4,
+                        padding: '5px 10px', borderRadius: 6, border: '1px solid #cbd5e1',
+                        background: '#f8fafc', color: '#334155', cursor: 'pointer',
+                        fontSize: '0.76rem', fontWeight: 600
+                      }}
+                    >
+                      <RefreshCw size={12} style={{ animation: deviceUsersLoading ? 'spin 1s linear infinite' : 'none' }} />
+                      Làm Mới
+                    </button>
+                  </div>
+                </div>
+
+                {/* Bảng Danh Sách Nhân Viên */}
+                <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                  {deviceUsersLoading ? (
+                    <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+                      <RefreshCw size={24} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 8px', display: 'block', color: '#3b82f6' }} />
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>Đang tải danh sách nhân viên từ máy chấm công...</div>
+                    </div>
+                  ) : deviceUsers.length === 0 ? (
+                    <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+                      <Users size={32} style={{ margin: '0 auto 8px', opacity: 0.5, display: 'block' }} />
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>Chưa có dữ liệu nhân viên</div>
+                      <div style={{ fontSize: '0.75rem', marginTop: 4 }}>Bấm nút "Kiểm Tra & Đọc Máy" hoặc "Làm Mới" để tải danh sách từ thiết bị.</div>
+                    </div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left', position: 'sticky', top: 0, zIndex: 2 }}>
+                          <th style={{ padding: '8px 12px', width: 60, fontWeight: 600 }}>UID</th>
+                          <th style={{ padding: '8px 12px', width: 110, fontWeight: 600 }}>Mã Chấm Công</th>
+                          <th style={{ padding: '8px 12px', fontWeight: 600 }}>Họ Tên Trên Máy</th>
+                          <th style={{ padding: '8px 12px', width: 120, fontWeight: 600 }}>Quyền Hạn</th>
+                          <th style={{ padding: '8px 12px', width: 100, fontWeight: 600 }}>Mật Khẩu</th>
+                          <th style={{ padding: '8px 12px', width: 80, textAlign: 'center', fontWeight: 600 }}>Thao Tác</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deviceUsers
+                          .filter(u => {
+                            if (!deviceUserSearch) return true;
+                            const s = deviceUserSearch.toLowerCase();
+                            return (u.name && u.name.toLowerCase().includes(s)) || (u.userId && u.userId.toLowerCase().includes(s)) || String(u.uid).includes(s);
+                          })
+                          .map((u, idx) => (
+                            <tr key={u.uid || idx} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                              <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: '#64748b' }}>#{u.uid}</td>
+                              <td style={{ padding: '7px 12px', fontWeight: 700, color: '#1e293b' }}>{u.userId}</td>
+                              <td style={{ padding: '7px 12px', fontWeight: 600, color: '#0f172a' }}>{u.name || '(Chưa đặt tên)'}</td>
+                              <td style={{ padding: '7px 12px' }}>
+                                {u.role === 'ADMIN' || u.privilege === 14 || u.role === 14 ? (
+                                  <span style={{ fontSize: '0.68rem', padding: '2px 6px', borderRadius: 4, background: '#fee2e2', color: '#b91c1c', fontWeight: 700 }}>
+                                    Quản Trị Viên
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '0.68rem', padding: '2px 6px', borderRadius: 4, background: '#f1f5f9', color: '#475569', fontWeight: 500 }}>
+                                    Nhân Viên
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: '7px 12px', color: '#64748b', fontSize: '0.72rem' }}>
+                                {u.password ? '••••••' : <span style={{ color: '#cbd5e1' }}>Không</span>}
+                              </td>
+                              <td style={{ padding: '7px 12px', textAlign: 'center' }}>
+                                <button
+                                  onClick={() => handleDeleteDeviceUser(u.uid, u.name || u.userId)}
+                                  disabled={deviceActionLoading === `del_${u.uid}`}
+                                  title="Xóa nhân viên khỏi máy chấm công"
+                                  style={{
+                                    border: 'none', background: 'transparent', cursor: 'pointer',
+                                    padding: '4px', borderRadius: 4, color: '#ef4444',
+                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+                                  }}
+                                >
+                                  {deviceActionLoading === `del_${u.uid}` ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={14} />}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+            </div>
           </div>
         )}
 
@@ -2430,545 +2887,7 @@ export function AttendanceTab() {
         </div>
       )}
 
-      {/* ── MODAL: CÀI ĐẶT & ĐIỀU KHIỂN MÁY CHẤM CÔNG TỪ XA ── */}
-      {showDeviceSetupModal && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.65)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 9999, padding: 16, backdropFilter: 'blur(3px)'
-        }}>
-          <div style={{
-            background: 'white', borderRadius: 14, width: '100%', maxWidth: 780,
-            maxHeight: '90vh', display: 'flex', flexDirection: 'column',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)', overflow: 'hidden'
-          }}>
-            {/* Modal Header */}
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '14px 18px', background: 'linear-gradient(135deg, #1e293b, #334155)',
-              color: 'white'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{
-                  width: 34, height: 34, borderRadius: 8, background: '#4f46e5',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}>
-                  <Settings size={18} color="white" />
-                </div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.98rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span>Cài Đặt & Điều Khiển Máy Chấm Công</span>
-                    <span style={{
-                      fontSize: '0.72rem', background: '#3b82f6', color: 'white',
-                      padding: '2px 7px', borderRadius: 10, fontWeight: 600
-                    }}>
-                      {lanIp}:{lanPort}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '0.74rem', color: '#cbd5e1' }}>
-                    Đồng bộ thời gian, thử loa, khởi động lại, phá khóa menu admin & quản lý nhân sự máy
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowDeviceSetupModal(false)}
-                style={{
-                  background: 'rgba(255,255,255,0.1)', border: 'none', color: '#cbd5e1',
-                  borderRadius: 6, width: 28, height: 28, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Thông báo thao tác nếu có */}
-            {deviceActionMsg && (
-              <div style={{
-                padding: '10px 16px', fontSize: '0.82rem', display: 'flex',
-                alignItems: 'center', justifyContent: 'space-between',
-                background: deviceActionMsg.ok ? '#ecfdf5' : '#fef2f2',
-                color: deviceActionMsg.ok ? '#065f46' : '#991b1b',
-                borderBottom: `1px solid ${deviceActionMsg.ok ? '#a7f3d0' : '#fecaca'}`
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {deviceActionMsg.ok ? <CheckCircle2 size={16} color="#10b981" /> : <AlertCircle size={16} color="#ef4444" />}
-                  <span>{deviceActionMsg.message}</span>
-                </div>
-                <button
-                  onClick={() => setDeviceActionMsg(null)}
-                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-
-            {/* Modal Tabs */}
-            <div style={{
-              display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc',
-              padding: '0 12px'
-            }}>
-              {[
-                { key: 'status', label: '📊 Tổng Quan & Bộ Nhớ' },
-                { key: 'time', label: '🕒 Đồng Bộ Thời Gian' },
-                { key: 'control', label: '🎛️ Điều Khiển Từ Xa' },
-                { key: 'users', label: `👥 Nhân Viên Trên Máy (${deviceUsers.length})` },
-              ].map(t => (
-                <button
-                  key={t.key}
-                  onClick={() => setDeviceActiveTab(t.key as any)}
-                  style={{
-                    padding: '10px 14px', border: 'none', background: 'transparent',
-                    borderBottom: deviceActiveTab === t.key ? '2px solid #4f46e5' : '2px solid transparent',
-                    color: deviceActiveTab === t.key ? '#4f46e5' : '#64748b',
-                    fontWeight: deviceActiveTab === t.key ? 700 : 500,
-                    fontSize: '0.82rem', cursor: 'pointer'
-                  }}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Modal Body */}
-            <div style={{ padding: 18, overflowY: 'auto', flex: 1 }}>
-
-              {/* TAB 1: TỔNG QUAN & BỘ NHỚ */}
-              {deviceActiveTab === 'status' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  {deviceStatusLoading ? (
-                    <div style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>
-                      <RefreshCw size={24} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} />
-                      <div>Đang đọc thông số từ máy chấm công...</div>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Grid cards */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-                        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 12 }}>
-                          <div style={{ fontSize: '0.72rem', color: '#166534', fontWeight: 600 }}>TRẠNG THÁI</div>
-                          <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#15803d', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
-                            Online
-                          </div>
-                          <div style={{ fontSize: '0.7rem', color: '#166534', marginTop: 2 }}>{lanIp}:{lanPort}</div>
-                        </div>
-
-                        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 12 }}>
-                          <div style={{ fontSize: '0.72rem', color: '#1e40af', fontWeight: 600 }}>NHÂN SỰ TRÊN MÁY</div>
-                          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1d4ed8', marginTop: 4 }}>
-                            {deviceStatus?.userCount ?? deviceUsers.length ?? 0}
-                          </div>
-                          <div style={{ fontSize: '0.7rem', color: '#3b82f6', marginTop: 2 }}>người dùng đăng ký</div>
-                        </div>
-
-                        <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8, padding: 12 }}>
-                          <div style={{ fontSize: '0.72rem', color: '#6b21a8', fontWeight: 600 }}>NHẬT KÝ ĐÃ LƯU</div>
-                          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#7e22ce', marginTop: 4 }}>
-                            {(deviceStatus?.logCount ?? 0).toLocaleString()}
-                          </div>
-                          <div style={{ fontSize: '0.7rem', color: '#9333ea', marginTop: 2 }}>lượt quẹt thẻ</div>
-                        </div>
-
-                        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 12 }}>
-                          <div style={{ fontSize: '0.72rem', color: '#92400e', fontWeight: 600 }}>SỨC CHỨA TỐI ĐA</div>
-                          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#b45309', marginTop: 4 }}>
-                            {(deviceStatus?.logCapacity ?? 0).toLocaleString()}
-                          </div>
-                          <div style={{ fontSize: '0.7rem', color: '#d97706', marginTop: 2 }}>bản ghi tối đa</div>
-                        </div>
-                      </div>
-
-                      {/* Dung lượng bộ nhớ tiến trình */}
-                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: 6 }}>
-                          <span style={{ fontWeight: 600, color: '#334155' }}>Dung lượng bộ nhớ nhật ký đã dùng:</span>
-                          <span style={{ fontWeight: 700, color: (deviceStatus?.percentUsed || 0) > 85 ? '#dc2626' : '#2563eb' }}>
-                            {(deviceStatus?.percentUsed || 0)}% ({(deviceStatus?.logCount || 0).toLocaleString()} / {(deviceStatus?.logCapacity || 0).toLocaleString()})
-                          </span>
-                        </div>
-                        <div style={{ width: '100%', height: 10, background: '#e2e8f0', borderRadius: 5, overflow: 'hidden' }}>
-                          <div style={{
-                            width: `${Math.min(100, deviceStatus?.percentUsed || 0)}%`,
-                            height: '100%',
-                            background: (deviceStatus?.percentUsed || 0) > 85 ? '#ef4444' : (deviceStatus?.percentUsed || 0) > 60 ? '#f59e0b' : '#10b981',
-                            transition: 'width 0.4s ease'
-                          }} />
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 6 }}>
-                          {(deviceStatus?.percentUsed || 0) > 85
-                            ? '⚠️ Bộ nhớ máy sắp đầy! Khuyến nghị bấm "Kéo dữ liệu chấm công" về máy tính sau đó bấm "Xóa Lịch Sử Quẹt Thẻ Cũ" ở tab Điều Khiển để giải phóng bộ nhớ.'
-                            : 'Bộ nhớ lưu trữ quẹt thẻ đang ở trạng thái an toàn, hoạt động ổn định.'}
-                        </div>
-                      </div>
-
-                      {/* Thời gian hiển thị trên máy */}
-                      <div style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>
-                          <div style={{ fontSize: '0.74rem', color: '#475569', fontWeight: 600 }}>Thời gian phần cứng hiện tại trên máy:</div>
-                          <div style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a', marginTop: 2 }}>
-                            {deviceStatus?.deviceTime ? new Date(deviceStatus.deviceTime).toLocaleString('vi-VN') : 'Đang cập nhật...'}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => setDeviceActiveTab('time')}
-                          style={{
-                            padding: '6px 12px', borderRadius: 6, border: '1px solid #c7d2fe',
-                            background: '#e0e7ff', color: '#4338ca', cursor: 'pointer',
-                            fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4
-                          }}
-                        >
-                          <Clock size={13} />
-                          Đồng Bộ Giờ Ngay
-                        </button>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                        <button
-                          onClick={() => fetchDeviceStatus()}
-                          disabled={deviceStatusLoading}
-                          style={{
-                            padding: '6px 14px', borderRadius: 6, border: '1px solid #cbd5e1',
-                            background: 'white', color: '#334155', cursor: 'pointer',
-                            fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5
-                          }}
-                        >
-                          <RefreshCw size={13} style={{ animation: deviceStatusLoading ? 'spin 1s linear infinite' : 'none' }} />
-                          Làm Mới Thông Tin
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* TAB 2: ĐỒNG BỘ THỜI GIAN */}
-              {deviceActiveTab === 'time' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14 }}>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', marginBottom: 12 }}>
-                      🕒 So Sánh Thời Gian Thực
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                      <div style={{ background: 'white', border: '1px solid #cbd5e1', borderRadius: 8, padding: 12 }}>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>🖥️ GIỜ MÁY TÍNH (PC CHUẨN)</div>
-                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', marginTop: 4 }}>
-                          {new Date().toLocaleTimeString('vi-VN')}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 2 }}>
-                          {new Date().toLocaleDateString('vi-VN')}
-                        </div>
-                      </div>
-
-                      <div style={{ background: 'white', border: '1px solid #cbd5e1', borderRadius: 8, padding: 12 }}>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>📟 GIỜ TRÊN MÁY CHẤM CÔNG</div>
-                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#4338ca', marginTop: 4 }}>
-                          {deviceStatus?.deviceTime ? new Date(deviceStatus.deviceTime).toLocaleTimeString('vi-VN') : '---'}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 2 }}>
-                          {deviceStatus?.deviceTime ? new Date(deviceStatus.deviceTime).toLocaleDateString('vi-VN') : '---'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ marginTop: 12, padding: 10, borderRadius: 6, background: Math.abs(deviceStatus?.diffSeconds || 0) < 5 ? '#f0fdf4' : '#fffbeb', border: `1px solid ${Math.abs(deviceStatus?.diffSeconds || 0) < 5 ? '#bbf7d0' : '#fef08a'}` }}>
-                      <div style={{ fontSize: '0.78rem', fontWeight: 600, color: Math.abs(deviceStatus?.diffSeconds || 0) < 5 ? '#166534' : '#854d0e' }}>
-                        {Math.abs(deviceStatus?.diffSeconds || 0) < 5
-                          ? '✅ Giờ máy chấm công và máy tính đang khớp hoàn toàn!'
-                          : `⚠️ Máy chấm công đang lệch ${Math.abs(deviceStatus?.diffSeconds || 0)} giây so với giờ máy tính.`}
-                      </div>
-                      <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 3 }}>
-                        Nếu giờ máy chấm công bị sai, công nhân viên quẹt thẻ sẽ bị ghi nhận sai giờ dẫn đến tính nhầm đi muộn hoặc về sớm.
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleSyncTime}
-                    disabled={deviceActionLoading === 'syncTime'}
-                    style={{
-                      padding: '12px', borderRadius: 8, border: 'none',
-                      background: 'linear-gradient(135deg, #4f46e5, #4338ca)',
-                      color: 'white', cursor: deviceActionLoading === 'syncTime' ? 'not-allowed' : 'pointer',
-                      fontSize: '0.88rem', fontWeight: 700, display: 'flex',
-                      alignItems: 'center', justifyContent: 'center', gap: 8,
-                      boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)'
-                    }}
-                  >
-                    {deviceActionLoading === 'syncTime' ? (
-                      <>
-                        <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                        <span>Đang đồng bộ giờ sang máy...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Zap size={16} />
-                        <span>⚡ ĐỒNG BỘ GIỜ PC SANG MÁY CHẤM CÔNG NGAY</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
-
-              {/* TAB 3: ĐIỀU KHIỂN TỪ XA */}
-              {deviceActiveTab === 'control' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  {/* Thử Loa */}
-                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
-                        <Volume2 size={16} color="#3b82f6" />
-                        <span>Thử Loa / Chuông Máy</span>
-                      </div>
-                      <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
-                        Gửi lệnh phát câu chào "Xin cảm ơn" trên loa máy chấm công để kiểm tra âm lượng và kết nối.
-                      </div>
-                    </div>
-                    <button
-                      onClick={handleTestVoice}
-                      disabled={deviceActionLoading === 'testVoice'}
-                      style={{
-                        marginTop: 12, padding: '7px 12px', borderRadius: 6, border: '1px solid #bfdbfe',
-                        background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer',
-                        fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5
-                      }}
-                    >
-                      {deviceActionLoading === 'testVoice' ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Volume2 size={13} />}
-                      Phát Thử Loa Máy
-                    </button>
-                  </div>
-
-                  {/* Khởi động lại */}
-                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
-                        <Power size={16} color="#f59e0b" />
-                        <span>Khởi Động Lại Máy</span>
-                      </div>
-                      <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
-                        Reboot máy chấm công từ xa khi thiết bị bị đơ, treo hoặc cần khởi động lại chu kỳ hoạt động.
-                      </div>
-                    </div>
-                    <button
-                      onClick={handleRebootDevice}
-                      disabled={deviceActionLoading === 'reboot'}
-                      style={{
-                        marginTop: 12, padding: '7px 12px', borderRadius: 6, border: '1px solid #fde68a',
-                        background: '#fffbeb', color: '#b45309', cursor: 'pointer',
-                        fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5
-                      }}
-                    >
-                      {deviceActionLoading === 'reboot' ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RotateCcw size={13} />}
-                      Khởi Động Lại Máy
-                    </button>
-                  </div>
-
-                  {/* Phá khóa Admin */}
-                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
-                        <Key size={16} color="#8b5cf6" />
-                        <span>Xóa Quyền Admin (Cứu Hộ)</span>
-                      </div>
-                      <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
-                        Mở khóa menu máy khi quên mật khẩu hoặc quản trị viên cũ nghỉ việc không bàn giao mật khẩu thiết bị.
-                      </div>
-                    </div>
-                    <button
-                      onClick={handleClearAdmin}
-                      disabled={deviceActionLoading === 'clearAdmin'}
-                      style={{
-                        marginTop: 12, padding: '7px 12px', borderRadius: 6, border: '1px solid #e9d5ff',
-                        background: '#faf5ff', color: '#7e22ce', cursor: 'pointer',
-                        fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5
-                      }}
-                    >
-                      {deviceActionLoading === 'clearAdmin' ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Unlock size={13} />}
-                      Hủy Bỏ Khóa Admin
-                    </button>
-                  </div>
-
-                  {/* Mở chốt cửa */}
-                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
-                        <Lock size={16} color="#10b981" />
-                        <span>Mở Chốt Khóa Cửa (Access)</span>
-                      </div>
-                      <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
-                        Kích hoạt mở rơ le chốt điện Access Control (nếu máy có gắn khóa từ cửa ra vào).
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
-                      <input
-                        type="number"
-                        min="1"
-                        max="60"
-                        value={unlockDuration}
-                        onChange={e => setUnlockDuration(Math.max(1, Math.min(60, +e.target.value)))}
-                        style={{ width: 55, padding: '5px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: '0.78rem', textAlign: 'center' }}
-                        title="Thời gian mở (giây)"
-                      />
-                      <button
-                        onClick={handleUnlockDoor}
-                        disabled={deviceActionLoading === 'unlockDoor'}
-                        style={{
-                          flex: 1, padding: '7px 10px', borderRadius: 6, border: '1px solid #bbf7d0',
-                          background: '#f0fdf4', color: '#15803d', cursor: 'pointer',
-                          fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4
-                        }}
-                      >
-                        {deviceActionLoading === 'unlockDoor' ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Unlock size={13} />}
-                        Mở Khóa ({unlockDuration}s)
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Dọn dẹp bộ nhớ (Toàn chiều rộng) */}
-                  <div style={{ gridColumn: '1 / -1', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '0.85rem', color: '#9f1239' }}>
-                        <Trash2 size={16} color="#e11d48" />
-                        <span>Dọn Dẹp Bộ Nhớ Máy (Xóa Nhật Ký Cũ)</span>
-                      </div>
-                      <div style={{ fontSize: '0.73rem', color: '#be123c', marginTop: 3 }}>
-                        Xóa lịch sử quẹt thẻ trên chip nhớ của máy để lấy chỗ lưu trữ mới. Hãy chắc chắn bạn đã kéo dữ liệu về máy tính trước khi xóa!
-                      </div>
-                    </div>
-                    <button
-                      onClick={handleClearDeviceLogs}
-                      disabled={deviceActionLoading === 'clearLogs'}
-                      style={{
-                        padding: '8px 14px', borderRadius: 6, border: '1px solid #fda4af',
-                        background: '#e11d48', color: 'white', cursor: 'pointer',
-                        fontSize: '0.76rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5,
-                        boxShadow: '0 2px 6px rgba(225, 29, 72, 0.3)'
-                      }}
-                    >
-                      {deviceActionLoading === 'clearLogs' ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={13} />}
-                      Xóa Nhật Ký Máy
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 4: NHÂN VIÊN TRÊN MÁY */}
-              {deviceActiveTab === 'users' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <div style={{ position: 'relative', flex: 1 }}>
-                      <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: '#94a3b8' }} />
-                      <input
-                        type="text"
-                        value={deviceUserSearch}
-                        onChange={e => setDeviceUserSearch(e.target.value)}
-                        placeholder="Tìm theo tên, mã chấm công, UID..."
-                        style={{
-                          width: '100%', padding: '6px 8px 6px 28px', borderRadius: 6,
-                          border: '1px solid #cbd5e1', fontSize: '0.8rem', boxSizing: 'border-box'
-                        }}
-                      />
-                    </div>
-                    <button
-                      onClick={fetchDeviceUsers}
-                      disabled={deviceUsersLoading}
-                      style={{
-                        padding: '6px 12px', borderRadius: 6, border: '1px solid #cbd5e1',
-                        background: '#f8fafc', color: '#334155', cursor: 'pointer',
-                        fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4
-                      }}
-                    >
-                      <RefreshCw size={12} style={{ animation: deviceUsersLoading ? 'spin 1s linear infinite' : 'none' }} />
-                      Tải Lại
-                    </button>
-                  </div>
-
-                  {deviceUsersLoading ? (
-                    <div style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>
-                      <RefreshCw size={24} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} />
-                      <div>Đang tải danh sách nhân viên từ máy chấm công...</div>
-                    </div>
-                  ) : (
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                        <thead>
-                          <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left' }}>
-                            <th style={{ padding: '8px 10px', width: 60 }}>UID</th>
-                            <th style={{ padding: '8px 10px', width: 100 }}>Mã CC</th>
-                            <th style={{ padding: '8px 10px' }}>Họ Tên Trên Máy</th>
-                            <th style={{ padding: '8px 10px', width: 90 }}>Phân Quyền</th>
-                            <th style={{ padding: '8px 10px', width: 80 }}>Mật Khẩu</th>
-                            <th style={{ padding: '8px 10px', width: 70, textAlign: 'center' }}>Xóa</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {deviceUsers
-                            .filter(u => !deviceUserSearch ||
-                              u.name.toLowerCase().includes(deviceUserSearch.toLowerCase()) ||
-                              u.userId.toLowerCase().includes(deviceUserSearch.toLowerCase()) ||
-                              String(u.uid).includes(deviceUserSearch)
-                            )
-                            .map(u => (
-                              <tr key={u.uid} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '7px 10px', color: '#64748b' }}>#{u.uid}</td>
-                                <td style={{ padding: '7px 10px', fontWeight: 700, color: '#1e293b' }}>{u.userId}</td>
-                                <td style={{ padding: '7px 10px', fontWeight: 600, color: '#0f172a' }}>{u.name || '(Chưa đặt tên)'}</td>
-                                <td style={{ padding: '7px 10px' }}>
-                                  <span style={{
-                                    padding: '2px 7px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 600,
-                                    background: u.roleCode > 0 ? '#fef3c7' : '#f1f5f9',
-                                    color: u.roleCode > 0 ? '#b45309' : '#475569'
-                                  }}>
-                                    {u.role}
-                                  </span>
-                                </td>
-                                <td style={{ padding: '7px 10px', color: u.hasPassword ? '#16a34a' : '#94a3b8' }}>
-                                  {u.hasPassword ? '●●●●' : 'Không'}
-                                </td>
-                                <td style={{ padding: '7px 10px', textAlign: 'center' }}>
-                                  <button
-                                    onClick={() => handleDeleteDeviceUser(u.uid, u.name)}
-                                    disabled={deviceActionLoading === `del_${u.uid}`}
-                                    title={`Xóa nhân viên ${u.name || u.userId} khỏi máy chấm công`}
-                                    style={{
-                                      padding: '4px 7px', borderRadius: 5, border: '1px solid #fecaca',
-                                      background: '#fff1f2', color: '#e11d48', cursor: 'pointer'
-                                    }}
-                                  >
-                                    {deviceActionLoading === `del_${u.uid}` ? <RefreshCw size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={11} />}
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-
-            </div>
-
-            {/* Modal Footer */}
-            <div style={{
-              display: 'flex', justifyContent: 'flex-end', padding: '10px 18px',
-              borderTop: '1px solid #e2e8f0', background: '#f8fafc'
-            }}>
-              <button
-                onClick={() => setShowDeviceSetupModal(false)}
-                style={{
-                  padding: '7px 18px', borderRadius: 6, border: '1px solid #cbd5e1',
-                  background: 'white', color: '#475569', cursor: 'pointer',
-                  fontSize: '0.82rem', fontWeight: 600
-                }}
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modal chỉnh sửa Ca làm việc đã đóng ở trên */}
 
     </div>
   );
