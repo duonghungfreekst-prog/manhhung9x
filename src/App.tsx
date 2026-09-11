@@ -3,7 +3,7 @@ import {
   Play, Download, Search, RotateCcw,
   FileText, Settings,
   FileCode2, Printer, Wrench, Filter,
-  GitCompare, Code2, ShieldCheck, ShieldOff, Camera, Volume2, ClipboardList, FileSignature, Cpu,
+  GitCompare, Code2, ShieldCheck, ShieldOff, Camera, Volume2, FileSignature, Cpu,
   Clock, BookOpen, Building2, Boxes, RefreshCw, MoreVertical, ChevronDown, Grid
 } from 'lucide-react';
 
@@ -192,7 +192,7 @@ function App() {
     { tab: 'selfbuilt' as const,      icon: <Code2 size={14}/>,          shortLabel: 'Self-Built',   fullLabel: 'Self-Built 01 Dịch Ngược Cấu Trúc', color: '#8b5cf6', category: 'Hệ Thống' },
     { tab: 'endoscopy' as const,      icon: <Camera size={14}/>,         shortLabel: 'Nội Soi 4K',   fullLabel: 'Nội Soi AI 4K & Bắt Hình Y Khoa', color: '#ec4899', category: 'Lâm Sàng' },
     { tab: 'hiscall' as const,        icon: <Volume2 size={14}/>,        shortLabel: 'Gọi Khám',     fullLabel: 'Gọi Bệnh Nhân HIS & Màn Chờ TV', color: '#10b981', category: 'Lâm Sàng' },
-    { tab: 'attendance' as const,     icon: <ClipboardList size={14}/>,  shortLabel: 'Chấm Công',    fullLabel: 'Máy Chấm Công, Chia Ca & Lịch Biểu', color: '#f59e0b', category: 'Lâm Sàng' },
+    { tab: 'attendance' as const,     icon: <Clock size={14}/>,          shortLabel: 'Chấm Công',    fullLabel: 'Máy Chấm Công, Chia Ca & Lịch Biểu', color: '#f59e0b', category: 'Lâm Sàng' },
     { tab: 'bhytcheck' as const,      icon: <ShieldCheck size={14}/>,    shortLabel: 'Check BHYT',   fullLabel: 'Kiểm Tra Thông Tuyến & Lỗi Thẻ BHYT', color: '#0ea5e9', category: 'BHYT' },
     { tab: 'signature' as const,      icon: <FileSignature size={14}/>, shortLabel: 'Ký Số XML',   fullLabel: 'Ký Số Token USB & Ký Hàng Loạt', color: '#14b8a6', category: 'BHYT' },
     { tab: 'dcbhyt' as const,         icon: <GitCompare size={14}/>,     shortLabel: '01/BH',        fullLabel: 'Đối Chiếu Bảng Kê 01/BH Chi Tiết', color: '#0ea5e9', category: 'BHYT' },

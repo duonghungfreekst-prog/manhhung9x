@@ -18,7 +18,7 @@ export const TAB_BITS = {
   selfbuilt:      64,    // 000000001000000 — Self-Built 01
   endoscopy:      128,   // 000000010000000 — Nội Soi AI 4K
   hiscall:        256,   // 000000100000000 — Gọi Bệnh Nhân HIS & Màn Chờ TV
-  attendance:     512,   // 000001000000000 — Chấm Công Bác Sĩ
+  attendance:     512,   // 000001000000000 — Máy Chấm Công & Phân Ca
   bhytcheck:      1024,  // 000010000000000 — Kiểm Tra BHYT
   signature:      2048,  // 000100000000000 — Ký Số XML
   dcbhyt:         4096,  // 001000000000000 — Đối Chiếu 01BH
@@ -44,7 +44,7 @@ export const TAB_LABELS: Record<TabName, string> = {
   selfbuilt:      'Self-Built 01',
   endoscopy:      'Nội Soi AI 4K',
   hiscall:        'Gọi Bệnh Nhân HIS & TV',
-  attendance:     'Chấm Công Bác Sĩ',
+  attendance:     'Máy Chấm Công & Phân Ca',
   bhytcheck:      'Kiểm Tra BHYT',
   signature:      'Ký Số XML',
   dcbhyt:         'Đối Chiếu 01BH',
