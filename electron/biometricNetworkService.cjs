@@ -343,10 +343,373 @@ async function pullBiometricAttendanceLogs(ip, port = 4370, timeoutMs = 15000) {
   }
 }
 
+/**
+ * Chuyển số nguyên 32-bit từ máy ZKTeco sang đối tượng Date
+ */
+function decodeZKTime(time) {
+  const second = time % 60;
+  time = Math.floor((time - second) / 60);
+  const minute = time % 60;
+  time = Math.floor((time - minute) / 60);
+  const hour = time % 24;
+  time = Math.floor((time - hour) / 24);
+  const day = (time % 31) + 1;
+  time = Math.floor((time - (day - 1)) / 31);
+  const month = time % 12;
+  time = Math.floor((time - month) / 12);
+  const year = time + 2000;
+  return new Date(year, month, day, hour, minute, second);
+}
+
+/**
+ * Chuyển Date sang số nguyên 32-bit cho máy ZKTeco
+ */
+function encodeZKTime(date) {
+  const second = date.getSeconds();
+  const minute = date.getMinutes();
+  const hour = date.getHours();
+  const day = date.getDate();
+  const month = date.getMonth(); // 0-11
+  const year = date.getFullYear() - 2000;
+  return (
+    second +
+    minute * 60 +
+    hour * 3600 +
+    (day - 1) * 86400 +
+    month * 86400 * 31 +
+    year * 86400 * 31 * 12
+  );
+}
+
+/**
+ * Lấy trạng thái tổng hợp của máy chấm công (Thời gian máy, Bộ nhớ, Dung lượng)
+ */
+async function getDeviceFullStatus(ip, port = 4370, timeoutMs = 5000) {
+  if (!ip) return { ok: false, error: 'Vui lòng nhập IP máy chấm công.' };
+  const isOpen = await probeTcpPort(ip, port, 2000);
+  if (!isOpen) return { ok: false, error: `Không kết nối được tới ${ip}:${port}.` };
+
+  let zk = null;
+  try {
+    zk = new ZKLib(ip, port, timeoutMs, 4000);
+    await zk.createSocket();
+
+    let info = {};
+    try {
+      info = await zk.getInfo() || {};
+    } catch {}
+
+    let deviceTime = null;
+    let diffSeconds = 0;
+    try {
+      const timeReply = await zk.executeCmd(201, ''); // CMD_GET_TIME
+      if (timeReply && timeReply.length >= 12) {
+        const timeVal = timeReply.readUInt32LE(8);
+        const devDate = decodeZKTime(timeVal);
+        deviceTime = devDate.toISOString();
+        diffSeconds = Math.round((Date.now() - devDate.getTime()) / 1000);
+      }
+    } catch {}
+
+    await zk.disconnect();
+
+    return {
+      ok: true,
+      deviceIp: ip,
+      port,
+      deviceTime,
+      pcTime: new Date().toISOString(),
+      diffSeconds,
+      userCount: info.userCounts || 0,
+      logCount: info.logCounts || 0,
+      logCapacity: info.logCapacity || 0,
+      percentUsed: info.logCapacity ? Math.round(((info.logCounts || 0) / info.logCapacity) * 100) : 0,
+    };
+  } catch (err) {
+    if (zk) {
+      try { await zk.disconnect(); } catch {}
+    }
+    return { ok: false, error: err.message || 'Lỗi đọc trạng thái máy chấm công.' };
+  }
+}
+
+/**
+ * Đồng bộ giờ máy tính PC sang máy chấm công (CMD_SET_TIME: 202)
+ */
+async function syncDeviceTime(ip, port = 4370, timeoutMs = 5000) {
+  if (!ip) return { ok: false, error: 'Vui lòng nhập IP máy chấm công.' };
+  const isOpen = await probeTcpPort(ip, port, 2000);
+  if (!isOpen) return { ok: false, error: `Không kết nối được tới ${ip}:${port}.` };
+
+  let zk = null;
+  try {
+    zk = new ZKLib(ip, port, timeoutMs, 4000);
+    await zk.createSocket();
+
+    const now = new Date();
+    const timeBuf = Buffer.alloc(4);
+    timeBuf.writeUInt32LE(encodeZKTime(now), 0);
+    await zk.executeCmd(202, timeBuf); // CMD_SET_TIME
+
+    // Đọc lại giờ để kiểm chứng
+    let verifiedTime = now.toISOString();
+    try {
+      const timeReply = await zk.executeCmd(201, '');
+      if (timeReply && timeReply.length >= 12) {
+        const timeVal = timeReply.readUInt32LE(8);
+        verifiedTime = decodeZKTime(timeVal).toISOString();
+      }
+    } catch {}
+
+    await zk.disconnect();
+
+    return {
+      ok: true,
+      syncedTime: verifiedTime,
+      message: `Đã đồng bộ giờ máy chấm công khớp với giờ máy tính thành công: ${now.toLocaleTimeString('vi-VN')} ngày ${now.toLocaleDateString('vi-VN')}`,
+    };
+  } catch (err) {
+    if (zk) {
+      try { await zk.disconnect(); } catch {}
+    }
+    return { ok: false, error: err.message || 'Lỗi đồng bộ thời gian sang máy chấm công.' };
+  }
+}
+
+/**
+ * Phát âm thanh thử loa trên máy chấm công ("Xin cảm ơn" / Chuông bíp) (CMD_TESTVOICE: 1017)
+ */
+async function testDeviceVoice(ip, port = 4370, timeoutMs = 5000) {
+  if (!ip) return { ok: false, error: 'Vui lòng nhập IP máy chấm công.' };
+  const isOpen = await probeTcpPort(ip, port, 2000);
+  if (!isOpen) return { ok: false, error: `Không kết nối được tới ${ip}:${port}.` };
+
+  let zk = null;
+  try {
+    zk = new ZKLib(ip, port, timeoutMs, 4000);
+    await zk.createSocket();
+
+    const voiceBuf = Buffer.alloc(4);
+    voiceBuf.writeUInt32LE(0, 0);
+    await zk.executeCmd(1017, voiceBuf); // CMD_TESTVOICE
+
+    await zk.disconnect();
+
+    return {
+      ok: true,
+      message: 'Đã gửi lệnh thử chuông / phát câu chào trên máy chấm công thành công!',
+    };
+  } catch (err) {
+    if (zk) {
+      try { await zk.disconnect(); } catch {}
+    }
+    return { ok: false, error: err.message || 'Lỗi gửi lệnh thử loa máy chấm công.' };
+  }
+}
+
+/**
+ * Khởi động lại máy chấm công từ xa (CMD_RESTART: 1004)
+ */
+async function rebootDevice(ip, port = 4370, timeoutMs = 5000) {
+  if (!ip) return { ok: false, error: 'Vui lòng nhập IP máy chấm công.' };
+  const isOpen = await probeTcpPort(ip, port, 2000);
+  if (!isOpen) return { ok: false, error: `Không kết nối được tới ${ip}:${port}.` };
+
+  let zk = null;
+  try {
+    zk = new ZKLib(ip, port, timeoutMs, 4000);
+    await zk.createSocket();
+    await zk.executeCmd(1004, ''); // CMD_RESTART
+    try { await zk.disconnect(); } catch {}
+
+    return {
+      ok: true,
+      message: 'Đã gửi lệnh khởi động lại máy chấm công thành công. Thiết bị đang khởi động lại (khoảng 15-30 giây).',
+    };
+  } catch (err) {
+    if (zk) {
+      try { await zk.disconnect(); } catch {}
+    }
+    return { ok: false, error: err.message || 'Lỗi gửi lệnh khởi động lại máy chấm công.' };
+  }
+}
+
+/**
+ * Xóa quyền Admin trên máy chấm công (CMD_CLEAR_ADMIN: 20)
+ * Giúp cứu hộ mở khóa máy khi quên mật khẩu menu hoặc người quản lý cũ không bàn giao
+ */
+async function clearDeviceAdmin(ip, port = 4370, timeoutMs = 5000) {
+  if (!ip) return { ok: false, error: 'Vui lòng nhập IP máy chấm công.' };
+  const isOpen = await probeTcpPort(ip, port, 2000);
+  if (!isOpen) return { ok: false, error: `Không kết nối được tới ${ip}:${port}.` };
+
+  let zk = null;
+  try {
+    zk = new ZKLib(ip, port, timeoutMs, 4000);
+    await zk.createSocket();
+    await zk.executeCmd(20, ''); // CMD_CLEAR_ADMIN
+    await zk.disconnect();
+
+    return {
+      ok: true,
+      message: 'Đã xóa quyền Admin trên máy chấm công thành công! Bây giờ bạn có thể nhấn phím M/OK trên máy để vào Menu trực tiếp mà không cần mật khẩu.',
+    };
+  } catch (err) {
+    if (zk) {
+      try { await zk.disconnect(); } catch {}
+    }
+    return { ok: false, error: err.message || 'Lỗi gửi lệnh xóa quyền admin máy chấm công.' };
+  }
+}
+
+/**
+ * Kích hoạt mở khóa cửa chốt điện Access Control (CMD_UNLOCK: 31)
+ */
+async function unlockDeviceDoor(ip, port = 4370, durationSeconds = 5, timeoutMs = 5000) {
+  if (!ip) return { ok: false, error: 'Vui lòng nhập IP máy chấm công.' };
+  const isOpen = await probeTcpPort(ip, port, 2000);
+  if (!isOpen) return { ok: false, error: `Không kết nối được tới ${ip}:${port}.` };
+
+  let zk = null;
+  try {
+    zk = new ZKLib(ip, port, timeoutMs, 4000);
+    await zk.createSocket();
+
+    const sec = Math.max(1, Math.min(60, Number(durationSeconds) || 5));
+    const unlockBuf = Buffer.alloc(4);
+    unlockBuf.writeUInt32LE(sec, 0);
+    await zk.executeCmd(31, unlockBuf); // CMD_UNLOCK
+
+    await zk.disconnect();
+
+    return {
+      ok: true,
+      message: `Đã gửi tín hiệu mở chốt khóa cửa trong ${sec} giây thành công!`,
+    };
+  } catch (err) {
+    if (zk) {
+      try { await zk.disconnect(); } catch {}
+    }
+    return { ok: false, error: err.message || 'Lỗi gửi lệnh mở khóa cửa.' };
+  }
+}
+
+/**
+ * Lấy danh sách toàn bộ nhân sự lưu trên máy chấm công
+ */
+async function getDeviceUsersList(ip, port = 4370, timeoutMs = 10000) {
+  if (!ip) return { ok: false, error: 'Vui lòng nhập IP máy chấm công.' };
+  const isOpen = await probeTcpPort(ip, port, 2000);
+  if (!isOpen) return { ok: false, error: `Không kết nối được tới ${ip}:${port}.` };
+
+  let zk = null;
+  try {
+    zk = new ZKLib(ip, port, timeoutMs, 4000);
+    await zk.createSocket();
+    const res = await zk.getUsers();
+    await zk.disconnect();
+
+    const rawList = res?.data || [];
+    const users = rawList.map(u => ({
+      uid: u.uid,
+      userId: String(u.userId || u.uid).trim(),
+      name: (u.name || '').trim(),
+      role: (u.role && u.role > 0) ? 'Admin' : 'Nhân viên',
+      roleCode: u.role || 0,
+      hasPassword: Boolean(u.password && String(u.password).trim() !== ''),
+      cardno: u.cardno || 0,
+    }));
+
+    return {
+      ok: true,
+      users,
+      count: users.length,
+      deviceIp: ip,
+    };
+  } catch (err) {
+    if (zk) {
+      try { await zk.disconnect(); } catch {}
+    }
+    return { ok: false, error: err.message || 'Lỗi tải danh sách nhân viên từ máy chấm công.' };
+  }
+}
+
+/**
+ * Xóa một nhân viên khỏi máy chấm công (CMD_DELETE_USER: 18)
+ */
+async function deleteDeviceUser(ip, port = 4370, uid, timeoutMs = 5000) {
+  if (!ip) return { ok: false, error: 'Vui lòng nhập IP máy chấm công.' };
+  if (uid === undefined || uid === null) return { ok: false, error: 'Thiếu UID nhân sự cần xóa.' };
+
+  const isOpen = await probeTcpPort(ip, port, 2000);
+  if (!isOpen) return { ok: false, error: `Không kết nối được tới ${ip}:${port}.` };
+
+  let zk = null;
+  try {
+    zk = new ZKLib(ip, port, timeoutMs, 4000);
+    await zk.createSocket();
+
+    const buf = Buffer.alloc(2);
+    buf.writeUInt16LE(Number(uid), 0);
+    await zk.executeCmd(18, buf); // CMD_DELETE_USER
+
+    await zk.disconnect();
+
+    return {
+      ok: true,
+      message: `Đã xóa nhân sự (UID: ${uid}) khỏi máy chấm công thành công!`,
+    };
+  } catch (err) {
+    if (zk) {
+      try { await zk.disconnect(); } catch {}
+    }
+    return { ok: false, error: err.message || 'Lỗi khi xóa nhân sự trên máy chấm công.' };
+  }
+}
+
+/**
+ * Xóa sạch toàn bộ dữ liệu quẹt thẻ trên máy chấm công để giải phóng bộ nhớ (CMD_CLEAR_ATTLOG: 15)
+ */
+async function clearDeviceAttendanceLogs(ip, port = 4370, timeoutMs = 8000) {
+  if (!ip) return { ok: false, error: 'Vui lòng nhập IP máy chấm công.' };
+  const isOpen = await probeTcpPort(ip, port, 2000);
+  if (!isOpen) return { ok: false, error: `Không kết nối được tới ${ip}:${port}.` };
+
+  let zk = null;
+  try {
+    zk = new ZKLib(ip, port, timeoutMs, 4000);
+    await zk.createSocket();
+    await zk.clearAttendanceLog(); // CMD_CLEAR_ATTLOG (15)
+    await zk.disconnect();
+
+    return {
+      ok: true,
+      message: 'Đã xóa toàn bộ bản ghi quẹt thẻ trên máy chấm công để giải phóng bộ nhớ thành công!',
+    };
+  } catch (err) {
+    if (zk) {
+      try { await zk.disconnect(); } catch {}
+    }
+    return { ok: false, error: err.message || 'Lỗi khi dọn dẹp bộ nhớ máy chấm công.' };
+  }
+}
+
 module.exports = {
   probeTcpPort,
   getLocalNetworkInfo,
   scanLanBiometricDevices,
   testBiometricConnection,
   pullBiometricAttendanceLogs,
+  getDeviceFullStatus,
+  syncDeviceTime,
+  testDeviceVoice,
+  rebootDevice,
+  clearDeviceAdmin,
+  unlockDeviceDoor,
+  getDeviceUsersList,
+  deleteDeviceUser,
+  clearDeviceAttendanceLogs,
+  decodeZKTime,
+  encodeZKTime,
 };
+

@@ -1273,6 +1273,78 @@ function stopCompareServer() {
     }
   });
 
+  ipcMain.handle('biometric:get-device-status', async (_event, ip, port, timeoutMs) => {
+    try {
+      return await biometricService.getDeviceFullStatus(ip, port, timeoutMs);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('biometric:sync-time', async (_event, ip, port, timeoutMs) => {
+    try {
+      return await biometricService.syncDeviceTime(ip, port, timeoutMs);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('biometric:test-voice', async (_event, ip, port, timeoutMs) => {
+    try {
+      return await biometricService.testDeviceVoice(ip, port, timeoutMs);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('biometric:reboot', async (_event, ip, port, timeoutMs) => {
+    try {
+      return await biometricService.rebootDevice(ip, port, timeoutMs);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('biometric:clear-admin', async (_event, ip, port, timeoutMs) => {
+    try {
+      return await biometricService.clearDeviceAdmin(ip, port, timeoutMs);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('biometric:unlock-door', async (_event, ip, port, durationSeconds, timeoutMs) => {
+    try {
+      return await biometricService.unlockDeviceDoor(ip, port, durationSeconds, timeoutMs);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('biometric:get-users', async (_event, ip, port, timeoutMs) => {
+    try {
+      return await biometricService.getDeviceUsersList(ip, port, timeoutMs);
+    } catch (e) {
+      return { ok: false, error: e.message, users: [] };
+    }
+  });
+
+  ipcMain.handle('biometric:delete-user', async (_event, ip, port, uid, timeoutMs) => {
+    try {
+      return await biometricService.deleteDeviceUser(ip, port, uid, timeoutMs);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('biometric:clear-logs', async (_event, ip, port, timeoutMs) => {
+    try {
+      return await biometricService.clearDeviceAttendanceLogs(ip, port, timeoutMs);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   // ── IPC: HIS Database (SQL Server) ─────────────────────────────────────────
   // roomCode có thể là '2' hoặc '2,3,5' (nhiều phòng cách nhau bởi dấu phẩy)
   ipcMain.handle('his-call:fetch-patients', async (_event, connStr, roomCode) => {

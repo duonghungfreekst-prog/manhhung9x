@@ -5,7 +5,8 @@ import {
   Download, Search, RefreshCw, ChevronDown, X, Clock,
   Settings, CheckCircle2, AlertTriangle, AlertCircle,
   Plus, Trash2, Edit2, RotateCcw, FileSpreadsheet, Filter,
-  Stethoscope, Wifi, Save, Zap
+  Stethoscope, Wifi, Save, Zap,
+  Volume2, Lock, Unlock, Power, Key
 } from 'lucide-react';
 import type {
   ShiftPreset,
@@ -297,6 +298,214 @@ export function AttendanceTab() {
     const updated = savedMachines.filter(m => m.id !== id);
     setSavedMachines(updated);
     localStorage.setItem('dmh_saved_biometric_machines', JSON.stringify(updated));
+  };
+
+  // ── Quản trị & Cài đặt máy chấm công từ xa ──
+  const [showDeviceSetupModal, setShowDeviceSetupModal] = useState(false);
+  const [deviceActiveTab, setDeviceActiveTab] = useState<'status' | 'time' | 'control' | 'users'>('status');
+  const [deviceStatusLoading, setDeviceStatusLoading] = useState(false);
+  const [deviceStatus, setDeviceStatus] = useState<any>(null);
+  const [deviceUsersLoading, setDeviceUsersLoading] = useState(false);
+  const [deviceUsers, setDeviceUsers] = useState<any[]>([]);
+  const [deviceUserSearch, setDeviceUserSearch] = useState('');
+  const [deviceActionLoading, setDeviceActionLoading] = useState<string | null>(null);
+  const [deviceActionMsg, setDeviceActionMsg] = useState<{ ok: boolean; message: string } | null>(null);
+  const [unlockDuration, setUnlockDuration] = useState(5);
+
+  const fetchDeviceStatus = async (silent = false) => {
+    if (!silent) setDeviceStatusLoading(true);
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.getDeviceStatus) return;
+      const res = await eAPI.getDeviceStatus(lanIp.trim(), lanPort, 5000);
+      if (res.ok) {
+        setDeviceStatus(res);
+      } else if (!silent) {
+        setDeviceActionMsg({ ok: false, message: res.error || 'Không đọc được trạng thái máy chấm công.' });
+      }
+    } catch (e: any) {
+      if (!silent) setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi khi đọc trạng thái máy.' });
+    } finally {
+      if (!silent) setDeviceStatusLoading(false);
+    }
+  };
+
+  const fetchDeviceUsers = async () => {
+    setDeviceUsersLoading(true);
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.getUsers) return;
+      const res = await eAPI.getUsers(lanIp.trim(), lanPort, 10000);
+      if (res.ok && res.users) {
+        setDeviceUsers(res.users);
+      } else {
+        setDeviceActionMsg({ ok: false, message: res.error || 'Không đọc được danh sách nhân viên từ máy.' });
+      }
+    } catch (e: any) {
+      setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi khi tải danh sách nhân viên máy.' });
+    } finally {
+      setDeviceUsersLoading(false);
+    }
+  };
+
+  const handleOpenDeviceSetup = () => {
+    setDeviceActionMsg(null);
+    setShowDeviceSetupModal(true);
+    fetchDeviceStatus();
+    fetchDeviceUsers();
+  };
+
+  const handleSyncTime = async () => {
+    setDeviceActionLoading('syncTime');
+    setDeviceActionMsg(null);
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.syncTime) return;
+      const res = await eAPI.syncTime(lanIp.trim(), lanPort, 5000);
+      if (res.ok) {
+        setDeviceActionMsg({ ok: true, message: res.message || 'Đồng bộ thời gian thành công!' });
+        fetchDeviceStatus(true);
+      } else {
+        setDeviceActionMsg({ ok: false, message: res.error || 'Lỗi khi đồng bộ thời gian.' });
+      }
+    } catch (e: any) {
+      setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi khi gửi lệnh đồng bộ giờ.' });
+    } finally {
+      setDeviceActionLoading(null);
+    }
+  };
+
+  const handleTestVoice = async () => {
+    setDeviceActionLoading('testVoice');
+    setDeviceActionMsg(null);
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.testVoice) return;
+      const res = await eAPI.testVoice(lanIp.trim(), lanPort, 5000);
+      if (res.ok) {
+        setDeviceActionMsg({ ok: true, message: res.message || 'Đã phát câu chào trên máy chấm công thành công!' });
+      } else {
+        setDeviceActionMsg({ ok: false, message: res.error || 'Lỗi khi gửi lệnh thử loa.' });
+      }
+    } catch (e: any) {
+      setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi thử loa máy chấm công.' });
+    } finally {
+      setDeviceActionLoading(null);
+    }
+  };
+
+  const handleRebootDevice = async () => {
+    if (!window.confirm(`Xác nhận khởi động lại máy chấm công tại ${lanIp}:${lanPort}?\n\nThiết bị sẽ khởi động lại và tạm ngắt kết nối trong khoảng 20-30 giây.`)) {
+      return;
+    }
+    setDeviceActionLoading('reboot');
+    setDeviceActionMsg(null);
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.reboot) return;
+      const res = await eAPI.reboot(lanIp.trim(), lanPort, 5000);
+      if (res.ok) {
+        setDeviceActionMsg({ ok: true, message: res.message || 'Đã gửi lệnh khởi động lại máy chấm công!' });
+      } else {
+        setDeviceActionMsg({ ok: false, message: res.error || 'Lỗi khi gửi lệnh khởi động lại.' });
+      }
+    } catch (e: any) {
+      setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi khởi động lại máy.' });
+    } finally {
+      setDeviceActionLoading(null);
+    }
+  };
+
+  const handleClearAdmin = async () => {
+    if (!window.confirm('CẢNH BÁO QUAN TRỌNG: Bạn có chắc muốn XÓA QUYỀN ADMIN trên máy chấm công?\n\nChức năng này giúp cứu hộ khi quên mật khẩu hoặc quản trị viên cũ nghỉ việc. Sau khi xóa, bạn có thể nhấn trực tiếp phím M/OK để vào Menu cài đặt máy mà không cần xác thực.')) {
+      return;
+    }
+    setDeviceActionLoading('clearAdmin');
+    setDeviceActionMsg(null);
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.clearAdmin) return;
+      const res = await eAPI.clearAdmin(lanIp.trim(), lanPort, 5000);
+      if (res.ok) {
+        setDeviceActionMsg({ ok: true, message: res.message || 'Đã xóa quyền quản trị viên trên máy chấm công thành công!' });
+        fetchDeviceUsers();
+      } else {
+        setDeviceActionMsg({ ok: false, message: res.error || 'Lỗi khi xóa quyền admin máy.' });
+      }
+    } catch (e: any) {
+      setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi xóa quyền admin máy.' });
+    } finally {
+      setDeviceActionLoading(null);
+    }
+  };
+
+  const handleUnlockDoor = async () => {
+    setDeviceActionLoading('unlockDoor');
+    setDeviceActionMsg(null);
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.unlockDoor) return;
+      const res = await eAPI.unlockDoor(lanIp.trim(), lanPort, unlockDuration, 5000);
+      if (res.ok) {
+        setDeviceActionMsg({ ok: true, message: res.message || `Đã mở chốt cửa trong ${unlockDuration} giây!` });
+      } else {
+        setDeviceActionMsg({ ok: false, message: res.error || 'Lỗi khi gửi lệnh mở khóa cửa.' });
+      }
+    } catch (e: any) {
+      setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi kích hoạt mở khóa cửa.' });
+    } finally {
+      setDeviceActionLoading(null);
+    }
+  };
+
+  const handleDeleteDeviceUser = async (uid: number, name: string) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa nhân viên "${name || `UID ${uid}`}" khỏi máy chấm công?\n\nThao tác này sẽ xóa hồ sơ nhân viên và vân tay/thẻ khỏi máy chấm công!`)) {
+      return;
+    }
+    setDeviceActionLoading(`del_${uid}`);
+    setDeviceActionMsg(null);
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.deleteUser) return;
+      const res = await eAPI.deleteUser(lanIp.trim(), lanPort, uid, 5000);
+      if (res.ok) {
+        setDeviceActionMsg({ ok: true, message: res.message || `Đã xóa nhân viên UID ${uid} khỏi máy!` });
+        fetchDeviceUsers();
+        fetchDeviceStatus(true);
+      } else {
+        setDeviceActionMsg({ ok: false, message: res.error || 'Lỗi xóa nhân sự trên máy.' });
+      }
+    } catch (e: any) {
+      setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi xóa nhân sự trên máy.' });
+    } finally {
+      setDeviceActionLoading(null);
+    }
+  };
+
+  const handleClearDeviceLogs = async () => {
+    if (!window.confirm('CẢNH BÁO QUAN TRỌNG: Thao tác này sẽ XÓA SẠCH toàn bộ dữ liệu lịch sử quẹt thẻ đang lưu trên máy chấm công để giải phóng bộ nhớ.\n\nHãy đảm bảo bạn đã bấm nút "KÉO DỮ LIỆU CHẤM CÔNG" về phần mềm DMH_Tools trước khi thực hiện xóa!\n\nBạn có muốn tiếp tục?')) {
+      return;
+    }
+    if (!window.confirm('XÁC NHẬN LẦN 2: Bạn thực sự muốn XÓA VĨNH VIỄN toàn bộ nhật ký quẹt thẻ trên máy chấm công?')) {
+      return;
+    }
+    setDeviceActionLoading('clearLogs');
+    setDeviceActionMsg(null);
+    try {
+      const eAPI = (window as any).electronAPI?.biometric;
+      if (!eAPI?.clearLogs) return;
+      const res = await eAPI.clearLogs(lanIp.trim(), lanPort, 8000);
+      if (res.ok) {
+        setDeviceActionMsg({ ok: true, message: res.message || 'Đã dọn dẹp bộ nhớ quẹt thẻ trên máy thành công!' });
+        fetchDeviceStatus(true);
+      } else {
+        setDeviceActionMsg({ ok: false, message: res.error || 'Lỗi khi dọn dẹp bộ nhớ máy.' });
+      }
+    } catch (e: any) {
+      setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi khi gửi lệnh xóa log máy.' });
+    } finally {
+      setDeviceActionLoading(null);
+    }
   };
 
   // ── Tính toán tổng hợp Bảng công tháng ──
@@ -879,19 +1088,19 @@ export function AttendanceTab() {
                       </div>
                     </div>
 
-                    {/* Hàng nút Thao tác: Kiểm tra & Quét LAN */}
+                    {/* Hàng nút Thao tác: Kiểm tra, Quét LAN & Cài Đặt */}
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
                         onClick={handleTestLanConnection}
                         disabled={lanLoading || lanScanning}
                         style={{
-                          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                          padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1',
+                          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                          padding: '6px 6px', borderRadius: 6, border: '1px solid #cbd5e1',
                           background: '#f8fafc', color: '#334155', cursor: 'pointer',
-                          fontSize: '0.76rem', fontWeight: 600
+                          fontSize: '0.74rem', fontWeight: 600
                         }}
                       >
-                        {lanLoading ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Zap size={13} color="#eab308" />}
+                        {lanLoading ? <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Zap size={12} color="#eab308" />}
                         Kiểm Tra
                       </button>
 
@@ -899,15 +1108,30 @@ export function AttendanceTab() {
                         onClick={handleScanLan}
                         disabled={lanLoading || lanScanning}
                         style={{
-                          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                          padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1',
+                          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                          padding: '6px 6px', borderRadius: 6, border: '1px solid #cbd5e1',
                           background: '#f8fafc', color: '#334155', cursor: 'pointer',
-                          fontSize: '0.76rem', fontWeight: 600
+                          fontSize: '0.74rem', fontWeight: 600
                         }}
                         title="Tự động dò tìm tất cả máy chấm công mở cổng 4370 trong mạng LAN"
                       >
-                        {lanScanning ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={13} color="#3b82f6" />}
+                        {lanScanning ? <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={12} color="#3b82f6" />}
                         {lanScanning ? 'Đang dò...' : 'Quét Dò IP'}
+                      </button>
+
+                      <button
+                        onClick={handleOpenDeviceSetup}
+                        disabled={lanLoading || lanScanning}
+                        style={{
+                          flex: 1.1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                          padding: '6px 6px', borderRadius: 6, border: '1px solid #c7d2fe',
+                          background: '#eef2ff', color: '#4338ca', cursor: 'pointer',
+                          fontSize: '0.74rem', fontWeight: 700
+                        }}
+                        title="Cài đặt đồng bộ giờ, điều khiển máy từ xa, thử chuông, xóa quyền admin, quản lý nhân viên trên máy"
+                      >
+                        <Settings size={12} color="#4f46e5" />
+                        Cài Đặt Máy
                       </button>
                     </div>
 
@@ -2201,6 +2425,546 @@ export function AttendanceTab() {
                   Lưu Ca Làm Việc
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: CÀI ĐẶT & ĐIỀU KHIỂN MÁY CHẤM CÔNG TỪ XA ── */}
+      {showDeviceSetupModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.65)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999, padding: 16, backdropFilter: 'blur(3px)'
+        }}>
+          <div style={{
+            background: 'white', borderRadius: 14, width: '100%', maxWidth: 780,
+            maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)', overflow: 'hidden'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '14px 18px', background: 'linear-gradient(135deg, #1e293b, #334155)',
+              color: 'white'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  width: 34, height: 34, borderRadius: 8, background: '#4f46e5',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <Settings size={18} color="white" />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.98rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>Cài Đặt & Điều Khiển Máy Chấm Công</span>
+                    <span style={{
+                      fontSize: '0.72rem', background: '#3b82f6', color: 'white',
+                      padding: '2px 7px', borderRadius: 10, fontWeight: 600
+                    }}>
+                      {lanIp}:{lanPort}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: '#cbd5e1' }}>
+                    Đồng bộ thời gian, thử loa, khởi động lại, phá khóa menu admin & quản lý nhân sự máy
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDeviceSetupModal(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.1)', border: 'none', color: '#cbd5e1',
+                  borderRadius: 6, width: 28, height: 28, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Thông báo thao tác nếu có */}
+            {deviceActionMsg && (
+              <div style={{
+                padding: '10px 16px', fontSize: '0.82rem', display: 'flex',
+                alignItems: 'center', justifyContent: 'space-between',
+                background: deviceActionMsg.ok ? '#ecfdf5' : '#fef2f2',
+                color: deviceActionMsg.ok ? '#065f46' : '#991b1b',
+                borderBottom: `1px solid ${deviceActionMsg.ok ? '#a7f3d0' : '#fecaca'}`
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {deviceActionMsg.ok ? <CheckCircle2 size={16} color="#10b981" /> : <AlertCircle size={16} color="#ef4444" />}
+                  <span>{deviceActionMsg.message}</span>
+                </div>
+                <button
+                  onClick={() => setDeviceActionMsg(null)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            {/* Modal Tabs */}
+            <div style={{
+              display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc',
+              padding: '0 12px'
+            }}>
+              {[
+                { key: 'status', label: '📊 Tổng Quan & Bộ Nhớ' },
+                { key: 'time', label: '🕒 Đồng Bộ Thời Gian' },
+                { key: 'control', label: '🎛️ Điều Khiển Từ Xa' },
+                { key: 'users', label: `👥 Nhân Viên Trên Máy (${deviceUsers.length})` },
+              ].map(t => (
+                <button
+                  key={t.key}
+                  onClick={() => setDeviceActiveTab(t.key as any)}
+                  style={{
+                    padding: '10px 14px', border: 'none', background: 'transparent',
+                    borderBottom: deviceActiveTab === t.key ? '2px solid #4f46e5' : '2px solid transparent',
+                    color: deviceActiveTab === t.key ? '#4f46e5' : '#64748b',
+                    fontWeight: deviceActiveTab === t.key ? 700 : 500,
+                    fontSize: '0.82rem', cursor: 'pointer'
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: 18, overflowY: 'auto', flex: 1 }}>
+
+              {/* TAB 1: TỔNG QUAN & BỘ NHỚ */}
+              {deviceActiveTab === 'status' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {deviceStatusLoading ? (
+                    <div style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>
+                      <RefreshCw size={24} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} />
+                      <div>Đang đọc thông số từ máy chấm công...</div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Grid cards */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 12 }}>
+                          <div style={{ fontSize: '0.72rem', color: '#166534', fontWeight: 600 }}>TRẠNG THÁI</div>
+                          <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#15803d', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+                            Online
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#166534', marginTop: 2 }}>{lanIp}:{lanPort}</div>
+                        </div>
+
+                        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 12 }}>
+                          <div style={{ fontSize: '0.72rem', color: '#1e40af', fontWeight: 600 }}>NHÂN SỰ TRÊN MÁY</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1d4ed8', marginTop: 4 }}>
+                            {deviceStatus?.userCount ?? deviceUsers.length ?? 0}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#3b82f6', marginTop: 2 }}>người dùng đăng ký</div>
+                        </div>
+
+                        <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8, padding: 12 }}>
+                          <div style={{ fontSize: '0.72rem', color: '#6b21a8', fontWeight: 600 }}>NHẬT KÝ ĐÃ LƯU</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#7e22ce', marginTop: 4 }}>
+                            {(deviceStatus?.logCount ?? 0).toLocaleString()}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#9333ea', marginTop: 2 }}>lượt quẹt thẻ</div>
+                        </div>
+
+                        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 12 }}>
+                          <div style={{ fontSize: '0.72rem', color: '#92400e', fontWeight: 600 }}>SỨC CHỨA TỐI ĐA</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#b45309', marginTop: 4 }}>
+                            {(deviceStatus?.logCapacity ?? 0).toLocaleString()}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#d97706', marginTop: 2 }}>bản ghi tối đa</div>
+                        </div>
+                      </div>
+
+                      {/* Dung lượng bộ nhớ tiến trình */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: 6 }}>
+                          <span style={{ fontWeight: 600, color: '#334155' }}>Dung lượng bộ nhớ nhật ký đã dùng:</span>
+                          <span style={{ fontWeight: 700, color: (deviceStatus?.percentUsed || 0) > 85 ? '#dc2626' : '#2563eb' }}>
+                            {(deviceStatus?.percentUsed || 0)}% ({(deviceStatus?.logCount || 0).toLocaleString()} / {(deviceStatus?.logCapacity || 0).toLocaleString()})
+                          </span>
+                        </div>
+                        <div style={{ width: '100%', height: 10, background: '#e2e8f0', borderRadius: 5, overflow: 'hidden' }}>
+                          <div style={{
+                            width: `${Math.min(100, deviceStatus?.percentUsed || 0)}%`,
+                            height: '100%',
+                            background: (deviceStatus?.percentUsed || 0) > 85 ? '#ef4444' : (deviceStatus?.percentUsed || 0) > 60 ? '#f59e0b' : '#10b981',
+                            transition: 'width 0.4s ease'
+                          }} />
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 6 }}>
+                          {(deviceStatus?.percentUsed || 0) > 85
+                            ? '⚠️ Bộ nhớ máy sắp đầy! Khuyến nghị bấm "Kéo dữ liệu chấm công" về máy tính sau đó bấm "Xóa Lịch Sử Quẹt Thẻ Cũ" ở tab Điều Khiển để giải phóng bộ nhớ.'
+                            : 'Bộ nhớ lưu trữ quẹt thẻ đang ở trạng thái an toàn, hoạt động ổn định.'}
+                        </div>
+                      </div>
+
+                      {/* Thời gian hiển thị trên máy */}
+                      <div style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontSize: '0.74rem', color: '#475569', fontWeight: 600 }}>Thời gian phần cứng hiện tại trên máy:</div>
+                          <div style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a', marginTop: 2 }}>
+                            {deviceStatus?.deviceTime ? new Date(deviceStatus.deviceTime).toLocaleString('vi-VN') : 'Đang cập nhật...'}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setDeviceActiveTab('time')}
+                          style={{
+                            padding: '6px 12px', borderRadius: 6, border: '1px solid #c7d2fe',
+                            background: '#e0e7ff', color: '#4338ca', cursor: 'pointer',
+                            fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4
+                          }}
+                        >
+                          <Clock size={13} />
+                          Đồng Bộ Giờ Ngay
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                        <button
+                          onClick={() => fetchDeviceStatus()}
+                          disabled={deviceStatusLoading}
+                          style={{
+                            padding: '6px 14px', borderRadius: 6, border: '1px solid #cbd5e1',
+                            background: 'white', color: '#334155', cursor: 'pointer',
+                            fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5
+                          }}
+                        >
+                          <RefreshCw size={13} style={{ animation: deviceStatusLoading ? 'spin 1s linear infinite' : 'none' }} />
+                          Làm Mới Thông Tin
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 2: ĐỒNG BỘ THỜI GIAN */}
+              {deviceActiveTab === 'time' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', marginBottom: 12 }}>
+                      🕒 So Sánh Thời Gian Thực
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                      <div style={{ background: 'white', border: '1px solid #cbd5e1', borderRadius: 8, padding: 12 }}>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>🖥️ GIỜ MÁY TÍNH (PC CHUẨN)</div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', marginTop: 4 }}>
+                          {new Date().toLocaleTimeString('vi-VN')}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 2 }}>
+                          {new Date().toLocaleDateString('vi-VN')}
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'white', border: '1px solid #cbd5e1', borderRadius: 8, padding: 12 }}>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>📟 GIỜ TRÊN MÁY CHẤM CÔNG</div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#4338ca', marginTop: 4 }}>
+                          {deviceStatus?.deviceTime ? new Date(deviceStatus.deviceTime).toLocaleTimeString('vi-VN') : '---'}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 2 }}>
+                          {deviceStatus?.deviceTime ? new Date(deviceStatus.deviceTime).toLocaleDateString('vi-VN') : '---'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 12, padding: 10, borderRadius: 6, background: Math.abs(deviceStatus?.diffSeconds || 0) < 5 ? '#f0fdf4' : '#fffbeb', border: `1px solid ${Math.abs(deviceStatus?.diffSeconds || 0) < 5 ? '#bbf7d0' : '#fef08a'}` }}>
+                      <div style={{ fontSize: '0.78rem', fontWeight: 600, color: Math.abs(deviceStatus?.diffSeconds || 0) < 5 ? '#166534' : '#854d0e' }}>
+                        {Math.abs(deviceStatus?.diffSeconds || 0) < 5
+                          ? '✅ Giờ máy chấm công và máy tính đang khớp hoàn toàn!'
+                          : `⚠️ Máy chấm công đang lệch ${Math.abs(deviceStatus?.diffSeconds || 0)} giây so với giờ máy tính.`}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 3 }}>
+                        Nếu giờ máy chấm công bị sai, công nhân viên quẹt thẻ sẽ bị ghi nhận sai giờ dẫn đến tính nhầm đi muộn hoặc về sớm.
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleSyncTime}
+                    disabled={deviceActionLoading === 'syncTime'}
+                    style={{
+                      padding: '12px', borderRadius: 8, border: 'none',
+                      background: 'linear-gradient(135deg, #4f46e5, #4338ca)',
+                      color: 'white', cursor: deviceActionLoading === 'syncTime' ? 'not-allowed' : 'pointer',
+                      fontSize: '0.88rem', fontWeight: 700, display: 'flex',
+                      alignItems: 'center', justifyContent: 'center', gap: 8,
+                      boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)'
+                    }}
+                  >
+                    {deviceActionLoading === 'syncTime' ? (
+                      <>
+                        <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                        <span>Đang đồng bộ giờ sang máy...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap size={16} />
+                        <span>⚡ ĐỒNG BỘ GIỜ PC SANG MÁY CHẤM CÔNG NGAY</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* TAB 3: ĐIỀU KHIỂN TỪ XA */}
+              {deviceActiveTab === 'control' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {/* Thử Loa */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
+                        <Volume2 size={16} color="#3b82f6" />
+                        <span>Thử Loa / Chuông Máy</span>
+                      </div>
+                      <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
+                        Gửi lệnh phát câu chào "Xin cảm ơn" trên loa máy chấm công để kiểm tra âm lượng và kết nối.
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleTestVoice}
+                      disabled={deviceActionLoading === 'testVoice'}
+                      style={{
+                        marginTop: 12, padding: '7px 12px', borderRadius: 6, border: '1px solid #bfdbfe',
+                        background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer',
+                        fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5
+                      }}
+                    >
+                      {deviceActionLoading === 'testVoice' ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Volume2 size={13} />}
+                      Phát Thử Loa Máy
+                    </button>
+                  </div>
+
+                  {/* Khởi động lại */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
+                        <Power size={16} color="#f59e0b" />
+                        <span>Khởi Động Lại Máy</span>
+                      </div>
+                      <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
+                        Reboot máy chấm công từ xa khi thiết bị bị đơ, treo hoặc cần khởi động lại chu kỳ hoạt động.
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleRebootDevice}
+                      disabled={deviceActionLoading === 'reboot'}
+                      style={{
+                        marginTop: 12, padding: '7px 12px', borderRadius: 6, border: '1px solid #fde68a',
+                        background: '#fffbeb', color: '#b45309', cursor: 'pointer',
+                        fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5
+                      }}
+                    >
+                      {deviceActionLoading === 'reboot' ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RotateCcw size={13} />}
+                      Khởi Động Lại Máy
+                    </button>
+                  </div>
+
+                  {/* Phá khóa Admin */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
+                        <Key size={16} color="#8b5cf6" />
+                        <span>Xóa Quyền Admin (Cứu Hộ)</span>
+                      </div>
+                      <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
+                        Mở khóa menu máy khi quên mật khẩu hoặc quản trị viên cũ nghỉ việc không bàn giao mật khẩu thiết bị.
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleClearAdmin}
+                      disabled={deviceActionLoading === 'clearAdmin'}
+                      style={{
+                        marginTop: 12, padding: '7px 12px', borderRadius: 6, border: '1px solid #e9d5ff',
+                        background: '#faf5ff', color: '#7e22ce', cursor: 'pointer',
+                        fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5
+                      }}
+                    >
+                      {deviceActionLoading === 'clearAdmin' ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Unlock size={13} />}
+                      Hủy Bỏ Khóa Admin
+                    </button>
+                  </div>
+
+                  {/* Mở chốt cửa */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
+                        <Lock size={16} color="#10b981" />
+                        <span>Mở Chốt Khóa Cửa (Access)</span>
+                      </div>
+                      <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
+                        Kích hoạt mở rơ le chốt điện Access Control (nếu máy có gắn khóa từ cửa ra vào).
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
+                      <input
+                        type="number"
+                        min="1"
+                        max="60"
+                        value={unlockDuration}
+                        onChange={e => setUnlockDuration(Math.max(1, Math.min(60, +e.target.value)))}
+                        style={{ width: 55, padding: '5px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: '0.78rem', textAlign: 'center' }}
+                        title="Thời gian mở (giây)"
+                      />
+                      <button
+                        onClick={handleUnlockDoor}
+                        disabled={deviceActionLoading === 'unlockDoor'}
+                        style={{
+                          flex: 1, padding: '7px 10px', borderRadius: 6, border: '1px solid #bbf7d0',
+                          background: '#f0fdf4', color: '#15803d', cursor: 'pointer',
+                          fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4
+                        }}
+                      >
+                        {deviceActionLoading === 'unlockDoor' ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Unlock size={13} />}
+                        Mở Khóa ({unlockDuration}s)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Dọn dẹp bộ nhớ (Toàn chiều rộng) */}
+                  <div style={{ gridColumn: '1 / -1', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '0.85rem', color: '#9f1239' }}>
+                        <Trash2 size={16} color="#e11d48" />
+                        <span>Dọn Dẹp Bộ Nhớ Máy (Xóa Nhật Ký Cũ)</span>
+                      </div>
+                      <div style={{ fontSize: '0.73rem', color: '#be123c', marginTop: 3 }}>
+                        Xóa lịch sử quẹt thẻ trên chip nhớ của máy để lấy chỗ lưu trữ mới. Hãy chắc chắn bạn đã kéo dữ liệu về máy tính trước khi xóa!
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleClearDeviceLogs}
+                      disabled={deviceActionLoading === 'clearLogs'}
+                      style={{
+                        padding: '8px 14px', borderRadius: 6, border: '1px solid #fda4af',
+                        background: '#e11d48', color: 'white', cursor: 'pointer',
+                        fontSize: '0.76rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5,
+                        boxShadow: '0 2px 6px rgba(225, 29, 72, 0.3)'
+                      }}
+                    >
+                      {deviceActionLoading === 'clearLogs' ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={13} />}
+                      Xóa Nhật Ký Máy
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: NHÂN VIÊN TRÊN MÁY */}
+              {deviceActiveTab === 'users' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: '#94a3b8' }} />
+                      <input
+                        type="text"
+                        value={deviceUserSearch}
+                        onChange={e => setDeviceUserSearch(e.target.value)}
+                        placeholder="Tìm theo tên, mã chấm công, UID..."
+                        style={{
+                          width: '100%', padding: '6px 8px 6px 28px', borderRadius: 6,
+                          border: '1px solid #cbd5e1', fontSize: '0.8rem', boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                    <button
+                      onClick={fetchDeviceUsers}
+                      disabled={deviceUsersLoading}
+                      style={{
+                        padding: '6px 12px', borderRadius: 6, border: '1px solid #cbd5e1',
+                        background: '#f8fafc', color: '#334155', cursor: 'pointer',
+                        fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4
+                      }}
+                    >
+                      <RefreshCw size={12} style={{ animation: deviceUsersLoading ? 'spin 1s linear infinite' : 'none' }} />
+                      Tải Lại
+                    </button>
+                  </div>
+
+                  {deviceUsersLoading ? (
+                    <div style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>
+                      <RefreshCw size={24} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} />
+                      <div>Đang tải danh sách nhân viên từ máy chấm công...</div>
+                    </div>
+                  ) : (
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left' }}>
+                            <th style={{ padding: '8px 10px', width: 60 }}>UID</th>
+                            <th style={{ padding: '8px 10px', width: 100 }}>Mã CC</th>
+                            <th style={{ padding: '8px 10px' }}>Họ Tên Trên Máy</th>
+                            <th style={{ padding: '8px 10px', width: 90 }}>Phân Quyền</th>
+                            <th style={{ padding: '8px 10px', width: 80 }}>Mật Khẩu</th>
+                            <th style={{ padding: '8px 10px', width: 70, textAlign: 'center' }}>Xóa</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {deviceUsers
+                            .filter(u => !deviceUserSearch ||
+                              u.name.toLowerCase().includes(deviceUserSearch.toLowerCase()) ||
+                              u.userId.toLowerCase().includes(deviceUserSearch.toLowerCase()) ||
+                              String(u.uid).includes(deviceUserSearch)
+                            )
+                            .map(u => (
+                              <tr key={u.uid} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '7px 10px', color: '#64748b' }}>#{u.uid}</td>
+                                <td style={{ padding: '7px 10px', fontWeight: 700, color: '#1e293b' }}>{u.userId}</td>
+                                <td style={{ padding: '7px 10px', fontWeight: 600, color: '#0f172a' }}>{u.name || '(Chưa đặt tên)'}</td>
+                                <td style={{ padding: '7px 10px' }}>
+                                  <span style={{
+                                    padding: '2px 7px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 600,
+                                    background: u.roleCode > 0 ? '#fef3c7' : '#f1f5f9',
+                                    color: u.roleCode > 0 ? '#b45309' : '#475569'
+                                  }}>
+                                    {u.role}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '7px 10px', color: u.hasPassword ? '#16a34a' : '#94a3b8' }}>
+                                  {u.hasPassword ? '●●●●' : 'Không'}
+                                </td>
+                                <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                                  <button
+                                    onClick={() => handleDeleteDeviceUser(u.uid, u.name)}
+                                    disabled={deviceActionLoading === `del_${u.uid}`}
+                                    title={`Xóa nhân viên ${u.name || u.userId} khỏi máy chấm công`}
+                                    style={{
+                                      padding: '4px 7px', borderRadius: 5, border: '1px solid #fecaca',
+                                      background: '#fff1f2', color: '#e11d48', cursor: 'pointer'
+                                    }}
+                                  >
+                                    {deviceActionLoading === `del_${u.uid}` ? <RefreshCw size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={11} />}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              display: 'flex', justifyContent: 'flex-end', padding: '10px 18px',
+              borderTop: '1px solid #e2e8f0', background: '#f8fafc'
+            }}>
+              <button
+                onClick={() => setShowDeviceSetupModal(false)}
+                style={{
+                  padding: '7px 18px', borderRadius: 6, border: '1px solid #cbd5e1',
+                  background: 'white', color: '#475569', cursor: 'pointer',
+                  fontSize: '0.82rem', fontWeight: 600
+                }}
+              >
+                Đóng
+              </button>
             </div>
           </div>
         </div>
