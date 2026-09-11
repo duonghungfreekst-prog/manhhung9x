@@ -4,13 +4,29 @@ const fs     = require('fs');
 const os     = require('os');
 const crypto = require('crypto');
 const { execFile, spawn }  = require('child_process');
-const { URL } = require('url');
+const { URL, pathToFileURL } = require('url');
 const https   = require('https');
 const http    = require('http');
 const licenseVault = require('./licenseVault.cjs');
 const sqliteService = require('./sqliteService.cjs');
 
 const isDev = !app.isPackaged;
+
+// ── Single Instance Lock: Tránh chạy đè nhiều tiến trình ────────────────────
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log('[MAIN] Instance khác đang chạy, tự động thoát tiến trình mới.');
+  app.quit();
+  process.exit(0);
+} else {
+  app.on('second-instance', () => {
+    if (_mainWin) {
+      if (_mainWin.isMinimized()) _mainWin.restore();
+      _mainWin.show();
+      _mainWin.focus();
+    }
+  });
+}
 
 // ── DMH Modular On-Demand Helper Functions ───────────────────────────────────
 function getModulesBaseDir() {
@@ -570,10 +586,38 @@ function createWindow() {
     win.loadURL('http://localhost:5173').catch(() => win.loadURL('http://localhost:5174'));
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
-    win.loadFile(path.join(__dirname, '../dist/index.html'));
+    const indexPath = path.join(__dirname, '../dist/index.html');
+    try {
+      const indexUrl = pathToFileURL(indexPath).href;
+      console.log('[MAIN] Loading packaged URL via pathToFileURL:', indexUrl);
+      win.loadURL(indexUrl).catch((err) => {
+        console.warn('[MAIN] loadURL error, trying fallback loadFile:', err);
+        win.loadFile(indexPath).catch(e => console.error('[MAIN] loadFile error:', e));
+      });
+    } catch {
+      win.loadFile(indexPath).catch(e => console.error('[MAIN] loadFile error:', e));
+    }
   }
 
-  win.once('ready-to-show', () => win.show());
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error('[MAIN] WebContents did-fail-load:', errorCode, errorDescription, validatedURL);
+    if (!win.isDestroyed() && !win.isVisible()) {
+      win.show();
+    }
+  });
+
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) win.show();
+  });
+
+  // Fallback an toàn: nếu sự kiện ready-to-show bị trễ sau 1.5 giây, luôn chủ động hiển thị cửa sổ
+  setTimeout(() => {
+    if (!win.isDestroyed() && !win.isVisible()) {
+      console.log('[MAIN] Fallback show window triggered');
+      win.show();
+    }
+  }, 1500);
+
   _mainWin = win;
 
   win.webContents.setWindowOpenHandler(({ url }) => {

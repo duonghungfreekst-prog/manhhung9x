@@ -2,6 +2,11 @@
 ; DMH_Tools - NSIS Custom Install & Uninstall Hooks
 ; Dam bao khi go bo ung dung, toan bo key ban quyen tren may bi huy vinh vien
 ; =============================================================================
+!macro customInit
+  ; Tu dong tat tien trinh DMH_Tools cu dang chay de installer ghi de tap tin thanh cong
+  nsExec::Exec 'taskkill /F /IM DMH_Tools.exe /T'
+  Sleep 1000
+!macroend
 
 !macro customUnInstall
   ; 1. Doc ActiveKeyHash hien tai va ghi vao RevokedKeys blacklist
