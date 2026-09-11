@@ -6,7 +6,7 @@ import {
   Settings, CheckCircle2, AlertTriangle, AlertCircle,
   Plus, Trash2, Edit2, RotateCcw, FileSpreadsheet, Filter,
   Stethoscope, Wifi, Save, Zap,
-  Volume2, Unlock, Power, Key, Wrench
+  Volume2, Unlock, Power, Key, Wrench, Database
 } from 'lucide-react';
 import type {
   ShiftPreset,
@@ -107,19 +107,6 @@ export function AttendanceTab() {
     }
   });
 
-  // Lưu cấu hình khi có thay đổi
-  useEffect(() => {
-    try {
-      localStorage.setItem('dmh_shift_presets', JSON.stringify(shifts));
-    } catch {}
-  }, [shifts]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('dmh_shift_schedules', JSON.stringify(scheduleConfig));
-    } catch {}
-  }, [scheduleConfig]);
-
   // ── Dữ liệu Máy Chấm Công (Biometric Data) ──
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
@@ -133,6 +120,69 @@ export function AttendanceTab() {
   const [bioViewMode, setBioViewMode] = useState<'grid' | 'details'>('grid');
   const [selectedBioEmp, setSelectedBioEmp] = useState<EmployeeMonthlySummary | null>(null);
   const bioFileRef = useRef<HTMLInputElement>(null);
+
+  // ── Trạng thái Cơ sở dữ liệu SQLite ──
+  const [sqliteStats, setSqliteStats] = useState<{ totalLogs: number; dbSize: string } | null>(null);
+
+  // Tự động tải dữ liệu từ SQLite khi mở tab hoặc chuyển tháng/năm
+  useEffect(() => {
+    const sqliteAPI = (window as any).electronAPI?.sqlite;
+    if (!sqliteAPI) return;
+
+    // 1. Tải thông số thống kê SQLite
+    sqliteAPI.system?.getStats?.().then((res: any) => {
+      if (res?.ok) {
+        setSqliteStats({
+          totalLogs: res.counts?.attendanceLogs || 0,
+          dbSize: res.fileSizeHuman || '0 MB'
+        });
+      }
+    }).catch(() => {});
+
+    // 2. Tải danh mục ca từ SQLite nếu có
+    sqliteAPI.attendance?.getShifts?.().then((res: any) => {
+      if (res?.ok && res.shifts?.length > 0) {
+        setShifts(res.shifts);
+      }
+    }).catch(() => {});
+
+    // 3. Tải phân ca từ SQLite nếu có
+    sqliteAPI.attendance?.getSchedule?.('schedules').then((res: any) => {
+      if (res?.ok && res.data) {
+        setScheduleConfig(res.data);
+      }
+    }).catch(() => {});
+
+    // 4. Tải lượt quẹt thẻ tháng đang chọn từ SQLite
+    sqliteAPI.attendance?.getLogs?.({ month: selectedMonth, year: selectedYear }).then((res: any) => {
+      if (res?.ok && res.logs?.length > 0) {
+        const parsedLogs: RawPunchLog[] = res.logs.map((l: any) => ({
+          empId: l.emp_id,
+          empName: l.emp_name,
+          timestamp: new Date(l.punch_time),
+          punchType: l.punch_type || 'UNKNOWN',
+          deviceId: l.device_id,
+        }));
+        setRawPunchLogs(parsedLogs);
+        setBioFileName(`Cơ sở dữ liệu SQLite (${parsedLogs.length} lượt quẹt T${selectedMonth}/${selectedYear})`);
+      }
+    }).catch(() => {});
+  }, [selectedMonth, selectedYear]);
+
+  // Lưu cấu hình khi có thay đổi (localStorage + SQLite)
+  useEffect(() => {
+    try {
+      localStorage.setItem('dmh_shift_presets', JSON.stringify(shifts));
+      (window as any).electronAPI?.sqlite?.attendance?.saveShifts?.(shifts);
+    } catch {}
+  }, [shifts]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('dmh_shift_schedules', JSON.stringify(scheduleConfig));
+      (window as any).electronAPI?.sqlite?.attendance?.saveSchedule?.('schedules', scheduleConfig);
+    } catch {}
+  }, [scheduleConfig]);
 
   // ── Phương thức nạp dữ liệu: 'lan' (IP mạng) hoặc 'file' (USB / Excel) ──
   const [dataInputMode, setDataInputMode] = useState<'lan' | 'file'>('lan');
@@ -240,13 +290,36 @@ export function AttendanceTab() {
           setBioFileName(`Máy ${targetIp}:${targetPort} (${punchLogs.length} lượt quẹt)`);
           setLanStatus({
             ok: true,
-            message: `🎉 Đã kéo thành công ${punchLogs.length} lượt quẹt thẻ từ máy ${targetIp}!`,
+            message: `🎉 Đã kéo thành công ${punchLogs.length} lượt quẹt thẻ từ máy ${targetIp}! (Đã tự động lưu vào SQLite vĩnh viễn)`,
           });
           setLanIp(targetIp);
           setLanPort(targetPort);
           localStorage.setItem('dmh_bio_last_ip', targetIp);
           localStorage.setItem('dmh_bio_last_port', String(targetPort));
           localStorage.setItem('dmh_bio_last_name', lanMachineName);
+
+          // ── Tự động lưu vĩnh viễn vào SQLite Native Database ──
+          const sqliteAPI = (window as any).electronAPI?.sqlite;
+          if (sqliteAPI?.attendance?.saveLogs) {
+            const dbLogs = punchLogs.map(p => ({
+              empId: p.empId,
+              empName: p.empName,
+              punchTime: p.timestamp instanceof Date ? p.timestamp.toISOString() : String(p.timestamp),
+              punchType: p.punchType || 'UNKNOWN',
+              deviceId: p.deviceId || `lan_${targetIp}`,
+              verifyType: 1
+            }));
+            sqliteAPI.attendance.saveLogs(dbLogs).then(() => {
+              sqliteAPI.system?.getStats?.().then((st: any) => {
+                if (st?.stats) {
+                  setSqliteStats({
+                    totalLogs: st.stats.attendanceLogs || 0,
+                    dbSize: st.stats.dbSizeBytes ? `${(st.stats.dbSizeBytes / 1024).toFixed(1)} KB` : '0 KB',
+                  });
+                }
+              });
+            }).catch(console.error);
+          }
         }
       } else {
         setLanStatus({
@@ -315,13 +388,15 @@ export function AttendanceTab() {
     const updated = [newMachine, ...savedMachines.filter(m => m.ip !== newMachine.ip)];
     setSavedMachines(updated);
     localStorage.setItem('dmh_saved_biometric_machines', JSON.stringify(updated));
-    setLanStatus({ ok: true, message: `Đã lưu cấu hình máy "${newMachine.name}" vào danh mục!` });
+    (window as any).electronAPI?.sqlite?.attendance?.saveDevices?.(updated)?.catch(console.error);
+    setLanStatus({ ok: true, message: `Đã lưu cấu hình máy "${newMachine.name}" vào danh mục & SQLite!` });
   };
 
   const handleDeleteSavedMachine = (id: string) => {
     const updated = savedMachines.filter(m => m.id !== id);
     setSavedMachines(updated);
     localStorage.setItem('dmh_saved_biometric_machines', JSON.stringify(updated));
+    (window as any).electronAPI?.sqlite?.attendance?.saveDevices?.(updated)?.catch(console.error);
   };
 
   // ── Quản trị & Cài đặt máy chấm công từ xa ──
@@ -360,6 +435,18 @@ export function AttendanceTab() {
       const res = await eAPI.getUsers(lanIp.trim(), lanPort, 10000);
       if (res.ok && res.users) {
         setDeviceUsers(res.users);
+        // Lưu vĩnh viễn danh sách nhân viên vào SQLite
+        const sqliteAPI = (window as any).electronAPI?.sqlite?.attendance;
+        if (sqliteAPI?.saveEmployees) {
+          const dbUsers = res.users.map((u: any) => ({
+            empId: String(u.userId || u.uid),
+            name: u.name || `Nhân viên ${u.userId || u.uid}`,
+            cardNo: u.cardNo ? String(u.cardNo) : '',
+            role: u.role === 14 ? 'ADMIN' : 'USER',
+            deviceId: `lan_${lanIp}`
+          }));
+          sqliteAPI.saveEmployees(dbUsers).catch(console.error);
+        }
       } else {
         setDeviceActionMsg({ ok: false, message: res.error || 'Không đọc được danh sách nhân viên từ máy.' });
       }
@@ -550,11 +637,35 @@ export function AttendanceTab() {
     });
   }, [monthlySummaries, bioSearch, bioStatusFilter]);
 
-  // ── Đọc File Máy Chấm Công ──
+  // ── Đọc File Máy Chấm Công (USB / DAT / Excel / CSV) ──
   const handleBioFileUpload = useCallback((file: File) => {
     setBioLoading(true);
     setBioError('');
     setBioFileName(file.name);
+
+    const persistToSqlite = (logs: RawPunchLog[]) => {
+      const sqliteAPI = (window as any).electronAPI?.sqlite;
+      if (sqliteAPI?.attendance?.saveLogs) {
+        const dbLogs = logs.map(p => ({
+          empId: p.empId,
+          empName: p.empName,
+          punchTime: p.timestamp instanceof Date ? p.timestamp.toISOString() : String(p.timestamp),
+          punchType: p.punchType || 'UNKNOWN',
+          deviceId: p.deviceId || 'usb_file',
+          verifyType: 1
+        }));
+        sqliteAPI.attendance.saveLogs(dbLogs).then(() => {
+          sqliteAPI.system?.getStats?.().then((st: any) => {
+            if (st?.stats) {
+              setSqliteStats({
+                totalLogs: st.stats.attendanceLogs || 0,
+                dbSize: st.stats.dbSizeBytes ? `${(st.stats.dbSizeBytes / 1024).toFixed(1)} KB` : '0 KB',
+              });
+            }
+          });
+        }).catch(console.error);
+      }
+    };
 
     const isTextOrDat = file.name.toLowerCase().endsWith('.txt') || file.name.toLowerCase().endsWith('.dat');
 
@@ -572,6 +683,7 @@ export function AttendanceTab() {
             const lastLog = result.punchLogs[result.punchLogs.length - 1];
             setSelectedMonth(lastLog.timestamp.getMonth() + 1);
             setSelectedYear(lastLog.timestamp.getFullYear());
+            persistToSqlite(result.punchLogs);
           }
         } catch {
           setBioError('Lỗi phân tích file văn bản/DAT từ máy chấm công.');
@@ -592,6 +704,7 @@ export function AttendanceTab() {
             const firstLog = result.punchLogs[0];
             setSelectedMonth(firstLog.timestamp.getMonth() + 1);
             setSelectedYear(firstLog.timestamp.getFullYear());
+            persistToSqlite(result.punchLogs);
           }
         } catch {
           setBioError('Không đọc được file. Vui lòng kiểm tra định dạng (.xlsx, .xls, .csv, .txt, .dat).');
@@ -963,6 +1076,26 @@ export function AttendanceTab() {
             >
               <Plus size={15} /> Thêm Ca Mới
             </button>
+          </div>
+        )}
+
+        {/* Badge thống kê lưu trữ SQLite Native */}
+        {sqliteStats && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '4px 10px',
+            background: '#ecfdf5',
+            border: '1px solid #a7f3d0',
+            borderRadius: 6,
+            fontSize: '0.75rem',
+            color: '#065f46',
+            fontWeight: 600,
+            marginLeft: 'auto'
+          }} title="Dữ liệu chấm công được lưu trữ tự động vĩnh viễn trong SQLite Database cục bộ">
+            <Database size={13} color="#10b981" />
+            <span>SQLite: {sqliteStats.totalLogs.toLocaleString('vi-VN')} lượt quẹt ({sqliteStats.dbSize})</span>
           </div>
         )}
       </div>

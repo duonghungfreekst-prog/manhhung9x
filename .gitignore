@@ -51,4 +51,8 @@ python_core/__pycache__/
 *.pem
 *.crt
 scratch/
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+*.sqlite
 

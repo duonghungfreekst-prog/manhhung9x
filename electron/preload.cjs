@@ -169,5 +169,57 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Auto-Update Installer Runner ──────────────────────────────────────────
   runInstaller: (name) => ipcRenderer.invoke('system:run-installer', name),
+
+  // ── Native SQLite Database Suite ──────────────────────────────────────────
+  sqlite: {
+    attendance: {
+      saveLogs:      (logs) => ipcRenderer.invoke('sqlite:attendance:save-logs', logs),
+      getLogs:       (filter) => ipcRenderer.invoke('sqlite:attendance:get-logs', filter),
+      clearLogs:     () => ipcRenderer.invoke('sqlite:attendance:clear-logs'),
+      saveEmployees: (employees) => ipcRenderer.invoke('sqlite:attendance:save-employees', employees),
+      getEmployees:  () => ipcRenderer.invoke('sqlite:attendance:get-employees'),
+      deleteEmployee:(uid) => ipcRenderer.invoke('sqlite:attendance:delete-employee', uid),
+      saveShifts:    (shifts) => ipcRenderer.invoke('sqlite:attendance:save-shifts', shifts),
+      getShifts:     () => ipcRenderer.invoke('sqlite:attendance:get-shifts'),
+      saveSchedule:  (key, data) => ipcRenderer.invoke('sqlite:attendance:save-schedule', key, data),
+      getSchedule:   (key) => ipcRenderer.invoke('sqlite:attendance:get-schedule', key),
+      saveDevices:   (devices) => ipcRenderer.invoke('sqlite:attendance:save-devices', devices),
+      getDevices:    () => ipcRenderer.invoke('sqlite:attendance:get-devices'),
+    },
+    endoscopy: {
+      saveCase:      (caseData) => ipcRenderer.invoke('sqlite:endoscopy:save-case', caseData),
+      getCases:      (filter) => ipcRenderer.invoke('sqlite:endoscopy:get-cases', filter),
+      getCaseById:   (id) => ipcRenderer.invoke('sqlite:endoscopy:get-case-by-id', id),
+      deleteCase:    (id) => ipcRenderer.invoke('sqlite:endoscopy:delete-case', id),
+      saveTemplate:  (template) => ipcRenderer.invoke('sqlite:endoscopy:save-template', template),
+      getTemplates:  (category) => ipcRenderer.invoke('sqlite:endoscopy:get-templates', category),
+      deleteTemplate:(id) => ipcRenderer.invoke('sqlite:endoscopy:delete-template', id),
+    },
+    dcbhyt: {
+      saveSession:   (sessionData, items) => ipcRenderer.invoke('sqlite:dcbhyt:save-session', sessionData, items),
+      getSessions:   () => ipcRenderer.invoke('sqlite:dcbhyt:get-sessions'),
+      getSessionItems:(sessionId) => ipcRenderer.invoke('sqlite:dcbhyt:get-session-items', sessionId),
+      deleteSession: (sessionId) => ipcRenderer.invoke('sqlite:dcbhyt:delete-session', sessionId),
+    },
+    xml: {
+      saveRecord:    (rec) => ipcRenderer.invoke('sqlite:xml:save-record', rec),
+      getHistory:    (filter) => ipcRenderer.invoke('sqlite:xml:get-history', filter),
+      deleteRecord:  (id) => ipcRenderer.invoke('sqlite:xml:delete-record', id),
+    },
+    system: {
+      getStats:      () => ipcRenderer.invoke('sqlite:system:get-stats'),
+      vacuum:        () => ipcRenderer.invoke('sqlite:system:vacuum'),
+    },
+  },
+
+  // ── Endoscopy Direct Bridge (SQLite) ──────────────────────────────────────
+  getDbStats:    () => ipcRenderer.invoke('endoscopy:get-db-stats'),
+  getPatients:   (q) => ipcRenderer.invoke('endoscopy:get-patients', q),
+  addPatient:    (d) => ipcRenderer.invoke('endoscopy:add-patient', d),
+  getSessions:   (patient_id) => ipcRenderer.invoke('endoscopy:get-sessions', patient_id),
+  createSession: (d) => ipcRenderer.invoke('endoscopy:create-session', d),
+  getImages:     (session_id) => ipcRenderer.invoke('endoscopy:get-images', session_id),
+  toggleFav:     (image_id) => ipcRenderer.invoke('endoscopy:toggle-fav', image_id),
+  saveCapture:   (session_id, b64, res) => ipcRenderer.invoke('endoscopy:save-capture', session_id, b64, res),
 });
 

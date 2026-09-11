@@ -8,6 +8,7 @@ const { URL } = require('url');
 const https   = require('https');
 const http    = require('http');
 const licenseVault = require('./licenseVault.cjs');
+const sqliteService = require('./sqliteService.cjs');
 
 const isDev = !app.isPackaged;
 
@@ -4035,6 +4036,145 @@ function stopCompareServer() {
       console.error('[UPDATE_INSTALL_ERR]', err);
       return { ok: false, error: err.message };
     }
+  });
+
+  // ── DMH SQLITE DATABASE IPC HANDLERS ──────────────────────────────────────
+  try {
+    sqliteService.initDatabase(app);
+  } catch (dbErr) {
+    console.error('[MAIN] Khởi tạo SQLite lỗi:', dbErr);
+  }
+
+  // Phân hệ 1: Chấm Công (Attendance)
+  ipcMain.handle('sqlite:attendance:save-logs', async (_e, logs) => {
+    try { return sqliteService.attendance.savePunchLogs(logs); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:attendance:get-logs', async (_e, filter) => {
+    try { return sqliteService.attendance.getPunchLogs(filter); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:attendance:clear-logs', async () => {
+    try { return sqliteService.attendance.clearPunchLogs(); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:attendance:save-employees', async (_e, employees) => {
+    try { return sqliteService.attendance.saveEmployees(employees); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:attendance:get-employees', async () => {
+    try { return sqliteService.attendance.getEmployees(); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:attendance:delete-employee', async (_e, uid) => {
+    try { return sqliteService.attendance.deleteEmployee(uid); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:attendance:save-shifts', async (_e, shifts) => {
+    try { return sqliteService.attendance.saveShifts(shifts); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:attendance:get-shifts', async () => {
+    try { return sqliteService.attendance.getShifts(); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:attendance:save-schedule', async (_e, key, data) => {
+    try { return sqliteService.attendance.saveScheduleConfig(key, data); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:attendance:get-schedule', async (_e, key) => {
+    try { return sqliteService.attendance.getScheduleConfig(key); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:attendance:save-devices', async (_e, devices) => {
+    try { return sqliteService.attendance.saveDevices(devices); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:attendance:get-devices', async () => {
+    try { return sqliteService.attendance.getDevices(); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  // Phân hệ 2: Nội Soi 4K (Endoscopy)
+  ipcMain.handle('sqlite:endoscopy:save-case', async (_e, caseData) => {
+    try { return sqliteService.endoscopy.saveCase(caseData); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:endoscopy:get-cases', async (_e, filter) => {
+    try { return sqliteService.endoscopy.getCases(filter); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:endoscopy:get-case-by-id', async (_e, id) => {
+    try { return sqliteService.endoscopy.getCaseById(id); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:endoscopy:delete-case', async (_e, id) => {
+    try { return sqliteService.endoscopy.deleteCase(id); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:endoscopy:save-template', async (_e, t) => {
+    try { return sqliteService.endoscopy.saveTemplate(t); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:endoscopy:get-templates', async (_e, category) => {
+    try { return sqliteService.endoscopy.getTemplates(category); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:endoscopy:delete-template', async (_e, id) => {
+    try { return sqliteService.endoscopy.deleteTemplate(id); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  // IPC chuẩn cho EndoscopyTab UI (tương thích endoscopyApi.ts)
+  ipcMain.handle('endoscopy:get-db-stats', async () => sqliteService.endoscopy.getDbStats());
+  ipcMain.handle('endoscopy:get-patients', async (_e, q) => sqliteService.endoscopy.getPatients(q));
+  ipcMain.handle('endoscopy:add-patient', async (_e, d) => sqliteService.endoscopy.addPatient(d));
+  ipcMain.handle('endoscopy:get-sessions', async (_e, patient_id) => sqliteService.endoscopy.getSessions(patient_id));
+  ipcMain.handle('endoscopy:create-session', async (_e, d) => sqliteService.endoscopy.createSession(d));
+  ipcMain.handle('endoscopy:get-images', async (_e, session_id) => sqliteService.endoscopy.getImages(session_id));
+  ipcMain.handle('endoscopy:toggle-fav', async (_e, image_id) => sqliteService.endoscopy.toggleFav(image_id));
+  ipcMain.handle('endoscopy:save-capture', async (_e, session_id, b64, res) => sqliteService.endoscopy.saveCapture(session_id, b64, res));
+
+  // Phân hệ 3: Đối Chiếu BHYT (Dcbhyt)
+  ipcMain.handle('sqlite:dcbhyt:save-session', async (_e, sessionData, items) => {
+    try { return sqliteService.dcbhyt.saveSession(sessionData, items); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:dcbhyt:get-sessions', async () => {
+    try { return sqliteService.dcbhyt.getSessions(); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:dcbhyt:get-session-items', async (_e, sessionId) => {
+    try { return sqliteService.dcbhyt.getSessionItems(sessionId); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:dcbhyt:delete-session', async (_e, sessionId) => {
+    try { return sqliteService.dcbhyt.deleteSession(sessionId); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  // Phân hệ 4: Đọc XML & Giám Định BHYT
+  ipcMain.handle('sqlite:xml:save-record', async (_e, rec) => {
+    try { return sqliteService.xmlStorage.saveXmlRecord(rec); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:xml:get-history', async (_e, filter) => {
+    try { return sqliteService.xmlStorage.getXmlHistory(filter); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:xml:delete-record', async (_e, id) => {
+    try { return sqliteService.xmlStorage.deleteXmlRecord(id); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  // Quản trị hệ thống SQLite
+  ipcMain.handle('sqlite:system:get-stats', async () => {
+    try { return sqliteService.getDatabaseStats(); }
+    catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('sqlite:system:vacuum', async () => {
+    try { return sqliteService.vacuumDatabase(); }
+    catch (err) { return { ok: false, error: err.message }; }
   });
 
   createWindow();
