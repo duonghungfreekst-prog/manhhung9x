@@ -173,7 +173,7 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
                   fontWeight: 700,
                   fontFamily: 'monospace',
                 }}>
-                  v${updateInfo.latestVersion}
+                  v{updateInfo.latestVersion}
                 </span>
               </div>
               <p style={{ margin: '4px 0 0', fontSize: '0.76rem', color: '#94a3b8' }}>
@@ -231,7 +231,7 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
               fontWeight: 700,
               border: '1px solid #334155',
             }}>
-              v${updateInfo.currentVersion}
+              v{updateInfo.currentVersion}
             </span>
             <ArrowRight size={14} color="#818cf8" />
             <span style={{
@@ -242,7 +242,7 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
               fontWeight: 700,
               border: '1px solid rgba(16, 185, 129, 0.3)',
             }}>
-              v${updateInfo.latestVersion}
+              v{updateInfo.latestVersion}
             </span>
           </div>
 

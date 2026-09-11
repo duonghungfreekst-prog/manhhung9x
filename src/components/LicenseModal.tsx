@@ -9,6 +9,7 @@ import {
   TIER_LABELS,
   type LicenseResult
 } from '../utils/licenseManager';
+import { CURRENT_APP_VERSION } from '../utils/updateChecker';
 
 interface Props {
   onClose: () => void;
@@ -93,7 +94,7 @@ export function LicenseModal({ onClose, onActivate, currentLicense }: Props) {
               <div style={{ color: 'white', fontWeight: 800, fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: 8 }}>
                 DMH Tools License Manager
                 <span style={{ fontSize: '0.7rem', background: '#3b82f6', color: 'white', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
-                  v6.6.4
+                  v{CURRENT_APP_VERSION}
                 </span>
               </div>
               <div style={{ color: '#a5b4fc', fontSize: '0.78rem' }}>

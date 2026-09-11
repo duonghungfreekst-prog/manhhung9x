@@ -99,7 +99,7 @@ function App() {
   useEffect(() => {
     if (!isAutoCheckEnabled()) return;
     const timer = setTimeout(() => {
-      checkForUpdates('6.6.4').then(res => {
+      checkForUpdates(CURRENT_APP_VERSION).then(res => {
         if (res.hasUpdate) {
           const dismissed = getDismissedVersion();
           if (dismissed !== res.latestVersion) {
@@ -115,7 +115,7 @@ function App() {
   const handleManualCheckUpdate = async () => {
     setIsCheckingUpdate(true);
     try {
-      const res = await checkForUpdates('6.6.4');
+      const res = await checkForUpdates(CURRENT_APP_VERSION);
       setUpdateResult(res);
       if (res.hasUpdate) {
         setShowUpdateModal(true);
@@ -123,7 +123,7 @@ function App() {
         addToast({
           type: 'success',
           title: 'Đang ở phiên bản mới nhất',
-          message: `Ứng dụng đang hoạt động ở phiên bản mới nhất (v6.6.4), chưa có bản cập nhật mới nào.`,
+          message: `Ứng dụng đang hoạt động ở phiên bản mới nhất (v${CURRENT_APP_VERSION}), chưa có bản cập nhật mới nào.`,
         });
       }
     } catch (e: any) {

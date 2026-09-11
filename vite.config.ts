@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [react()],
   base: './',   // <-- quan trọng: dùng đường dẫn tương đối cho Electron
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version || '6.6.4'),
+    __APP_VERSION__: JSON.stringify(pkg.version || '6.6.8'),
   },
   build: {
     outDir: 'dist',
