@@ -136,9 +136,9 @@ export function AttendanceTab() {
 
   // ── Phương thức nạp dữ liệu: 'lan' (IP mạng) hoặc 'file' (USB / Excel) ──
   const [dataInputMode, setDataInputMode] = useState<'lan' | 'file'>('lan');
-  const [lanIp, setLanIp] = useState(() => localStorage.getItem('dmh_bio_last_ip') || '192.168.1.201');
+  const [lanIp, setLanIp] = useState(() => localStorage.getItem('dmh_bio_last_ip') || '192.168.3.250');
   const [lanPort, setLanPort] = useState<number>(() => +(localStorage.getItem('dmh_bio_last_port') || 4370));
-  const [lanMachineName, setLanMachineName] = useState(() => localStorage.getItem('dmh_bio_last_name') || 'Máy Cổng Chính');
+  const [lanMachineName, setLanMachineName] = useState(() => localStorage.getItem('dmh_bio_last_name') || 'Máy Phòng Khám (Ronald Jack)');
   const [lanLoading, setLanLoading] = useState(false);
   const [lanStatus, setLanStatus] = useState<{ ok: boolean; message: string; details?: any } | null>(null);
   const [lanScanning, setLanScanning] = useState(false);
@@ -147,8 +147,8 @@ export function AttendanceTab() {
     try {
       const saved = localStorage.getItem('dmh_saved_biometric_machines');
       return saved ? JSON.parse(saved) : [
-        { id: 'm1', name: 'Máy Cổng Chính (ZKTeco)', ip: '192.168.1.201', port: 4370 },
-        { id: 'm2', name: 'Máy Phòng Khám (Ronald Jack)', ip: '192.168.3.201', port: 4370 },
+        { id: 'm1', name: 'Máy Phòng Khám (Ronald Jack)', ip: '192.168.3.250', port: 4370 },
+        { id: 'm2', name: 'Máy Cổng Chính (ZKTeco)', ip: '192.168.1.201', port: 4370 },
       ];
     } catch {
       return [];
@@ -160,14 +160,23 @@ export function AttendanceTab() {
     const eAPI = (window as any).electronAPI?.biometric;
     if (eAPI?.getLocalIp) {
       eAPI.getLocalIp().then((res: any) => {
-        if (res?.defaultSubnet && !localStorage.getItem('dmh_bio_last_ip')) {
-          setLanIp(`${res.defaultSubnet}.201`);
+        const savedIp = localStorage.getItem('dmh_bio_last_ip');
+        if (savedIp) {
+          setLanIp(savedIp);
+        } else if (res?.defaultSubnet) {
+          if (res.defaultSubnet === '192.168.3') {
+            setLanIp('192.168.3.250');
+          } else {
+            setLanIp(`${res.defaultSubnet}.250`);
+          }
         }
       }).catch(() => {});
     }
   }, []);
 
-  const handleTestLanConnection = async () => {
+  const handleTestLanConnection = async (overrideIp?: string, overridePort?: number) => {
+    const targetIp = (overrideIp || lanIp).trim();
+    const targetPort = overridePort || lanPort;
     setLanLoading(true);
     setLanStatus(null);
     try {
@@ -176,17 +185,17 @@ export function AttendanceTab() {
         setLanStatus({ ok: false, message: 'Tính năng kết nối IP chỉ khả dụng trên ứng dụng Desktop DMH_Tools.' });
         return;
       }
-      const res = await eAPI.testConnection(lanIp.trim(), lanPort, 4000);
+      const res = await eAPI.testConnection(targetIp, targetPort, 4000);
       if (res.ok) {
         setLanStatus({
           ok: true,
-          message: `Kết nối máy chấm công thành công! (${res.userCount ?? 0} nhân viên, ${res.logCount ?? 0} bản ghi trên máy)`,
+          message: `Kết nối máy chấm công ${targetIp}:${targetPort} thành công! (${res.userCount ?? 0} nhân viên, ${res.logCount ?? 0} bản ghi trên máy)`,
           details: res
         });
       } else {
         setLanStatus({
           ok: false,
-          message: res.error || 'Không kết nối được tới máy chấm công qua IP.'
+          message: res.error || `Không kết nối được tới máy chấm công tại ${targetIp}:${targetPort}.`
         });
       }
     } catch (e: any) {
@@ -196,9 +205,11 @@ export function AttendanceTab() {
     }
   };
 
-  const handlePullLanLogs = async () => {
+  const handlePullLanLogs = async (overrideIp?: string, overridePort?: number) => {
+    const targetIp = (overrideIp || lanIp).trim();
+    const targetPort = overridePort || lanPort;
     setLanLoading(true);
-    setLanStatus(null);
+    setLanStatus({ ok: true, message: `Đang kết nối tới ${targetIp}:${targetPort} và tải dữ liệu chấm công...` });
     setBioError('');
     try {
       const eAPI = (window as any).electronAPI?.biometric;
@@ -206,7 +217,7 @@ export function AttendanceTab() {
         setLanStatus({ ok: false, message: 'Tính năng kết nối IP chỉ khả dụng trên ứng dụng Desktop DMH_Tools.' });
         return;
       }
-      const res = await eAPI.pullLogs(lanIp.trim(), lanPort, 15000);
+      const res = await eAPI.pullLogs(targetIp, targetPort, 15000);
       if (res.ok && res.logs) {
         const punchLogs: RawPunchLog[] = res.logs.map((l: any) => ({
           empId: l.empId,
@@ -219,26 +230,28 @@ export function AttendanceTab() {
         if (!punchLogs.length) {
           setLanStatus({
             ok: true,
-            message: 'Đã kết nối thành công nhưng máy chấm công hiện chưa có dữ liệu quẹt thẻ mới.',
+            message: `Đã kết nối thành công máy ${targetIp}:${targetPort} nhưng chưa có dữ liệu quẹt thẻ mới.`,
           });
         } else {
           setRawPunchLogs(punchLogs);
           const lastLog = punchLogs[punchLogs.length - 1];
           setSelectedMonth(lastLog.timestamp.getMonth() + 1);
           setSelectedYear(lastLog.timestamp.getFullYear());
-          setBioFileName(`Máy ${lanIp}:${lanPort} (${punchLogs.length} lượt quẹt)`);
+          setBioFileName(`Máy ${targetIp}:${targetPort} (${punchLogs.length} lượt quẹt)`);
           setLanStatus({
             ok: true,
-            message: `Đã kéo thành công ${punchLogs.length} lượt quẹt thẻ từ máy chấm công!`,
+            message: `🎉 Đã kéo thành công ${punchLogs.length} lượt quẹt thẻ từ máy ${targetIp}!`,
           });
-          localStorage.setItem('dmh_bio_last_ip', lanIp);
-          localStorage.setItem('dmh_bio_last_port', String(lanPort));
+          setLanIp(targetIp);
+          setLanPort(targetPort);
+          localStorage.setItem('dmh_bio_last_ip', targetIp);
+          localStorage.setItem('dmh_bio_last_port', String(targetPort));
           localStorage.setItem('dmh_bio_last_name', lanMachineName);
         }
       } else {
         setLanStatus({
           ok: false,
-          message: res.error || 'Lỗi khi kéo dữ liệu từ máy chấm công qua IP.',
+          message: res.error || `Lỗi khi kéo dữ liệu từ máy chấm công tại ${targetIp}:${targetPort}.`,
         });
       }
     } catch (e: any) {
@@ -251,7 +264,7 @@ export function AttendanceTab() {
   const handleScanLan = async () => {
     setLanScanning(true);
     setScanResults([]);
-    setLanStatus(null);
+    setLanStatus({ ok: true, message: 'Đang quét toàn bộ dải mạng LAN để tìm máy chấm công...' });
     try {
       const eAPI = (window as any).electronAPI?.biometric;
       if (!eAPI?.scanLan) {
@@ -263,10 +276,21 @@ export function AttendanceTab() {
       const res = await eAPI.scanLan(subnet, lanPort);
       if (res?.devices && res.devices.length > 0) {
         setScanResults(res.devices);
+        
+        // TỰ ĐỘNG ĐẨY MÁY TÌM THẤY VÀO Ô IP & PORT VÀ KÉO DỮ LIỆU TỰ ĐỘNG:
+        const primaryDev = res.devices[0];
+        setLanIp(primaryDev.ip);
+        setLanPort(primaryDev.port);
+        localStorage.setItem('dmh_bio_last_ip', primaryDev.ip);
+        localStorage.setItem('dmh_bio_last_port', String(primaryDev.port));
+
         setLanStatus({
           ok: true,
-          message: `Đã tìm thấy ${res.devices.length} máy chấm công đang mở cổng ${lanPort} trong dải mạng ${res.subnet}.x!`
+          message: `🎯 Đã tìm thấy máy ${primaryDev.ip}:${primaryDev.port}! Tự động đẩy IP vào và đang kéo dữ liệu...`
         });
+
+        // Tự động kéo dữ liệu chấm công ngay lập tức!
+        await handlePullLanLogs(primaryDev.ip, primaryDev.port);
       } else {
         setLanStatus({
           ok: false,
@@ -1014,7 +1038,10 @@ export function AttendanceTab() {
                                 setLanIp(found.ip);
                                 setLanPort(found.port);
                                 setLanMachineName(found.name);
-                                setLanStatus(null);
+                                localStorage.setItem('dmh_bio_last_ip', found.ip);
+                                localStorage.setItem('dmh_bio_last_port', String(found.port));
+                                localStorage.setItem('dmh_bio_last_name', found.name);
+                                handlePullLanLogs(found.ip, found.port);
                               }
                             }}
                             style={{
@@ -1116,7 +1143,7 @@ export function AttendanceTab() {
                     {/* Hàng nút Thao tác: Kiểm tra, Quét LAN & Cài Đặt */}
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
-                        onClick={handleTestLanConnection}
+                        onClick={() => handleTestLanConnection()}
                         disabled={lanLoading || lanScanning}
                         style={{
                           flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
@@ -1162,7 +1189,7 @@ export function AttendanceTab() {
 
                     {/* NÚT CHÍNH: KÉO DỮ LIỆU TỪ MÁY */}
                     <button
-                      onClick={handlePullLanLogs}
+                      onClick={() => handlePullLanLogs()}
                       disabled={lanLoading || lanScanning}
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
@@ -1193,20 +1220,42 @@ export function AttendanceTab() {
                         <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#166534', marginBottom: 4 }}>
                           🔍 Tìm thấy {scanResults.length} máy chấm công trong mạng:
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           {scanResults.map(dev => (
                             <div
                               key={dev.ip}
-                              onClick={() => { setLanIp(dev.ip); setLanPort(dev.port); }}
+                              onClick={() => {
+                                setLanIp(dev.ip);
+                                setLanPort(dev.port);
+                                localStorage.setItem('dmh_bio_last_ip', dev.ip);
+                                localStorage.setItem('dmh_bio_last_port', String(dev.port));
+                                handlePullLanLogs(dev.ip, dev.port);
+                              }}
                               style={{
                                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                padding: '4px 6px', background: 'white', borderRadius: 4,
-                                border: '1px solid #dcfce7', cursor: 'pointer', fontSize: '0.74rem'
+                                padding: '6px 8px', background: lanIp === dev.ip ? '#dcfce7' : 'white',
+                                borderRadius: 6, border: `1px solid ${lanIp === dev.ip ? '#16a34a' : '#86efac'}`,
+                                cursor: 'pointer', fontSize: '0.76rem',
+                                transition: 'all 0.15s ease'
                               }}
-                              title="Bấm để chọn máy này"
+                              title="Bấm để chọn máy này và tự động kéo dữ liệu về phần mềm ngay"
                             >
-                              <span style={{ fontWeight: 600, color: '#15803d' }}>{dev.ip}:{dev.port}</span>
-                              <span style={{ fontSize: '0.68rem', color: '#3b82f6', textDecoration: 'underline' }}>Chọn</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#16a34a', display: 'inline-block' }} />
+                                <span style={{ fontWeight: 700, color: '#15803d' }}>{dev.ip}:{dev.port}</span>
+                                {lanIp === dev.ip && (
+                                  <span style={{ fontSize: '0.66rem', color: '#166534', background: '#bbf7d0', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>
+                                    ✓ Đang chọn
+                                  </span>
+                                )}
+                              </div>
+                              <span style={{
+                                fontSize: '0.7rem', color: 'white', background: '#16a34a',
+                                padding: '2px 8px', borderRadius: 4, fontWeight: 700,
+                                display: 'inline-flex', alignItems: 'center', gap: 3
+                              }}>
+                                <Download size={11} /> Chọn & Kéo
+                              </span>
                             </div>
                           ))}
                         </div>
