@@ -1,0 +1,48 @@
+{
+  "appId": "com.hospital.dmhtools",
+  "productName": "DMH_Tools",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "node_modules/**/*"
+  ],
+  "extraResources": [
+    {
+      "from": "scripts/install_camera_driver.ps1",
+      "to": "scripts/install_camera_driver.ps1"
+    },
+    {
+      "from": "scripts/install_camera_driver.bat",
+      "to": "scripts/install_camera_driver.bat"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "public/icon.ico",
+    "artifactName": "DMH_Tools_Setup_${version}_Slim.exe"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "public/icon.ico",
+    "uninstallerIcon": "public/icon.ico",
+    "shortcutName": "DMH_Tools",
+    "installerHeaderIcon": "public/icon.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "deleteAppDataOnUninstall": true,
+    "include": "build/installer.nsh",
+    "license": null,
+    "language": "1066"
+  }
+}

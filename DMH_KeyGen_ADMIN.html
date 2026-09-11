@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DMH_Tools — Key Generator (ADMIN ONLY)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f0f1a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .container {
+      width: 100%;
+      max-width: 640px;
+      background: #1a1a2e;
+      border-radius: 20px;
+      border: 1px solid #2d2d4e;
+      overflow: hidden;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.6);
+    }
+    .header {
+      background: linear-gradient(135deg, #1e1b4b, #312e81);
+      padding: 28px 32px;
+      border-bottom: 1px solid #3730a3;
+    }
+    .header-title {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 6px;
+    }
+    .shield-icon { font-size: 28px; }
+    h1 { font-size: 1.4rem; color: white; font-weight: 700; }
+    .header-sub { color: #a5b4fc; font-size: 0.8rem; margin-top: 4px; }
+    .warning-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.4);
+      color: #fca5a5; padding: 4px 12px; border-radius: 20px;
+      font-size: 0.75rem; font-weight: 600; margin-top: 10px;
+    }
+
+    .body { padding: 28px 32px; display: flex; flex-direction: column; gap: 24px; }
+
+    .section-label {
+      font-size: 0.75rem; font-weight: 700; color: #6366f1;
+      text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px;
+    }
+
+    /* Tab grid */
+    .tab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .tab-btn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; border-radius: 10px; cursor: pointer;
+      border: 2px solid #2d2d4e; background: #16213e;
+      color: #94a3b8; font-size: 0.875rem; font-weight: 500;
+      transition: all 0.15s; user-select: none;
+    }
+    .tab-btn.on {
+      border-color: #6366f1; background: #1e1b4b; color: #a5b4fc;
+      font-weight: 700;
+    }
+    .tab-bit {
+      font-size: 10px; font-family: monospace;
+      background: #374151; color: #9ca3af;
+      border-radius: 4px; padding: 1px 6px; min-width: 24px; text-align: center;
+    }
+    .tab-btn.on .tab-bit { background: #4f46e5; color: white; }
+
+    .mask-display {
+      margin-top: 10px; font-size: 0.8rem; color: #64748b;
+    }
+    .mask-display span { color: #818cf8; font-weight: 700; font-family: monospace; }
+
+    /* Expiry */
+    .expiry-row {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    }
+    .expiry-row label {
+      display: flex; align-items: center; gap: 6px;
+      cursor: pointer; font-size: 0.875rem; color: #cbd5e1;
+    }
+    input[type="checkbox"] { width: 16px; height: 16px; accent-color: #6366f1; cursor: pointer; }
+    .days-input {
+      width: 80px; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid #374151; background: #0f172a;
+      color: #e2e8f0; font-size: 0.875rem; outline: none;
+    }
+    .days-input:focus { border-color: #6366f1; }
+    .expiry-hint { font-size: 0.8rem; color: #10b981; }
+    .uses-hint { font-size: 0.8rem; color: #f59e0b; }
+
+    /* Generate button */
+    .generate-btn {
+      width: 100%; padding: 14px; border-radius: 12px; border: none;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: white; font-weight: 700; font-size: 1rem;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px;
+      transition: opacity 0.15s; letter-spacing: 0.3px;
+    }
+    .generate-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .generate-btn:not(:disabled):hover { opacity: 0.9; }
+
+    /* Result */
+    .result-box {
+      background: #0a0a1a; border-radius: 14px;
+      border: 1px solid #312e81; padding: 22px;
+      display: none;
+    }
+    .result-box.show { display: block; }
+    .result-label { font-size: 0.72rem; color: #4c1d95; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+    .key-display {
+      font-family: 'Courier New', monospace;
+      font-size: 1rem; color: #a5f3fc;
+      letter-spacing: 2px; word-break: break-all;
+      line-height: 1.9; font-weight: 600;
+    }
+    .result-meta { font-size: 0.78rem; color: #475569; margin-top: 12px; }
+    .result-meta strong { color: #64748b; }
+
+    .copy-btn {
+      margin-top: 14px; padding: 9px 18px; border-radius: 8px; border: none;
+      background: #1e293b; color: #94a3b8;
+      cursor: pointer; font-size: 0.875rem; font-weight: 500;
+      display: flex; align-items: center; gap: 6px; transition: all 0.15s;
+    }
+    .copy-btn:hover { background: #334155; color: #e2e8f0; }
+    .copy-btn.copied { background: #064e3b; color: #10b981; }
+
+    /* History */
+    .history-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+    .history-item {
+      background: #0f172a; border-radius: 8px; padding: 10px 14px;
+      display: flex; justify-content: space-between; align-items: center;
+      border: 1px solid #1e293b; font-size: 0.8rem;
+    }
+    .history-key { font-family: monospace; color: #7dd3fc; font-size: 0.78rem; }
+    .history-meta { color: #475569; }
+    .history-copy { background: none; border: none; color: #6366f1; cursor: pointer; font-size: 0.78rem; padding: 2px 8px; border-radius: 4px; }
+    .history-copy:hover { background: #1e293b; }
+
+    .divider { border: none; border-top: 1px solid #1e293b; }
+
+    @media (max-width: 480px) {
+      .tab-grid { grid-template-columns: 1fr; }
+      .body { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="header-title">
+      <span class="shield-icon">🔐</span>
+      <div>
+        <h1>DMH_Tools Key Generator</h1>
+        <div class="header-sub">AES-256-GCM · Base32 · Stateless Offline · v4.0</div>
+      </div>
+    </div>
+    <div class="warning-badge">🔒 ADMIN ONLY — Không chia sẻ file này</div>
+  </div>
+
+  <div class="body">
+    <!-- Tabs -->
+    <div>
+      <div class="section-label">Phân quyền Tab</div>
+      <div class="tab-grid" id="tabGrid"></div>
+      <div class="mask-display">
+        Bitmask: <span id="maskVal">32767</span>
+        &nbsp;|&nbsp; Binary: <span id="maskBin">111111111111111</span>
+        &nbsp;|&nbsp; Tabs được mở: <span id="tabCount">15/15</span>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- Expiry -->
+    <div>
+      <div class="section-label">Thời hạn sử dụng</div>
+      <div class="expiry-row">
+        <label>
+          <input type="checkbox" id="forever" onchange="toggleForever()">
+          Vĩnh viễn
+        </label>
+        <div style="display:flex;align-items:center;gap:8px;" id="daysRow">
+          <input type="number" class="days-input" id="days" value="365" min="1" max="3650" oninput="updateExpiry()">
+          <span style="color:#64748b;font-size:0.875rem;">ngày</span>
+          <span class="expiry-hint" id="expiryHint"></span>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- Số lượt -->
+    <div>
+      <div class="section-label"># Số lượt kích hoạt / máy</div>
+      <div class="expiry-row">
+        <label>
+          <input type="checkbox" id="unlimitedUses" onchange="toggleUses()">
+          Không giới hạn
+        </label>
+        <div style="display:flex;align-items:center;gap:8px;" id="usesRow">
+          <input type="number" class="days-input" id="maxUses" value="1" min="1" max="9999">
+          <span style="color:#64748b;font-size:0.875rem;">lượt</span>
+          <span class="uses-hint" id="usesHint">(Key dùng được tối đa 1 lần trên mỗi máy)</span>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <button class="generate-btn" id="genBtn" onclick="generate()">
+      🔑 Tạo License Key
+    </button>
+
+    <!-- Result -->
+    <div class="result-box" id="resultBox">
+      <div class="result-label">License Key đã tạo</div>
+      <div class="key-display" id="keyDisplay"></div>
+      <div class="result-meta" id="keyMeta"></div>
+      <button class="copy-btn" id="copyBtn" onclick="copyKey()">📋 Sao chép Key</button>
+    </div>
+
+    <!-- History -->
+    <div id="historySection" style="display:none;">
+      <hr class="divider">
+      <div class="section-label" style="margin-top:0;">Lịch sử đã tạo</div>
+      <div class="history-list" id="historyList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Cấu hình (PHẢI khớp với licenseManager.ts) ──────────────────────────────
+const TAB_BITS = {
+  compare:    1,
+  reader:     2,
+  converter:  4,
+  filter:     8,
+  printer:    16,
+  repair:     32,
+  selfbuilt:  64,
+  endoscopy:  128,
+  hiscall:    256,
+  attendance: 512,
+  bhytcheck:  1024,
+  signature:  2048,
+  dcbhyt:     4096,
+  officeformulas: 8192,
+  pctools:    16384,
+};
+const TAB_LABELS = {
+  compare:    'Đối Chiếu Hồ Sơ',
+  reader:     'Đọc XML / CSV',
+  converter:  'Chuyển Đổi File',
+  filter:     'Lọc Dữ Liệu',
+  printer:    'Máy In',
+  repair:     'Sửa File',
+  selfbuilt:  'Self-Built 01',
+  endoscopy:  'Nội Soi AI 4K',
+  hiscall:    'Gọi Bệnh Nhân HIS',
+  attendance: 'Chấm Công Bác Sĩ',
+  bhytcheck:  'Kiểm Tra BHYT',
+  signature:  'Ký Số XML',
+  dcbhyt:     'Đối Chiếu 01BH',
+  officeformulas: 'Công thức Office',
+  pctools:    'Kỹ Thuật Máy Tính',
+};
+const ALL_TABS = Object.keys(TAB_BITS);
+const FULL_MASK = 32767; // 1+2+4+8+16+32+64+128+256+512+1024+2048+4096+8192+16384
+
+// ─── Dynamic Secret Key (PHẢI khớp với licenseManager.ts) ────────────────────
+function _buildSecretKey() {
+  const p1 = '\x44\x4d\x48';
+  const p2 = '\x5f\x54\x4f';
+  const p3 = '\x4f\x4c\x53';
+  const p4 = '\x5f\x53\x45';
+  const p5 = '\x43\x52\x45';
+  const p6 = '\x54\x5f\x32';
+  const p7 = '\x30\x32\x36';
+  return p1+p2+p3+p4+p5+p6+p7;
+}
+
+// ─── Base32 ───────────────────────────────────────────────────────────────────
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32Encode(bytes) {
+  let bits = 0, value = 0, out = '';
+  for (let i = 0; i < bytes.length; i++) {
+    value = (value << 8) | bytes[i];
+    bits += 8;
+    while (bits >= 5) { out += B32[(value >>> (bits-5)) & 31]; bits -= 5; }
+  }
+  if (bits > 0) out += B32[(value << (5-bits)) & 31];
+  return out;
+}
+function formatKey(raw) {
+  return raw.match(/.{1,4}/g)?.join('-') ?? raw;
+}
+
+// ─── Crypto ───────────────────────────────────────────────────────────────────
+async function deriveKey(secret) {
+  const enc = new TextEncoder();
+  const km = await crypto.subtle.importKey('raw', enc.encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name:'PBKDF2', salt: enc.encode('DMH2026SALT'), iterations:100000, hash:'SHA-256' },
+    km, { name:'AES-GCM', length:256 }, false, ['encrypt']
+  );
+}
+function randomSalt(len=6) {
+  const c='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  return Array.from(crypto.getRandomValues(new Uint8Array(len))).map(b=>c[b%c.length]).join('');
+}
+async function generateKey(mask, expiry, maxUses) {
+  const payload = `${randomSalt()}-${mask}-${expiry}-${maxUses}`;
+  const enc = new TextEncoder();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ck = await deriveKey(_buildSecretKey());
+  const cipher = await crypto.subtle.encrypt({name:'AES-GCM',iv}, ck, enc.encode(payload));
+  const combined = new Uint8Array(12 + cipher.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(cipher), 12);
+  return formatKey(base32Encode(combined));
+}
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let mask = FULL_MASK;
+let currentKey = '';
+let history = JSON.parse(localStorage.getItem('keygen_history') || '[]');
+
+// ─── UI Init ──────────────────────────────────────────────────────────────────
+function init() {
+  const grid = document.getElementById('tabGrid');
+  ALL_TABS.forEach(tab => {
+    const btn = document.createElement('div');
+    btn.className = 'tab-btn on';
+    btn.id = 'tab_' + tab;
+    btn.onclick = () => toggleTab(tab);
+    btn.innerHTML = `<span class="tab-bit">${TAB_BITS[tab]}</span>${TAB_LABELS[tab]}`;
+    grid.appendChild(btn);
+  });
+  updateExpiry();
+  renderHistory();
+}
+
+function toggleTab(tab) {
+  mask ^= TAB_BITS[tab];
+  document.getElementById('tab_' + tab).className = 'tab-btn' + ((mask & TAB_BITS[tab]) ? ' on' : '');
+  document.getElementById('maskVal').textContent = mask;
+  document.getElementById('maskBin').textContent = mask.toString(2).padStart(15,'0');
+  const count = ALL_TABS.filter(t => (mask & TAB_BITS[t])).length;
+  document.getElementById('tabCount').textContent = `${count}/${ALL_TABS.length}`;
+  document.getElementById('genBtn').disabled = mask === 0;
+}
+
+function toggleForever() {
+  const forever = document.getElementById('forever').checked;
+  document.getElementById('daysRow').style.display = forever ? 'none' : 'flex';
+}
+
+function toggleUses() {
+  const unlimited = document.getElementById('unlimitedUses').checked;
+  document.getElementById('usesRow').style.display = unlimited ? 'none' : 'flex';
+}
+
+function updateExpiry() {
+  const days = parseInt(document.getElementById('days').value) || 365;
+  const d = new Date(Date.now() + days * 86400000);
+  document.getElementById('expiryHint').textContent =
+    `(Hết hạn: ${d.toLocaleDateString('vi-VN')})`;
+}
+
+async function generate() {
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Đang tạo...';
+
+  const forever   = document.getElementById('forever').checked;
+  const days      = parseInt(document.getElementById('days').value) || 365;
+  const expiry    = forever ? 0 : Math.floor(Date.now()/1000) + days*86400;
+  const unlimited = document.getElementById('unlimitedUses').checked;
+  const maxUses   = unlimited ? 0 : (parseInt(document.getElementById('maxUses').value) || 1);
+
+  try {
+    currentKey = await generateKey(mask, expiry, maxUses);
+
+    const tabNames  = ALL_TABS.filter(t=>(mask & TAB_BITS[t])).map(t=>TAB_LABELS[t]);
+    const expiryStr = forever ? 'Vĩnh viễn' : new Date(expiry*1000).toLocaleDateString('vi-VN');
+    const usesStr   = unlimited ? 'Không giới hạn lượt' : `Tối đa ${maxUses} lượt/máy`;
+
+    document.getElementById('keyDisplay').textContent = currentKey;
+    document.getElementById('keyMeta').innerHTML =
+      `<strong>Tabs:</strong> ${tabNames.join(', ')}<br>` +
+      `<strong>Hạn dùng:</strong> ${expiryStr} &nbsp;|&nbsp; ` +
+      `<strong>Lượt:</strong> <span style="color:#f59e0b">${usesStr}</span> &nbsp;|&nbsp; ` +
+      `<strong>Bitmask:</strong> ${mask}`;
+
+    document.getElementById('resultBox').className = 'result-box show';
+    document.getElementById('copyBtn').className = 'copy-btn';
+    document.getElementById('copyBtn').textContent = '📋 Sao chép Key';
+
+    // Lưu lịch sử
+    history.unshift({ key: currentKey, tabs: tabNames, expiry: expiryStr, uses: usesStr, mask, time: new Date().toLocaleString('vi-VN') });
+    if (history.length > 20) history = history.slice(0, 20);
+    localStorage.setItem('keygen_history', JSON.stringify(history));
+    renderHistory();
+  } catch(e) {
+    alert('Lỗi tạo key: ' + e.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🔑 Tạo License Key';
+}
+
+function copyKey() {
+  navigator.clipboard.writeText(currentKey).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.className = 'copy-btn copied';
+    btn.textContent = '✅ Đã sao chép!';
+    setTimeout(() => {
+      btn.className = 'copy-btn';
+      btn.textContent = '📋 Sao chép Key';
+    }, 2500);
+  });
+}
+
+function renderHistory() {
+  const sec  = document.getElementById('historySection');
+  const list = document.getElementById('historyList');
+  if (history.length === 0) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  list.innerHTML = history.map((h, i) => `
+    <div class="history-item">
+      <div>
+        <div class="history-key">${h.key.substring(0,28)}…</div>
+        <div class="history-meta">${h.tabs.join(', ')} · ${h.expiry} · ${h.uses ?? 'Không giới hạn lượt'} · ${h.time}</div>
+      </div>
+      <button class="history-copy" onclick="copyHistoryKey(${i})">Sao chép</button>
+    </div>
+  `).join('');
+}
+
+function copyHistoryKey(idx) {
+  navigator.clipboard.writeText(history[idx].key);
+}
+
+init();
+</script>
+</body>
+</html>

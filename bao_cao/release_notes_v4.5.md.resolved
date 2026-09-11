@@ -1,0 +1,70 @@
+# 📦 DMH_Tools v4.5 — Release Notes
+**Ngày phát hành:** 11/05/2026  
+**File installer:** `release\DMH_Tools Setup 4.5.0.exe` (288 MB)  
+**Build:** Thành công ✅ | Exit code: 0
+
+---
+
+## 🆕 Thay đổi trong v4.5
+
+### 🔧 Tab Chấm Công Bác Sĩ — Cải tiến lớn
+
+#### Fix: Hiển thị tên cột thực từ file Excel
+- **Trước:** Dropdown hiển thị `__EMPTY`, `__EMPTY_1`... do XLSX đọc sai hàng header
+- **Sau:** Đọc file dưới dạng raw array (`header: 1`), tự phát hiện hàng header thực (hàng có nhiều ô không trống nhất trong 10 hàng đầu)
+- Nếu cột không có tên → fallback sang `Cột A`, `Cột B`...
+
+#### Fix: Hiển thị giá trị mẫu trong dropdown chọn cột
+- Mỗi option trong dropdown hiển thị: `Tên cột — giá trị mẫu đầu tiên`
+- Ví dụ: `Họ tên bác sĩ — BS. Nguyễn Văn A`
+- Sau khi chọn cột, hiển thị thêm ô xanh lá "Mẫu: ..." bên dưới
+
+#### Fix: Xuất file Excel bị đảo cột
+- **Nguyên nhân:** `json_to_sheet` không đảm bảo thứ tự key số trong JavaScript object
+- **Fix:** Chuyển sang `aoa_to_sheet` (Array of Arrays) cho cả 2 hàm export
+- `exportExcel`: `Bác sĩ | Ngày làm việc | Tổng ngày công | Tổng ca khám`
+- `exportGrid`: `Bác sĩ | 01 | 02 | ... | 31 | Tổng` — đúng thứ tự
+
+#### Fix: Bug logic exportGrid dùng sai doctorRows
+- `exportGrid` tính lại `exportRows` inline từ `fixedDoctors` + `summaries` trực tiếp trong hàm
+- Tránh lỗi closure bắt giá trị cũ
+
+### 🖼️ Logo vuông
+- Logo app: `36×36px`, `borderRadius: 0` (vuông hoàn toàn)
+- `objectFit: 'cover'` + `imageRendering: crisp-edges` — ảnh sắc nét, không khoảng trắng
+
+---
+
+## ✅ Kiểm tra kỹ thuật
+
+| Hạng mục | Kết quả |
+|---|---|
+| TypeScript compile (`tsc --noEmit`) | ✅ Không lỗi |
+| Vite build (1778 modules) | ✅ 1.46s |
+| Electron packaging win32 x64 | ✅ |
+| NSIS installer ký số | ✅ |
+| File output | ✅ `DMH_Tools Setup 4.5.0.exe` (288 MB) |
+
+---
+
+## 📁 File phát hành
+
+| File | Kích thước | Mô tả |
+|---|---|---|
+| `release\DMH_Tools Setup 4.5.0.exe` | **288 MB** | Installer chính (NSIS, x64) |
+| `release\win-unpacked\` | — | Thư mục portable (không cài đặt) |
+
+---
+
+## 🐛 Bugs đã fix trong v4.5
+
+| # | Bug | Tab | Trạng thái |
+|---|---|---|---|
+| 1 | Dropdown cột hiển thị `__EMPTY` thay tên thực | Chấm Công | ✅ Fixed |
+| 2 | Xuất Excel bị đảo cột (Bác sĩ ra cuối) | Chấm Công | ✅ Fixed |
+| 3 | `exportGrid` dùng sai danh sách bác sĩ | Chấm Công | ✅ Fixed |
+| 4 | Logo bo tròn, ảnh không hiển thị rõ | Menu Bar | ✅ Fixed |
+
+---
+
+> **Lưu ý phân phối:** Installer đã được ký số bằng `signtool.exe`. Người dùng có thể cài trực tiếp mà không cần bypass SmartScreen nếu certificate hợp lệ.

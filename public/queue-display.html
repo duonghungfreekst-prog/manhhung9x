@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Màn Hình Chờ — DMH_Tools</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;800;900&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue-dark:  #0369a1;
+      --blue:       #0284c7;
+      --blue-light: #0ea5e9;
+      --teal:       #0d9488;
+      --gold:       #d97706;
+      --white:      #ffffff;
+      --gray-50:    #f8fafc;
+      --gray-100:   #f1f5f9;
+      --gray-200:   #e2e8f0;
+      --text-dark:  #0f172a;
+    }
+
+    html, body {
+      width: 100%; height: 100vh;
+      font-family: 'Be Vietnam Pro', 'Segoe UI', sans-serif;
+      background: #f0f9ff;
+      overflow: hidden;
+      color: var(--text-dark);
+    }
+
+    /* ── HEADER ── */
+    .header {
+      background: linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%);
+      padding: 10px 28px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      position: relative;
+      z-index: 10;
+      height: 110px;
+      flex-shrink: 0;
+    }
+    .header-logo {
+      width: 90px; height: 90px;
+      border-radius: 12px;
+      background: white;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .header-logo img { width: 100%; height: 100%; object-fit: cover; }
+    .header-logo-fallback { font-size: 28px; }
+    .header-text { flex: 1; }
+    .clinic-name {
+      color: white;
+      font-size: 2.2rem;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      text-transform: uppercase;
+      line-height: 1.2;
+    }
+    .clinic-sub {
+      color: rgba(255,255,255,0.9);
+      font-size: 1.1rem;
+      margin-top: 4px;
+    }
+    .header-clock {
+      text-align: right;
+      color: white;
+    }
+    .clock-time {
+      font-size: 2rem;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .clock-date {
+      font-size: 0.78rem;
+      opacity: 0.85;
+      margin-top: 3px;
+    }
+
+    /* ── BODY LAYOUT ── */
+    .body-wrap {
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      gap: 0;
+      height: calc(100vh - 110px - 38px); /* header + marquee */
+      overflow: hidden;
+    }
+
+    /* ── LEFT PANEL ── */
+    .left-panel {
+      display: flex;
+      flex-direction: column;
+      padding: 12px 16px;
+      gap: 10px;
+      background: #f0f9ff;
+      overflow: hidden;
+    }
+
+    /* Current patient card — compact */
+    .current-patient-card {
+      flex: 0 0 auto;
+      background: linear-gradient(135deg, #ffffff, #f0f9ff, #e0f2fe);
+      border-radius: 16px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 24px rgba(3,105,161,0.2);
+      position: relative;
+      overflow: hidden;
+      border: 2px solid #bae6fd;
+      min-height: 240px;
+    }
+
+    .calling-pulse {
+      display: flex; align-items: center; gap: 10px;
+      background: rgba(2,132,199,0.1);
+      border-radius: 30px;
+      padding: 5px 18px;
+      margin-bottom: 10px;
+    }
+    .calling-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #0284c7;
+      animation: pulse-dot 1s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%,100% { opacity:1; transform: scale(1); }
+      50%      { opacity:0.3; transform: scale(0.7); }
+    }
+    .calling-text {
+      color: #0284c7;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+    }
+
+    .patient-stt {
+      font-size: 8rem;
+      font-weight: 900;
+      color: #0369a1;
+      line-height: 1;
+      text-shadow: 0 4px 20px rgba(3,105,161,0.15);
+      font-variant-numeric: tabular-nums;
+      animation: patient-in 0.4s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    @keyframes patient-in {
+      from { transform: scale(0.7); opacity: 0; }
+      to   { transform: scale(1);   opacity: 1; }
+    }
+
+    .patient-name {
+      font-size: 2.8rem;
+      font-weight: 900;
+      color: #075985;
+      margin-top: 4px;
+      text-align: center;
+      max-width: 95%;
+      animation: patient-in 0.4s cubic-bezier(0.34,1.56,0.64,1) 0.1s both;
+      line-height: 1.1;
+    }
+    .patient-code {
+      font-size: 1rem;
+      color: #0284c7;
+      margin-top: 6px;
+    }
+
+    .idle-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      opacity: 0.6;
+      padding: 20px 0;
+    }
+    .idle-icon { font-size: 3.5rem; color: #38bdf8; }
+    .idle-text {
+      font-size: 1.2rem;
+      color: #0369a1;
+      font-weight: 600;
+    }
+
+    /* ── WAITING LIST TABLE (phía dưới left panel) ── */
+    .waiting-section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .waiting-title {
+      background: var(--blue);
+      color: white;
+      padding: 8px 16px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 10px 10px 0 0;
+      flex-shrink: 0;
+    }
+    .waiting-count {
+      background: rgba(255,255,255,0.25);
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 0.8rem;
+      margin-left: auto;
+    }
+
+    .waiting-table-wrap {
+      flex: 1;
+      overflow-y: auto;
+      border: 2px solid var(--blue);
+      border-top: none;
+      border-radius: 0 0 10px 10px;
+      background: white;
+    }
+    .waiting-table-wrap::-webkit-scrollbar { width: 8px; }
+    .waiting-table-wrap::-webkit-scrollbar-track { background: #f1f5f9; }
+    .waiting-table-wrap::-webkit-scrollbar-thumb { background: #0284c7; border-radius: 4px; }
+
+    .waiting-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .waiting-table th {
+      background: #e0f2fe;
+      color: var(--blue-dark);
+      font-weight: 700;
+      font-size: 0.78rem;
+      padding: 7px 10px;
+      text-align: left;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .waiting-table tr:not(:last-child) td {
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .waiting-table td {
+      padding: 8px 10px;
+      font-size: 0.88rem;
+      color: var(--text-dark);
+    }
+    .waiting-table tr:nth-child(even) td { background: #f8fffe; }
+    .stt-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      background: var(--blue);
+      color: white;
+      font-weight: 800;
+      font-size: 0.82rem;
+    }
+    .empty-waiting {
+      padding: 20px;
+      text-align: center;
+      color: #94a3b8;
+      font-size: 0.9rem;
+    }
+
+    /* ── RIGHT PANEL ── */
+    .right-panel {
+      background: linear-gradient(180deg, #e0f2fe 0%, #bae6fd 100%);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow: hidden;
+    }
+    .right-title {
+      color: #075985;
+      font-size: 0.82rem;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      font-weight: 700;
+      text-align: center;
+    }
+    .stats-box {
+      background: rgba(255,255,255,0.6);
+      border-radius: 10px;
+      padding: 10px;
+      text-align: center;
+    }
+    .stats-num {
+      font-size: 2.4rem;
+      font-weight: 900;
+      color: #0369a1;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .stats-label {
+      font-size: 0.75rem;
+      color: #075985;
+      margin-top: 2px;
+      font-weight: 600;
+    }
+    .stats-divider {
+      height: 1px;
+      background: rgba(3,105,161,0.15);
+      margin: 4px 0;
+    }
+
+    /* Scroll ticker of names */
+    .ticker-wrap {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+    .ticker-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      animation: ticker-scroll 20s linear infinite;
+    }
+    @keyframes ticker-scroll {
+      0%   { transform: translateY(0); }
+      100% { transform: translateY(-50%); }
+    }
+    .ticker-item {
+      background: rgba(255,255,255,0.6);
+      border-radius: 7px;
+      padding: 8px 12px;
+      color: #075985;
+      font-size: 0.85rem;
+    }
+    .ticker-item-stt {
+      font-weight: 800;
+      font-size: 1rem;
+      color: #0369a1;
+    }
+    .ticker-item-name {
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-top: 1px;
+    }
+
+    /* ── MARQUEE ── */
+    .marquee-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: var(--blue-dark);
+      color: white;
+      font-size: 0.92rem;
+      font-weight: 600;
+      padding: 6px 0;
+      overflow: hidden;
+      height: 38px;
+      display: flex;
+      align-items: center;
+    }
+    .marquee-inner {
+      white-space: nowrap;
+      display: inline-block;
+      animation: marquee-move 30s linear infinite;
+    }
+    @keyframes marquee-move {
+      0%   { transform: translateX(100vw); }
+      100% { transform: translateX(-100%); }
+    }
+
+    /* Transition flash */
+    .update-flash {
+      animation: flash-green 0.6s ease-out;
+    }
+    @keyframes flash-green {
+      0%   { background: rgba(186,230,253,0.6); }
+      100% { background: transparent; }
+    }
+
+    /* Watermark */
+    .watermark {
+      position: fixed;
+      bottom: 45px; right: 16px;
+      display: flex; align-items: center; gap: 6px;
+      opacity: 0.12; z-index: 10; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-logo">
+    <img id="headerLogoImg" src="icon.png" alt="logo" onerror="this.style.display='none';this.nextSibling.style.display='flex'">
+    <span class="header-logo-fallback" style="display:none">🏥</span>
+  </div>
+  <div class="header-text">
+    <div class="clinic-name" id="clinicName">PHÒNG KHÁM ĐA KHOA</div>
+    <div class="clinic-sub" id="roomLabel">🏠 Phòng Khám</div>
+  </div>
+  <div class="header-clock">
+    <div class="clock-time" id="clockTime">--:--:--</div>
+    <div class="clock-date" id="clockDate"></div>
+  </div>
+</div>
+
+<!-- BODY -->
+<div class="body-wrap">
+
+  <!-- LEFT -->
+  <div class="left-panel">
+
+    <!-- Card bệnh nhân đang gọi -->
+    <div class="current-patient-card" id="currentCard">
+      <div class="idle-state" id="idleState">
+        <div class="idle-icon">🏥</div>
+        <div class="idle-text">Đang chờ gọi bệnh nhân...</div>
+      </div>
+      <div id="callingState" style="display:none; text-align:center; width:100%;">
+        <div class="calling-pulse">
+          <div class="calling-dot"></div>
+          <span class="calling-text">🔊 ĐANG GỌI</span>
+          <div class="calling-dot"></div>
+        </div>
+        <div class="patient-stt" id="patientSTT">1</div>
+        <div class="patient-name" id="patientName">NGUYỄN VĂN A</div>
+        <div class="patient-code" id="patientCode"></div>
+      </div>
+    </div>
+
+    <!-- Danh sách chờ phía dưới -->
+    <div class="waiting-section">
+      <div class="waiting-title">
+        📋 Danh sách bệnh nhân chờ khám
+        <span class="waiting-count" id="waitingCount">0 người</span>
+      </div>
+      <div class="waiting-table-wrap">
+        <table class="waiting-table">
+          <thead>
+            <tr>
+              <th style="width:50px;">STT</th>
+              <th>HỌ VÀ TÊN BỆNH NHÂN</th>
+              <th style="width:90px;">TRẠNG THÁI</th>
+            </tr>
+          </thead>
+          <tbody id="waitingBody">
+            <tr><td colspan="3" class="empty-waiting">Chưa có dữ liệu</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="right-panel">
+    <div class="right-title">📊 Thống kê</div>
+
+    <div class="stats-box">
+      <div class="stats-num" id="statWaiting">0</div>
+      <div class="stats-label">Đang chờ</div>
+    </div>
+    <div class="stats-divider"></div>
+    <div class="stats-box">
+      <div class="stats-num" id="statCalled">0</div>
+      <div class="stats-label">Đã gọi</div>
+    </div>
+    <div class="stats-divider"></div>
+
+    <div class="right-title" style="margin-top:2px;">Danh sách chờ</div>
+    <div class="ticker-wrap">
+      <div class="ticker-list" id="tickerList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MARQUEE -->
+<div class="marquee-bar">
+  <div class="marquee-inner" id="marqueeText">
+    🏥 Chào mừng quý bệnh nhân đến khám tại phòng khám &nbsp;&nbsp;&nbsp;&nbsp;
+    Vui lòng chú ý lắng nghe để vào khám đúng giờ &nbsp;&nbsp;&nbsp;&nbsp;
+    Cảm ơn quý bệnh nhân đã tin tưởng và sử dụng dịch vụ của chúng tôi
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  </div>
+</div>
+
+<!-- WATERMARK -->
+<div class="watermark">
+  <img src="icon.png" style="width:24px;height:24px;filter:grayscale(100%);border-radius:5px;" />
+  <span style="font-size:1.2rem;font-weight:900;color:#0f172a;letter-spacing:1px;">DMH_Tools</span>
+</div>
+
+<script>
+  // ── CLOCK ──────────────────────────────────────────────────────────────────
+  function updateClock() {
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2,'0');
+    const m = String(now.getMinutes()).padStart(2,'0');
+    const s = String(now.getSeconds()).padStart(2,'0');
+    document.getElementById('clockTime').textContent = `${h}:${m}:${s}`;
+    const days = ['Chủ Nhật','Thứ Hai','Thứ Ba','Thứ Tư','Thứ Năm','Thứ Sáu','Thứ Bảy'];
+    document.getElementById('clockDate').textContent =
+      `${days[now.getDay()]}, ${now.toLocaleDateString('vi-VN')}`;
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  // ── STATE ──────────────────────────────────────────────────────────────────
+  let state = {
+    clinicName: 'PHÒNG KHÁM ĐA KHOA',
+    logoUrl:    'icon.png',
+    roomCode:   'Phòng Khám',
+    current:    null,   // { stt, name, code }
+    waiting:    [],     // [{ stt, name, code }]
+    calledCount: 0,
+  };
+
+  // ── BỘ CHUẨN HÓA NGỮ ÂM TIẾNG VIỆT 100% ────────────────────────────────
+  const DIGITS_VI = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
+  function numberToWords(num) {
+    if (isNaN(num)) return '';
+    num = Math.floor(Math.abs(num));
+    if (num === 0) return 'không';
+    if (num < 10) return DIGITS_VI[num];
+    const read2 = (n) => {
+      const tens = Math.floor(n / 10);
+      const unit = n % 10;
+      let s = tens === 1 ? 'mười' : DIGITS_VI[tens] + ' mươi';
+      if (unit === 1) s += tens > 1 ? ' mốt' : ' một';
+      else if (unit === 4) s += tens > 1 ? ' tư' : ' bốn';
+      else if (unit === 5) s += ' lăm';
+      else if (unit > 0) s += ' ' + DIGITS_VI[unit];
+      return s;
+    };
+    const read3 = (n, isHighest) => {
+      const h = Math.floor(n / 100);
+      const rem = n % 100;
+      if (h === 0 && isHighest) return rem < 10 ? DIGITS_VI[rem] : read2(rem);
+      let s = DIGITS_VI[h] + ' trăm';
+      if (rem === 0) return s;
+      if (rem < 10) s += ' linh ' + (rem === 4 ? 'tư' : DIGITS_VI[rem]);
+      else s += ' ' + read2(rem);
+      return s;
+    };
+    if (num < 100) return read2(num);
+    if (num < 1000) return read3(num, true);
+    if (num < 1000000) {
+      const th = Math.floor(num / 1000);
+      const rem = num % 1000;
+      let s = read3(th, true) + ' nghìn';
+      if (rem > 0) s += ' ' + read3(rem, false);
+      return s;
+    }
+    return String(num);
+  }
+
+  const VI_ABBR = [
+    [/\bBS\.?\s*CK\s*II\b/gi, 'bác sĩ chuyên khoa hai'],
+    [/\bBS\.?\s*CK\s*I\b/gi, 'bác sĩ chuyên khoa một'],
+    [/\bBSCKII\b/gi, 'bác sĩ chuyên khoa hai'],
+    [/\bBSCKI\b/gi, 'bác sĩ chuyên khoa một'],
+    [/\bCK\s*II\b/gi, 'chuyên khoa hai'],
+    [/\bCK\s*I\b/gi, 'chuyên khoa một'],
+    [/\bThS\.?\s*BS\b/gi, 'thạc sĩ bác sĩ'],
+    [/\bTS\.?\s*BS\b/gi, 'tiến sĩ bác sĩ'],
+    [/\bThS\b/gi, 'thạc sĩ'],
+    [/\bTS\b/gi, 'tiến sĩ'],
+    [/\bBS\b/gi, 'bác sĩ'],
+    [/\bB\/S\b/gi, 'bác sĩ'],
+    [/\bBN\b/gi, 'bệnh nhân'],
+    [/\bSTT\b/gi, 'số thứ tự'],
+    [/\bBHYT\b/gi, 'bảo hiểm y tế'],
+    [/\bKCB\b/gi, 'khám chữa bệnh'],
+    [/\bCLS\b/gi, 'cận lâm sàng'],
+    [/\bX-?Quang\b/gi, 'ích quang'],
+    [/\bXQ\b/gi, 'ích quang'],
+    [/\bSA\b/gi, 'siêu âm'],
+    [/\bXN\b/gi, 'xét nghiệm'],
+    [/\bTMH\b/gi, 'tai mũi họng'],
+    [/\bRHM\b/gi, 'răng hàm mặt'],
+    [/\bYHCT\b/gi, 'y học cổ truyền'],
+    [/\bPK\b/gi, 'phòng khám'],
+    [/\bP\.\s*/gi, 'phòng '],
+    [/\b(phòng|khoa|khu|tầng)\s+XX\b/gi, '$1 hai mươi'],
+    [/\b(phòng|khoa|khu|tầng)\s+XIX\b/gi, '$1 mười chín'],
+    [/\b(phòng|khoa|khu|tầng)\s+XVIII\b/gi, '$1 mười tám'],
+    [/\b(phòng|khoa|khu|tầng)\s+XVII\b/gi, '$1 mười bảy'],
+    [/\b(phòng|khoa|khu|tầng)\s+XVI\b/gi, '$1 mười sáu'],
+    [/\b(phòng|khoa|khu|tầng)\s+XV\b/gi, '$1 mười lăm'],
+    [/\b(phòng|khoa|khu|tầng)\s+XIV\b/gi, '$1 mười bốn'],
+    [/\b(phòng|khoa|khu|tầng)\s+XIII\b/gi, '$1 mười ba'],
+    [/\b(phòng|khoa|khu|tầng)\s+XII\b/gi, '$1 mười hai'],
+    [/\b(phòng|khoa|khu|tầng)\s+XI\b/gi, '$1 mười một'],
+    [/\b(phòng|khoa|khu|tầng)\s+X\b/gi, '$1 mười'],
+    [/\b(phòng|khoa|khu|tầng)\s+IX\b/gi, '$1 chín'],
+    [/\b(phòng|khoa|khu|tầng)\s+VIII\b/gi, '$1 tám'],
+    [/\b(phòng|khoa|khu|tầng)\s+VII\b/gi, '$1 bảy'],
+    [/\b(phòng|khoa|khu|tầng)\s+VI\b/gi, '$1 sáu'],
+    [/\b(phòng|khoa|khu|tầng)\s+V\b/gi, '$1 năm'],
+    [/\b(phòng|khoa|khu|tầng)\s+IV\b/gi, '$1 bốn'],
+    [/\b(phòng|khoa|khu|tầng)\s+III\b/gi, '$1 ba'],
+    [/\b(phòng|khoa|khu|tầng)\s+II\b/gi, '$1 hai'],
+    [/\b(phòng|khoa|khu|tầng)\s+I\b/gi, '$1 một'],
+    [/\b(phòng|khu|cửa|bàn)\s*0+([1-9]\d*)/gi, '$1 $2'],
+  ];
+
+  const VI_LETTERS = {
+    A: 'a', B: 'bê', C: 'xê', D: 'đê', E: 'e', F: 'ép',
+    G: 'gờ', H: 'hát', I: 'i', J: 'giê', K: 'ca', L: 'e lờ',
+    M: 'em', N: 'en', O: 'o', P: 'pê', Q: 'quy', R: 'e rờ',
+    S: 'ét', T: 'tê', U: 'u', V: 'vê', W: 'vê kép', X: 'ích',
+    Y: 'i dài', Z: 'dét'
+  };
+
+  function normalizeVietnamese(raw) {
+    if (!raw) return '';
+    let text = String(raw).trim();
+    for (const [p, r] of VI_ABBR) text = text.replace(p, r);
+    text = text.replace(/([A-ZÀ-Ỹa-zà-ỹ])'([A-ZÀ-Ỹa-zà-ỹ])/g, '$1 $2');
+    text = text.replace(/(\d+)\s*([A-Za-z])\b/g, (_, n, l) => `${n} ${VI_LETTERS[l.toUpperCase()] || l}`);
+    text = text.replace(/\b(khu|dãy|cửa|bàn|tầng)\s+([A-Za-z])\b/gi, (_, p, l) => `${p} ${VI_LETTERS[l.toUpperCase()] || l}`);
+    text = text.replace(/\b0*([1-9]\d*)\b/g, (_, nStr) => numberToWords(parseInt(nStr, 10)));
+    text = text.replace(/\b0\b/g, 'không');
+    text = text.replace(/[@#$%^&*_+=\\~<>[\]{}|/]/g, ' ');
+    text = text.replace(/\s*,\s*/g, ', ').replace(/\s*\.\s*/g, '. ').replace(/\s+/g, ' ').trim();
+    if (text && !text.endsWith('.') && !text.endsWith('!') && !text.endsWith('?')) text += '.';
+    return text;
+  }
+
+  // ── TTS TIẾNG VIỆT ─────────────────────────────────────────────────────────
+  // Ưu tiên: Piper TTS qua IPC (giọng tự nhiên) → fallback Web Speech API vi-VN
+  const bridge = (typeof window !== 'undefined' && window.electronQueueBridge) 
+                 ? window.electronQueueBridge : null;
+
+  let _ttsQueue = [];
+  let _ttsBusy  = false;
+
+  function speakVietnamese(rawText) {
+    const text = normalizeVietnamese(rawText);
+    if (!text) return;
+    _ttsQueue.push(text);
+    processQueue();
+  }
+
+  function processQueue() {
+    if (_ttsBusy || _ttsQueue.length === 0) return;
+    const text = _ttsQueue.shift();
+    _ttsBusy = true;
+
+    // Thử dùng Piper TTS qua IPC trước (nếu có)
+    if (bridge && bridge.speakPiper) {
+      bridge.speakPiper(text)
+        .then(ok => {
+          if (!ok) fallbackWebSpeech(text);
+          else {
+            const estimatedMs = Math.max(2000, text.length * 80);
+            setTimeout(() => { _ttsBusy = false; processQueue(); }, estimatedMs);
+          }
+        })
+        .catch(() => { fallbackWebSpeech(text); });
+    } else {
+      fallbackWebSpeech(text);
+    }
+  }
+
+  function fallbackWebSpeech(text) {
+    const synth = window.speechSynthesis;
+    if (!synth) { _ttsBusy = false; processQueue(); return; }
+    synth.cancel();
+
+    const doSpeak = () => {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang  = 'vi-VN';
+      u.rate  = 0.85;
+      u.pitch = 1;
+
+      // ÉP BUỘC: CHỈ LẤY GIỌNG TIẾNG VIỆT, TUYỆT ĐỐI CHẶN GIỌNG TIẾNG ANH
+      const voices = synth.getVoices();
+      const viVoice = voices.find(v => 
+        v.lang === 'vi-VN' || 
+        v.lang.startsWith('vi') || 
+        v.lang.toLowerCase().includes('vietnam') ||
+        v.name.toLowerCase().includes('vietnam') ||
+        v.name.toLowerCase().includes('hoaimy') ||
+        v.name.toLowerCase().includes('an')
+      ) || null;
+
+      if (viVoice) {
+        u.voice = viVoice;
+      } else {
+        // NẾU KHÔNG CÓ GIỌNG TIẾNG VIỆT, BỎ QUA - KHÔNG ĐỂ GIỌNG ANH PHÁT ÂM SAI
+        _ttsBusy = false;
+        processQueue();
+        return;
+      }
+
+      u.onend   = () => { _ttsBusy = false; processQueue(); };
+      u.onerror = () => { _ttsBusy = false; processQueue(); };
+      synth.speak(u);
+    };
+
+    const voices = synth.getVoices();
+    if (voices.length > 0) {
+      doSpeak();
+    } else {
+      let spoken = false;
+      synth.onvoiceschanged = () => {
+        if (spoken) return;
+        spoken = true;
+        synth.onvoiceschanged = null;
+        doSpeak();
+      };
+      setTimeout(() => {
+        if (!spoken) { spoken = true; doSpeak(); }
+      }, 600);
+    }
+  }
+
+  // ── RENDER ─────────────────────────────────────────────────────────────────
+  function render() {
+    // Logo & Clinic / room
+    document.getElementById('headerLogoImg').src = state.logoUrl || 'icon.png';
+    document.getElementById('clinicName').textContent = state.clinicName || 'PHÒNG KHÁM ĐA KHOA';
+    document.getElementById('roomLabel').textContent  = '🏠 ' + state.roomCode;
+    document.getElementById('marqueeText').innerHTML  =
+      `🏥 Chào mừng quý bệnh nhân đến khám tại ${state.clinicName}` +
+      `&nbsp;&nbsp;&nbsp;&nbsp;Phòng: ${state.roomCode}` +
+      `&nbsp;&nbsp;&nbsp;&nbsp;Vui lòng chú ý lắng nghe để vào khám đúng giờ` +
+      `&nbsp;&nbsp;&nbsp;&nbsp;Cảm ơn quý bệnh nhân đã tin tưởng sử dụng dịch vụ`;
+
+    // Current patient
+    const idle    = document.getElementById('idleState');
+    const calling = document.getElementById('callingState');
+    if (state.current) {
+      idle.style.display    = 'none';
+      calling.style.display = 'block';
+      document.getElementById('patientSTT').textContent  = state.current.stt;
+      document.getElementById('patientName').textContent = state.current.name.toUpperCase();
+      document.getElementById('patientCode').textContent = state.current.code
+        ? `Mã: ${state.current.code}` : '';
+    } else {
+      idle.style.display    = 'flex';
+      calling.style.display = 'none';
+    }
+
+    // Waiting list
+    const tbody   = document.getElementById('waitingBody');
+    const waiting = state.waiting.filter(p => !state.current || p.stt !== state.current.stt);
+    document.getElementById('waitingCount').textContent = waiting.length + ' người';
+    document.getElementById('statWaiting').textContent  = waiting.length;
+    document.getElementById('statCalled').textContent   = state.calledCount;
+
+    if (waiting.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" class="empty-waiting">Chưa có bệnh nhân chờ</td></tr>';
+    } else {
+      tbody.innerHTML = waiting.slice(0, 20).map(p => `
+        <tr>
+          <td><span class="stt-badge">${p.stt}</span></td>
+          <td>${p.name}</td>
+          <td style="color:#1a7a4a;font-weight:600;font-size:0.78rem;">⏳ Đang chờ</td>
+        </tr>
+      `).join('');
+    }
+
+    // Ticker (right panel)
+    const all = state.waiting.slice(0, 20);
+    if (all.length > 0) {
+      const items = [...all, ...all];
+      document.getElementById('tickerList').innerHTML = items.map(p => `
+        <div class="ticker-item">
+          <div class="ticker-item-stt">STT: ${p.stt}</div>
+          <div class="ticker-item-name">${p.name}</div>
+        </div>
+      `).join('');
+    } else {
+      document.getElementById('tickerList').innerHTML =
+        '<div class="ticker-item"><div class="ticker-item-name">Chưa có bệnh nhân chờ</div></div>';
+    }
+  }
+
+  // ── IPC from main process ──────────────────────────────────────────────────
+  let lastCalledStt = null;
+
+  if (bridge) {
+    bridge.onUpdate((data) => {
+      const prevStt = state.current ? state.current.stt : null;
+      state = { ...state, ...data };
+      render();
+
+      // Flash animation
+      document.getElementById('currentCard').classList.remove('update-flash');
+      void document.getElementById('currentCard').offsetWidth;
+      document.getElementById('currentCard').classList.add('update-flash');
+
+      // Đọc TTS nếu bệnh nhân mới được gọi
+      if (data.current && data.current.stt !== prevStt) {
+        const { stt, name } = data.current;
+        speakVietnamese(`Mời bệnh nhân ${name}, số thứ tự ${stt}, vào phòng khám.`);
+      }
+    });
+  }
+
+  // ── Polling fallback via localStorage ─────────────────────────────────────
+  function pollLocalStorage() {
+    try {
+      const raw = localStorage.getItem('dmh_queue_display');
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      const prevStt = state.current ? state.current.stt : null;
+      state = { ...state, ...data };
+      render();
+      // TTS khi có bệnh nhân mới (chỉ trong fallback mode - không qua IPC)
+      if (!bridge && data.current && data.current.stt !== prevStt) {
+        speakVietnamese(`Mời bệnh nhân ${data.current.name}, số thứ tự ${data.current.stt}, vào phòng khám.`);
+      }
+    } catch {}
+  }
+  setInterval(pollLocalStorage, 800);
+  pollLocalStorage();
+
+  render();
+</script>
+</body>
+</html>

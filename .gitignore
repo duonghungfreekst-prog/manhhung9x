@@ -1,0 +1,54 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Build outputs & Large binary files
+release/
+release_assets/
+bin/
+vendor/
+python_core/dist_py/
+python_core/build_py/
+python_core/build/
+python_core_dist/
+python_core/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyd
+*.spec
+*.exe
+*.zip
+*.onnx
+*.pkg
+*.asar
+
+# Environment and Secrets (Rule 3.3)
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.crt
+scratch/
+

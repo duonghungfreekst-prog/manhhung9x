@@ -1,0 +1,150 @@
+{
+  "name": "dmh-tools",
+  "productName": "DMH_Tools",
+  "version": "6.6.7",
+  "description": "DMH_Tools v6.6.7 - Hospital & Clinic Management Commercial Suite",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 -i 1 -t 60000 && electron .\"",
+    "electron:build": "powershell -Command \"Stop-Process -Name 'DMH_Tools*' -Force -ErrorAction SilentlyContinue\" && npm run build && electron-builder build --win --x64",
+    "electron:build:slim": "powershell -Command \"Stop-Process -Name 'DMH_Tools*' -Force -ErrorAction SilentlyContinue\" && npm run build && electron-builder build --win --x64 --config electron-builder-slim.json",
+    "electron:build:dir": "powershell -Command \"Stop-Process -Name 'DMH_Tools*' -Force -ErrorAction SilentlyContinue\" && npm run build && electron-builder build --win --x64 --dir",
+    "electron:build:full": "build_full.bat",
+    "prepare:python": "python scripts/prepare_python_embed.py"
+  },
+  "dependencies": {
+    "docx": "^9.6.1",
+    "lucide-react": "^1.14.0",
+    "mssql": "^12.5.2",
+    "pdfjs-dist": "^5.7.284",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "tesseract.js": "^7.0.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.5.0",
+    "png-to-ico": "^3.0.1",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.58.2",
+    "vite": "^8.0.10",
+    "wait-on": "^9.0.5"
+  },
+  "build": {
+    "appId": "com.hospital.dmhtools",
+    "productName": "DMH_Tools",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "bin/dist/convert_pdf.exe",
+        "to": "bin/convert_pdf.exe"
+      },
+      {
+        "from": "python_core_dist/endoscopy_server",
+        "to": "python_core/endoscopy_server",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "python_core_dist/xml3176_server",
+        "to": "python_core/xml3176_server",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "scripts/tts_server.py",
+        "to": "scripts/tts_server.py"
+      },
+      {
+        "from": "python_core_dist/compare_server",
+        "to": "python_core/compare_server",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "scripts/install_tts.bat",
+        "to": "scripts/install_tts.bat"
+      },
+      {
+        "from": "scripts/install_camera_driver.ps1",
+        "to": "scripts/install_camera_driver.ps1"
+      },
+      {
+        "from": "scripts/install_camera_driver.bat",
+        "to": "scripts/install_camera_driver.bat"
+      },
+      {
+        "from": "vendor/python-embed",
+        "to": "vendor/python-embed",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "vendor/piper",
+        "to": "vendor/piper",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "shortcutName": "DMH_Tools",
+      "installerHeaderIcon": "public/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": true,
+      "include": "build/installer.nsh",
+      "license": null,
+      "language": "1066"
+    }
+  }
+}

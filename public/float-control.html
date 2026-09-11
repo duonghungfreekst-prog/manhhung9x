@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Điều Khiển Gọi BN</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: transparent; overflow: visible;
+    user-select: none; -webkit-app-region: drag;
+  }
+
+  /* ─── Wrapper: main window + side panel side by side ─── */
+  .layout {
+    display: flex;
+    align-items: flex-start;
+    position: relative;
+    overflow: hidden;
+    min-width: 270px;
+    height: 100vh; /* Fill entire window height */
+    transition: opacity 0.2s;
+  }
+
+  .window {
+    width: 270px;
+    flex-shrink: 0;
+    background: linear-gradient(160deg,#0f172a 0%,#1e293b 100%);
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 20px 40px rgba(0,0,0,.7);
+    overflow: hidden;
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    max-height: 100%; /* Limit to window height */
+  }
+
+  .side-panel {
+    position: absolute;
+    left: 276px; /* Added 6px gap */
+    top: 0;
+    width: 0;
+    height: 100%; /* Match layout height */
+    max-height: 100%;
+    background: linear-gradient(160deg,#0f172a 0%,#1e2d45 100%);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 16px; /* Rounded all 4 corners */
+    box-shadow: 8px 8px 30px rgba(0,0,0,.6);
+    overflow: hidden;
+    transition: width 0.28s cubic-bezier(.4,0,.2,1);
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .side-panel.open {
+    width: 255px;
+  }
+
+  .side-panel-inner {
+    width: 255px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .side-panel-header {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .side-panel-title {
+    font-size: .65rem; font-weight: 800; letter-spacing: .07em;
+    text-transform: uppercase;
+  }
+  .side-panel-close {
+    -webkit-app-region: no-drag;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: rgba(239,68,68,.15); border: 1px solid rgba(239,68,68,.3);
+    color: #f87171; font-size: .65rem;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all .15s;
+  }
+  .side-panel-close:hover { background: #ef4444; color: #fff; }
+
+  /* Column headers */
+  .side-col-head {
+    display: flex; align-items: center;
+    padding: 5px 10px;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    font-size: .58rem; color: #475569; font-weight: 700;
+    letter-spacing: .05em; text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .col-stt  { width: 32px; text-align: center; }
+  .col-name { flex: 1; padding-left: 4px; }
+  .col-age  { width: 36px; text-align: center; }
+  .col-action { width: 36px; text-align: center; }
+
+  /* Scrollable list */
+  .side-list {
+    overflow-y: auto;
+    flex: 1;
+    -webkit-app-region: no-drag;
+  }
+  .side-list::-webkit-scrollbar { width: 4px; }
+  .side-list::-webkit-scrollbar-track { background: rgba(255,255,255,.03); }
+  .side-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 2px; }
+  .side-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
+
+  .side-item {
+    display: flex; align-items: center;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    transition: background .12s;
+  }
+  .side-item:last-child { border-bottom: none; }
+  .side-item:hover { background: rgba(255,255,255,.05); }
+
+  .side-stt {
+    width: 32px; text-align: center;
+    font-size: .82rem; font-weight: 800;
+  }
+  .side-stt-wait { color: #f59e0b; }
+  .side-stt-done { color: #10b981; }
+
+  .side-info { flex: 1; padding-left: 4px; overflow: hidden; }
+  .side-name {
+    font-size: .72rem; font-weight: 600; color: #cbd5e1;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .side-room { font-size: .58rem; color: #475569; margin-top: 1px; }
+
+  .side-age {
+    width: 36px; text-align: center;
+    font-size: .72rem; font-weight: 700; color: #94a3b8;
+  }
+  
+  .side-action {
+    width: 36px; display: flex; align-items: center; justify-content: center;
+  }
+
+  .side-empty {
+    color: #334155; font-size: .72rem; text-align: center;
+    padding: 18px 10px;
+  }
+
+  /* ─── Title bar ─── */
+  .titlebar {
+    padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    background: rgba(255,255,255,.03);
+    -webkit-app-region: drag;
+    cursor: pointer;
+  }
+  .titlebar-left {
+    display: flex; align-items: center; gap: 8px;
+    -webkit-app-region: no-drag;
+    cursor: pointer;
+  }
+  .dot { width:8px; height:8px; border-radius:50%; background:#10b981;
+         box-shadow:0 0 6px #10b981; animation:pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .title { font-size:.7rem; font-weight:700; color:#64748b; letter-spacing:.08em; text-transform:uppercase; user-select:none; }
+  .titlebar-actions {
+    display: flex; align-items: center; gap: 6px;
+    -webkit-app-region: no-drag;
+  }
+  .mini-bubble-btn {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(59,130,246,.18); border: 1px solid rgba(59,130,246,.4);
+    color: #60a5fa; font-size: .72rem;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all .15s;
+  }
+  .mini-bubble-btn:hover { background: #3b82f6; color: #fff; transform: scale(1.08); }
+  .close-btn {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(239,68,68,.18); border: 1px solid rgba(239,68,68,.4);
+    color: #f87171; font-size: .75rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all .15s;
+  }
+  .close-btn:hover { background: #ef4444; color: #fff; }
+
+  /* ─── Current card ─── */
+  .current-section { padding:12px 14px 10px; }
+  .current-lbl { font-size:.6rem; color:#475569; letter-spacing:.1em; text-transform:uppercase;
+                 font-weight:600; margin-bottom:6px; }
+  .current-card {
+    background: linear-gradient(135deg,rgba(16,185,129,.2),rgba(5,150,105,.12));
+    border:1px solid rgba(16,185,129,.3); border-radius:10px;
+    padding:10px 14px; display:flex; align-items:center; gap:12px;
+  }
+  .current-stt { font-size:2rem; font-weight:900; color:#10b981;
+                 min-width:48px; text-align:center; line-height:1;
+                 text-shadow:0 0 20px rgba(16,185,129,.5); }
+  .current-info { flex:1; overflow:hidden; }
+  .current-name { font-size:.85rem; font-weight:700; color:#f1f5f9;
+                  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .current-room { font-size:.68rem; color:#64748b; margin-top:2px; }
+  .no-current { color:#334155; font-size:.78rem; text-align:center; padding:10px; }
+
+  /* ─── Stats ─── */
+  .stats-row {
+    display:flex; gap:8px; padding:0 14px 10px;
+  }
+  .stat-box {
+    flex:1; background:rgba(255,255,255,.04);
+    border-radius:9px; padding:6px 8px; text-align:center;
+    border:1px solid rgba(255,255,255,.07);
+  }
+  .stat-val { font-size:1.25rem; font-weight:800; }
+  .stat-lbl { font-size:.58rem; color:#475569; text-transform:uppercase;
+              font-weight:600; letter-spacing:.04em; margin-top:1px; }
+  .stat-wait .stat-val { color:#f59e0b; }
+  .stat-done .stat-val { color:#10b981; }
+
+  /* ─── Tab headers (click to open side panel) ─── */
+  .tab-header {
+    -webkit-app-region: no-drag;
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 9px 14px;
+    cursor:pointer;
+    border-top:1px solid rgba(255,255,255,.07);
+    transition: background .15s;
+  }
+  .tab-header:hover { background:rgba(255,255,255,.05); }
+  .tab-header.active { background:rgba(255,255,255,.06); }
+
+  .tab-header-left { display:flex; align-items:center; gap:8px; }
+  .tab-header-icon { font-size:.85rem; }
+  .tab-header-text { font-size:.7rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+  .tab-header-badge {
+    font-size:.6rem; font-weight:800; padding:1px 6px;
+    border-radius:10px; min-width:18px; text-align:center;
+  }
+  /* Arrow pointing right → indicates side panel direction */
+  .tab-header-arrow {
+    font-size:.65rem; color:#475569; transition:transform .2s;
+  }
+  .tab-header-arrow.open { transform: rotate(0deg); color: #94a3b8; }
+
+  /* Waiting tab */
+  .tab-wait .tab-header-text { color:#f59e0b; }
+  .tab-wait .tab-header-badge { background:rgba(245,158,11,.2); color:#f59e0b; border:1px solid rgba(245,158,11,.3); }
+
+  /* Done tab */
+  .tab-done .tab-header-text { color:#10b981; }
+  .tab-done .tab-header-badge { background:rgba(16,185,129,.2); color:#10b981; border:1px solid rgba(16,185,129,.3); }
+
+  /* ─── Controls ─── */
+  .controls {
+    padding:10px 14px 8px;
+    display:flex; flex-direction:column; gap:7px;
+    border-top:1px solid rgba(255,255,255,.07);
+  }
+  .btn {
+    -webkit-app-region: no-drag;
+    width:100%; padding:10px 14px; border-radius:10px; border:none;
+    cursor:pointer; font-size:.82rem; font-weight:800; letter-spacing:.04em;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    transition:all .15s; position:relative; overflow:hidden;
+  }
+  .btn::after { content:''; position:absolute; inset:0; background:#fff; opacity:0; transition:opacity .15s; }
+  .btn:hover::after { opacity:.07; }
+  .btn:active { transform:scale(.97); }
+  .btn-call { background:linear-gradient(135deg,#10b981,#059669); color:#fff;
+              box-shadow:0 4px 15px rgba(16,185,129,.4); font-size:.9rem; padding:13px; }
+  .btn-recall { background:rgba(59,130,246,.15); border:1.5px solid rgba(59,130,246,.4)!important; color:#60a5fa; }
+  .btn-row { display:flex; gap:7px; }
+  .btn-row .btn { flex:1; padding:8px 6px; font-size:.68rem; }
+  .btn-refresh { background:rgba(168,85,247,.15); border:1.5px solid rgba(168,85,247,.35)!important; color:#c084fc; }
+  .btn-tv { background:rgba(124,58,237,.15); border:1.5px solid rgba(124,58,237,.35)!important; color:#a78bfa; }
+  .btn-minimize { background:rgba(148,163,184,.1); border:1px solid rgba(148,163,184,.2)!important; color:#94a3b8; }
+
+  /* ─── Countdown ─── */
+  .countdown {
+    padding: 4px 12px 8px;
+    display:flex; align-items:center; gap:6px;
+    font-size:.62rem; color:#334155;
+  }
+  .cd-bar { flex:1; height:3px; background:rgba(255,255,255,.05); border-radius:2px; overflow:hidden; }
+  .cd-fill { height:100%; background:#10b981; border-radius:2px; transition:width 1s linear; }
+  .cd-val { color:#10b981; font-weight:700; min-width:24px; text-align:right; }
+
+  /* ─── Bubble Widget ─── */
+  .bubble-widget {
+    position: absolute; inset: 0;
+    width: 60px; height: 60px;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    border-radius: 50%;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.2);
+    display: none; align-items: center; justify-content: center;
+    cursor: pointer; -webkit-app-region: drag;
+    transition: transform 0.2s, box-shadow 0.2s;
+    z-index: 99; margin: 4px; /* padding for shadow */
+  }
+  .bubble-widget:hover { transform: scale(1.05); box-shadow: 0 12px 30px rgba(0,0,0,0.6); }
+  .bubble-icon { font-size: 1.6rem; -webkit-app-region: no-drag; }
+  .bubble-badge {
+    position: absolute; top: -2px; right: -2px;
+    background: #ef4444; color: white; border-radius: 10px;
+    font-size: 0.65rem; font-weight: 800;
+    padding: 2px 6px; border: 2px solid #1e293b;
+    -webkit-app-region: no-drag;
+  }
+</style>
+</head>
+<body>
+
+<div class="bubble-widget" id="bubbleWidget" onclick="toggleBubble(false)">
+  <div class="bubble-icon">🔊</div>
+  <div class="bubble-badge" id="bubbleBadge" style="display:none;">0</div>
+</div>
+
+<div class="layout" id="mainLayout">
+
+  <!-- ── Main window ── -->
+  <div class="window">
+
+    <!-- Title -->
+    <div class="titlebar" id="titleBar" title="Nhấp đúp (Double tap) vào thanh này để thu nhỏ thành bong bóng">
+      <div class="titlebar-left" id="titleBarLeft" title="Nhấp đúp (Double tap) để thu nhỏ thành bong bóng">
+        <div class="dot"></div>
+        <span class="title">Điều Khiển Gọi BN</span>
+      </div>
+      <div class="titlebar-actions">
+        <div class="mini-bubble-btn" id="btnMiniBubble" title="Thu nhỏ thành bong bóng (hoặc nhấp đúp thanh này)">💭</div>
+        <div class="close-btn" id="btnClose" title="Đóng cửa sổ">✕</div>
+      </div>
+    </div>
+
+    <!-- Current -->
+    <div class="current-section">
+      <div class="current-lbl">📢 Đang Gọi</div>
+      <div id="currentCard" class="no-current">Chưa có bệnh nhân được gọi</div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat-box stat-wait">
+        <div class="stat-val" id="waitCount">0</div>
+        <div class="stat-lbl">Chờ khám</div>
+      </div>
+      <div class="stat-box stat-done">
+        <div class="stat-val" id="doneCount">0</div>
+        <div class="stat-lbl">Đã gọi</div>
+      </div>
+    </div>
+
+    <!-- Tab: Chờ Khám → click to open side panel -->
+    <div class="tab-wait">
+      <div class="tab-header" id="tabWaitHeader" onclick="openSidePanel('wait')">
+        <div class="tab-header-left">
+          <span class="tab-header-icon">⏳</span>
+          <span class="tab-header-text">Chờ Khám</span>
+          <span class="tab-header-badge" id="badgeWait">0</span>
+        </div>
+        <span class="tab-header-arrow" id="arrowWait">▶</span>
+      </div>
+    </div>
+
+    <!-- Tab: Đã Gọi → click to open side panel -->
+    <div class="tab-done">
+      <div class="tab-header" id="tabDoneHeader" onclick="openSidePanel('done')">
+        <div class="tab-header-left">
+          <span class="tab-header-icon">✅</span>
+          <span class="tab-header-text">Đã Gọi</span>
+          <span class="tab-header-badge" id="badgeDone">0</span>
+        </div>
+        <span class="tab-header-arrow" id="arrowDone">▶</span>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn btn-call"    id="btnCallNext">▶ GỌI TIẾP THEO</button>
+      <button class="btn btn-recall"  id="btnRecall">🔁 GỌI LẠI</button>
+      <div class="btn-row">
+        <button class="btn btn-refresh"  id="btnRefresh">↻ Làm mới</button>
+        <button class="btn btn-tv"       id="btnToggleTv">📺 Màn chờ</button>
+        <button class="btn btn-minimize" id="btnMinimize">💭 Bong bóng</button>
+      </div>
+    </div>
+
+    <!-- Countdown -->
+    <div class="countdown" id="cdSection">
+      <span>Tự làm mới:</span>
+      <div class="cd-bar"><div class="cd-fill" id="cdFill" style="width:100%"></div></div>
+      <span class="cd-val" id="cdVal">–</span>
+    </div>
+
+  </div><!-- /window -->
+
+  <!-- ── Side panel (slides out to the right) ── -->
+  <div class="side-panel" id="sidePanel">
+    <div class="side-panel-inner">
+      <div class="side-panel-header" id="sidePanelHeader" title="Nhấp đúp (Double tap) vào thanh này để thu nhỏ thành bong bóng">
+        <span class="side-panel-title" id="sidePanelTitle">Danh sách</span>
+        <div class="side-panel-close" id="sidePanelClose" onclick="closeSidePanel()" title="Đóng danh sách">✕</div>
+      </div>
+      <!-- Column headers -->
+      <div class="side-col-head">
+        <div class="col-stt">STT</div>
+        <div class="col-name">Họ và Tên</div>
+        <div class="col-age">Tuổi</div>
+        <div class="col-action"></div>
+      </div>
+      <!-- Scrollable patient list -->
+      <div class="side-list" id="sideList">
+        <div class="side-empty">Chọn danh sách để xem</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /layout -->
+
+<script>
+  const api = window.floatAPI;
+
+  let state = {
+    current: null, waiting: 0, called: 0,
+    waitingList: [], calledList: [],
+    autoRefreshSec: 3, countdown: 3, tvOpen: false,
+  };
+
+  // Which panel is open: null | 'wait' | 'done'
+  let activePanelTab = null;
+
+  // ── Side panel open/close ─────────────────────────────────────────────────
+  function openSidePanel(tab) {
+    if (activePanelTab === tab) {
+      // Toggle: click same tab again → close
+      closeSidePanel();
+      return;
+    }
+    activePanelTab = tab;
+
+    // Update header style
+    document.getElementById('tabWaitHeader').classList.toggle('active', tab === 'wait');
+    document.getElementById('tabDoneHeader').classList.toggle('active', tab === 'done');
+
+    // Open panel
+    document.getElementById('sidePanel').classList.add('open');
+
+    // Update panel title & color
+    const titleEl = document.getElementById('sidePanelTitle');
+    if (tab === 'wait') {
+      titleEl.textContent = '⏳ Chờ Khám';
+      titleEl.style.color = '#f59e0b';
+    } else {
+      titleEl.textContent = '✅ Đã Gọi';
+      titleEl.style.color = '#10b981';
+    }
+
+    renderSideList();
+  }
+
+  function closeSidePanel() {
+    activePanelTab = null;
+    document.getElementById('sidePanel').classList.remove('open');
+    document.getElementById('tabWaitHeader').classList.remove('active');
+    document.getElementById('tabDoneHeader').classList.remove('active');
+  }
+
+  // ── Render side panel list ────────────────────────────────────────────────
+  function renderSideList() {
+    if (!activePanelTab) return;
+    const isDone = activePanelTab === 'done';
+    const items  = isDone ? state.calledList : state.waitingList;
+    const listEl = document.getElementById('sideList');
+
+    if (!items || items.length === 0) {
+      listEl.innerHTML = `<div class="side-empty">${isDone ? 'Chưa có bệnh nhân được gọi' : 'Không có bệnh nhân chờ'}</div>`;
+      return;
+    }
+
+    listEl.innerHTML = items.map(pt => {
+      const sttClass = isDone ? 'side-stt-done' : 'side-stt-wait';
+      const ageStr = (pt.age != null && pt.age !== '') ? pt.age : ((pt.tuoi != null && pt.tuoi !== '') ? pt.tuoi : '—');
+      const actionIcon = isDone ? '🔁' : '▶';
+      const actionTitle = isDone ? 'Gọi lại bệnh nhân này' : 'Gọi bệnh nhân này';
+      return `
+        <div class="side-item">
+          <div class="side-stt ${sttClass}">#${pt.stt}</div>
+          <div class="side-info">
+            <div class="side-name">${esc(pt.name)}</div>
+            <div class="side-room">Phòng ${esc(String(pt.room||''))}</div>
+          </div>
+          <div class="side-age">${esc(String(ageStr))}</div>
+          <div class="side-action">
+            <button onclick="callSpecific('${esc(pt.id)}')" title="${actionTitle}" style="background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); border-radius: 4px; color: #10b981; cursor: pointer; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; transition: all 0.15s; -webkit-app-region: no-drag;">
+              ${actionIcon}
+            </button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+  
+  window.callSpecific = function(id) {
+    if (api && api.floatAction) {
+      api.floatAction({ type: 'call-specific', id: id });
+    }
+  };
+
+  // ── Render main window ────────────────────────────────────────────────────
+  function render() {
+    // Current
+    const card = document.getElementById('currentCard');
+    if (state.current) {
+      card.className = 'current-card';
+      card.innerHTML = `
+        <div class="current-stt">#${state.current.stt}</div>
+        <div class="current-info">
+          <div class="current-name">${esc(state.current.name)}</div>
+          <div class="current-room">Phòng ${esc(String(state.current.room||''))}</div>
+        </div>`;
+    } else {
+      card.className = 'no-current';
+      card.innerHTML = 'Chưa có bệnh nhân được gọi';
+    }
+
+    // Stats
+    document.getElementById('waitCount').textContent = state.waiting;
+    document.getElementById('doneCount').textContent = state.called;
+
+    // Badges & Bubble Badge
+    document.getElementById('badgeWait').textContent = state.waiting;
+    document.getElementById('badgeDone').textContent = state.called;
+    const bBadge = document.getElementById('bubbleBadge');
+    if (state.waiting > 0) {
+      bBadge.style.display = 'block';
+      bBadge.textContent = state.waiting;
+    } else {
+      bBadge.style.display = 'none';
+    }
+
+    // Side panel list (refresh if open)
+    renderSideList();
+
+    // Countdown
+    const sec = state.autoRefreshSec || 3;
+    const cd  = state.countdown != null ? state.countdown : sec;
+    document.getElementById('cdSection').style.display = sec > 0 ? 'flex' : 'none';
+    document.getElementById('cdVal').textContent = cd + 's';
+    document.getElementById('cdFill').style.width = Math.round((cd / sec) * 100) + '%';
+
+    // TV button
+    const tvBtn = document.getElementById('btnToggleTv');
+    tvBtn.textContent = state.tvOpen ? '📺 Đóng màn' : '📺 Màn chờ';
+    tvBtn.style.color = state.tvOpen ? '#f87171' : '#a78bfa';
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── IPC ───────────────────────────────────────────────────────────────────
+  if (api?.onStateUpdate) {
+    api.onStateUpdate(data => {
+      state = {
+        ...state, ...data,
+        waitingList: data.waitingList || state.waitingList || [],
+        calledList:  data.calledList  || state.calledList  || [],
+        countdown:   data.autoRefreshSec != null ? data.autoRefreshSec : state.countdown,
+      };
+      render();
+    });
+  }
+
+  // ── Countdown tick ────────────────────────────────────────────────────────
+  setInterval(() => {
+    if (state.autoRefreshSec <= 0) return;
+    state.countdown = Math.max(0, (state.countdown || state.autoRefreshSec) - 1);
+    if (state.countdown === 0) state.countdown = state.autoRefreshSec;
+    document.getElementById('cdVal').textContent = state.countdown + 's';
+    const pct = Math.round((state.countdown / state.autoRefreshSec) * 100);
+    document.getElementById('cdFill').style.width = pct + '%';
+  }, 1000);
+
+  // ── Buttons ───────────────────────────────────────────────────────────────
+  document.getElementById('btnCallNext').onclick  = () => api?.floatAction('call-next');
+  document.getElementById('btnRecall').onclick    = () => api?.floatAction('recall');
+  document.getElementById('btnRefresh').onclick   = () => api?.floatAction('refresh');
+  document.getElementById('btnToggleTv').onclick  = () => api?.floatAction('toggle-tv');
+  document.getElementById('btnMinimize').onclick  = () => toggleBubble(true);
+  document.getElementById('btnClose').onclick     = () => api?.closeFloat();
+  const miniBubbleBtn = document.getElementById('btnMiniBubble');
+  if (miniBubbleBtn) miniBubbleBtn.onclick = () => toggleBubble(true);
+
+  // ── Double Tap & Double Click Detection ───────────────────────────────────
+  function setupDoubleTap(element, callback) {
+    if (!element) return;
+    let lastTap = 0;
+    let startX = 0, startY = 0;
+
+    // 1. Cảm ứng (Touch screen - màn hình cảm ứng All-in-One / POS phòng khám)
+    element.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+      }
+    }, { passive: true });
+
+    element.addEventListener('touchend', (e) => {
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const now = Date.now();
+      const dist = Math.hypot(touch.clientX - startX, touch.clientY - startY);
+      const timeDiff = now - lastTap;
+
+      if (dist < 20 && timeDiff > 40 && timeDiff < 400) {
+        // Nhận diện Double Tap!
+        e.preventDefault();
+        e.stopPropagation();
+        callback();
+        lastTap = 0;
+      } else {
+        lastTap = now;
+      }
+    }, { passive: false });
+
+    // 2. Chuột máy tính (Double click)
+    element.addEventListener('dblclick', (e) => {
+      if (e.target.closest('#btnClose') || e.target.closest('#btnMiniBubble') || e.target.closest('#sidePanelClose')) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      callback();
+    });
+  }
+
+  // Gắn Double Tap vào thanh tiêu đề chính và phần text
+  setupDoubleTap(document.getElementById('titleBar'), () => toggleBubble(true));
+  setupDoubleTap(document.getElementById('titleBarLeft'), () => toggleBubble(true));
+
+  // Gắn Double Tap vào thanh tiêu đề danh sách phụ (Side Panel Đã Gọi / Chờ Khám)
+  setupDoubleTap(document.getElementById('sidePanelHeader'), () => toggleBubble(true));
+
+  // Lắng nghe tín hiệu nhấp đúp từ Electron Main Process (bắt qua Windows maximize)
+  if (api?.onToggleBubble) {
+    api.onToggleBubble(() => {
+      toggleBubble(!isBubble);
+    });
+  }
+
+  // ── Bubble Mode Logic ─────────────────────────────────────────────────────
+  let isBubble = false;
+  function toggleBubble(bubble) {
+    isBubble = bubble;
+    const layout = document.getElementById('mainLayout');
+    const bWidget = document.getElementById('bubbleWidget');
+    if (bubble) {
+      layout.style.display = 'none';
+      bWidget.style.display = 'flex';
+      if (api?.resizeFloat) api.resizeFloat(68, 68);
+    } else {
+      layout.style.display = 'flex';
+      bWidget.style.display = 'none';
+      const w = activePanelTab ? 532 : 270;
+      if (api?.resizeFloat) api.resizeFloat(w, 480);
+    }
+  }
+
+  // Xử lý thông minh khi kéo rê bong bóng (phân biệt kéo rê vs click mở lại)
+  const bWidget = document.getElementById('bubbleWidget');
+  let bStartPos = { x: 0, y: 0, time: 0 };
+  bWidget.addEventListener('mousedown', (e) => {
+    bStartPos = { x: e.screenX, y: e.screenY, time: Date.now() };
+  });
+  bWidget.addEventListener('mouseup', (e) => {
+    const moved = Math.hypot(e.screenX - bStartPos.x, e.screenY - bStartPos.y);
+    const duration = Date.now() - bStartPos.time;
+    if (moved < 10 && duration < 450) {
+      toggleBubble(false);
+    }
+  });
+  setupDoubleTap(bWidget, () => toggleBubble(false));
+
+  // Cập nhật lại window resize function khi mở panel
+  const originalOpenSidePanel = openSidePanel;
+  openSidePanel = function(tab) {
+    originalOpenSidePanel(tab);
+    if (!isBubble && api?.resizeFloat) {
+      const w = activePanelTab ? 532 : 270;
+      api.resizeFloat(w, 480);
+    }
+  };
+  const originalCloseSidePanel = closeSidePanel;
+  closeSidePanel = function() {
+    originalCloseSidePanel();
+    if (!isBubble && api?.resizeFloat) {
+      api.resizeFloat(270, 480);
+    }
+  };
+
+  render();
+</script>
+</body>
+</html>
