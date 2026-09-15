@@ -3,7 +3,7 @@ import {
   Printer, RefreshCw, Trash2, CheckCircle2, Search, Wrench, 
   Download, Activity, Share2, Copy, Check, Power, Terminal,
   ShieldAlert, Wifi, FileText, Settings, ExternalLink, Play, Star,
-  AlertTriangle, CheckCircle, ShieldCheck, Zap, Network, X
+  AlertTriangle, CheckCircle, ShieldCheck, Zap, Network, X, Layers
 } from 'lucide-react';
 
 interface PrinterInfo {
@@ -299,7 +299,10 @@ const COMMON_DRIVERS = [
     directLink: undefined, sha256: undefined },
 ];
 
+type PrinterSubView = 'repair' | 'printers' | 'drivers' | 'all';
+
 export default function PrinterTab() {
+  const [activeSubView, setActiveSubView] = useState<PrinterSubView>('repair');
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [selectedPrinter, setSelectedPrinter] = useState<string | null>(null);
   const [jobs, setJobs] = useState<PrintJob[]>([]);
@@ -1266,6 +1269,244 @@ export default function PrinterTab() {
     }
   };
 
+  // ── Helper: Render Danh Sách Máy In & Thao Tác Trực Tiếp ──
+  const renderPrintersListBlock = () => (
+    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: 6 }}>
+        <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Printer size={16} color="#6366f1" /> Danh sách Máy In trên máy tính ({printers.length})
+        </h3>
+        <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+          Click chọn máy in để In Test, Đặt Mặc Định, Xem Lệnh hoặc Tự Sửa Lỗi
+        </span>
+      </div>
+      
+      <div style={{ display: 'grid', gap: 8 }}>
+        {printers.length === 0 && (
+          <div style={{ fontSize: '0.8rem', color: '#64748b', textAlign: 'center', padding: '1.5rem', background: '#f8fafc', borderRadius: 6 }}>
+            Vui lòng bấm nút <strong>"Quét & Chẩn Đoán Toàn Bộ Lỗi"</strong> ở góc trên để quét máy in và chẩn đoán toàn diện lỗi hệ thống.
+          </div>
+        )}
+        {printers.map(p => {
+          const isSelected = p.Name === selectedPrinter;
+          const status = getStatusText(p.PrinterStatus);
+          const isVirtual = p.PortName?.toLowerCase().includes('prompt') || p.PortName?.toLowerCase().includes('nul') || p.PortName?.includes('FILE');
+          const hasError = p.PrinterStatus === 2 || p.JobCount > 0;
+          const suggestedDriver = COMMON_DRIVERS.find(d => d.regex.test(p.Name) || d.regex.test(p.DriverName));
+
+          return (
+            <div key={p.Name} style={{ border: `1px solid ${isSelected ? '#6366f1' : hasError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 6, background: isSelected ? '#f5f7ff' : hasError ? '#fff5f5' : isVirtual ? '#f8fafc' : '#fff', overflow: 'hidden' }}>
+              <div
+                onClick={() => loadJobs(p.Name)}
+                style={{ padding: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    {p.Name}
+                    {isVirtual && <span style={{ fontSize: '0.65rem', background: '#e2e8f0', padding: '2px 6px', borderRadius: 4 }}>Máy in ảo</span>}
+                    {suggestedDriver && <span style={{ fontSize: '0.65rem', background: '#dcfce7', color: '#16a34a', padding: '2px 6px', borderRadius: 4 }}>✓ Có driver phù hợp</span>}
+                  </div>
+                  <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 4 }}>Cổng: {p.PortName || 'Không rõ'} | Driver: {p.DriverName}</div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                  <div style={{ fontSize: '0.73rem', fontWeight: 600, color: status.color, background: `${status.color}15`, padding: '2px 8px', borderRadius: 12, display: 'inline-block' }}>
+                    {status.text}
+                  </div>
+                  {p.JobCount > 0 && (
+                    <div style={{ fontSize: '0.73rem', color: '#ef4444', marginTop: 4, fontWeight: 500 }}>⚠ Kẹt {p.JobCount} lệnh</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Toolbar thao tác trực tiếp trên máy in đang chọn */}
+              {isSelected && (
+                <div style={{ padding: '0 0.75rem 0.75rem', display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid #e0e7ff', paddingTop: '0.6rem' }}>
+                  {/* Hàng 1: In test, Đặt mặc định, Bỏ tạm dừng/Online */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => handlePrintTestPage(p.Name)}
+                      style={{ flex: '1 1 auto', padding: '6px 10px', fontSize: '0.74rem', fontWeight: 600, borderRadius: 4, border: '1px solid #6366f1', background: '#4f46e5', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}
+                      title="Gửi lệnh in một trang thử nghiệm (Test Page) chuẩn Windows"
+                    >
+                      <Printer size={13} /> In Trang Thử (Test Page)
+                    </button>
+
+                    <button
+                      onClick={() => handleSetDefault(p.Name)}
+                      style={{ flex: '1 1 auto', padding: '6px 10px', fontSize: '0.74rem', fontWeight: 600, borderRadius: 4, border: '1px solid #cbd5e1', background: '#fff', color: '#334155', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}
+                      title="Đặt máy in này làm máy in mặc định hệ thống"
+                    >
+                      <Star size={13} color="#f59e0b" /> Đặt Mặc Định
+                    </button>
+
+                    <button
+                      onClick={() => handleResumePrinter(p.Name)}
+                      style={{ flex: '1 1 auto', padding: '6px 10px', fontSize: '0.74rem', fontWeight: 600, borderRadius: 4, border: '1px solid #cbd5e1', background: '#fff', color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}
+                      title="Bỏ tạm dừng và chuyển trạng thái máy in về Online"
+                    >
+                      <Play size={13} /> Bỏ Tạm Dừng / Online
+                    </button>
+                  </div>
+
+                  {/* Hàng 2: Xem Queue, Thuộc tính, Tự sửa lỗi, Driver */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => handleOpenQueue(p.Name)}
+                      style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', borderRadius: 4, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
+                      title="Mở cửa sổ hàng đợi in gốc của Windows"
+                    >
+                      <FileText size={12} /> Xem Hàng Đợi In
+                    </button>
+
+                    <button
+                      onClick={() => handleOpenProperties(p.Name)}
+                      style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', borderRadius: 4, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
+                      title="Mở thuộc tính cài đặt (Properties) của máy in"
+                    >
+                      <Settings size={12} /> Cài Đặt (Properties)
+                    </button>
+
+                    <button
+                      onClick={() => autoFixPrinter(p.Name, p.DriverName)}
+                      disabled={loading}
+                      style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', fontWeight: 600, borderRadius: 4, border: '1px solid #f59e0b', background: '#fffbeb', color: '#92400e', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
+                      title="Xóa cấu hình cũ, cài lại máy in từ driver có sẵn và reset Spooler"
+                    >
+                      <Wrench size={12} /> Tự Sửa Lỗi (Reset + Cài lại)
+                    </button>
+
+                    {suggestedDriver && (
+                      <button
+                        onClick={() => autoFixAndInstallDriver(p.Name, p.DriverName)}
+                        disabled={loading}
+                        style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', fontWeight: 600, borderRadius: 4, border: '1px solid #6366f1', background: '#ede9fe', color: '#4338ca', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
+                      >
+                        <Download size={12} /> Cài Driver ({suggestedDriver.name.split(' ').slice(0,3).join(' ')})
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => handleUninstallPrinter(p.Name, p.DriverName)}
+                      disabled={loading}
+                      style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', fontWeight: 700, borderRadius: 4, border: '1px solid #ef4444', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
+                      title="Gỡ bỏ hoàn toàn máy in này khỏi hệ thống, dọn sạch Registry và Driver để trong Word/Excel/HIS không còn hiển thị"
+                    >
+                      <Trash2 size={12} /> Gỡ Bỏ Tận Gốc (Xóa Sạch 100%)
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── Helper: Render Lệnh In Đang Chờ / Kẹt ──
+  const renderPrintJobsBlock = () => (
+    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+        <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Search size={16} color="#f59e0b" /> Lệnh in đang chờ/kẹt
+        </h3>
+        {selectedPrinter && jobs.length > 0 && (
+          <button
+            onClick={() => clearAllJobsOnPrinter(selectedPrinter)}
+            disabled={loading}
+            style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+            title={`Xóa toàn bộ ${jobs.length} lệnh in đang kẹt trên máy ${selectedPrinter}`}
+          >
+            <Trash2 size={12} /> Xóa Hết ({jobs.length})
+          </button>
+        )}
+      </div>
+      
+      {!selectedPrinter ? (
+        <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '2rem 0' }}>
+          Chọn một máy in bên danh sách để xem lệnh in kẹt.
+        </div>
+      ) : jobs.length === 0 ? (
+        <div style={{ fontSize: '0.8rem', color: '#10b981', textAlign: 'center', padding: '2rem 0', background: '#f0fdf4', borderRadius: 6 }}>
+          Không có lệnh in nào bị kẹt trên {selectedPrinter}.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 240, overflowY: 'auto' }}>
+          {jobs.map(j => (
+            <div key={j.Id} style={{ padding: '8px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ overflow: 'hidden', flex: 1, paddingRight: 8 }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#7f1d1d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {j.DocumentName}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: '#991b1b', marginTop: 4, display: 'flex', gap: 16 }}>
+                  <span>User: {j.UserName}</span>
+                  <span>Mã lỗi: {j.JobStatus}</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => selectedPrinter && deleteSingleJob(selectedPrinter, j.Id)}
+                disabled={loading}
+                style={{ background: '#ef4444', color: 'white', border: 'none', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                <Trash2 size={12} /> Xóa
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Helper: Render Tự Động Nhận Diện & Tải Driver Máy In ──
+  const renderDriversBlock = () => (
+    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem', width: '100%', boxSizing: 'border-box' }}>
+      <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Download size={16} color="#10b981" /> Tự động nhận diện & Cài Driver Máy In
+      </h3>
+      <p style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: '1rem' }}>
+        Hệ thống cung cấp link tải driver chuẩn cho các dòng máy in phổ biến tại Bệnh viện/Phòng khám.
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 8 }}>
+        {COMMON_DRIVERS.map(drv => {
+          const detected = printers.some(p => drv.regex.test(p.Name) || drv.regex.test(p.DriverName));
+          return (
+            <button 
+              key={drv.name}
+              onClick={() => downloadAndInstallDriver(drv)}
+              disabled={loading}
+              style={{ 
+                padding: '0.75rem', border: `1px solid ${detected ? '#10b981' : '#e2e8f0'}`, borderRadius: 6,
+                textAlign: 'left', color: '#1e293b', background: detected ? '#f0fdf4' : '#fff', cursor: loading ? 'wait' : 'pointer'
+              }}
+            >
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {detected ? <CheckCircle2 size={14} color="#10b981" /> : <Download size={14} color="#64748b" />} {drv.name}
+              </div>
+              {detected ? (
+                <div style={{ fontSize: '0.7rem', color: '#10b981', marginTop: 4 }}>Đã phát hiện thiết bị này</div>
+              ) : (
+                <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 4 }}>Click để tải & cài đặt</div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── Helper: Render Console Nhật Ký Hệ Thống ──
+  const renderConsoleLogBlock = (h = 220) => (
+    <div style={{ background: '#0f172a', borderRadius: 8, padding: '0.75rem', height: h, display: 'flex', flexDirection: 'column', width: '100%', boxSizing: 'border-box' }}>
+      <h3 style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Wrench size={14} /> Nhật ký hệ thống (Console)
+      </h3>
+      <div style={{ flex: 1, overflowY: 'auto', fontSize: '0.75rem', color: '#38bdf8', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {logs.map((log, i) => <div key={i}>{log}</div>)}
+        {logs.length === 0 && <div style={{ color: '#475569' }}>Đang chờ thao tác...</div>}
+      </div>
+    </div>
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
       {/* Top Header Bar */}
@@ -1331,9 +1572,129 @@ export default function PrinterTab() {
         </div>
       </div>
 
-      {/* ═════ TẦNG 1: CHẨN ĐOÁN TOÀN DIỆN & CÔNG CỤ SỬA LỖI MẠNG LAN / DỊCH VỤ (FULL-WIDTH 100%) ═════ */}
+      {/* ── Sub-Tabs Điều Hướng Chuyên Mục: 100% Linh Hoạt, Tự Nhiên & Chống Vỡ Giao Diện ── */}
+      <div style={{ 
+        display: 'flex', 
+        gap: 8, 
+        background: '#fff', 
+        padding: '6px 10px', 
+        borderRadius: 8, 
+        border: '1px solid #e2e8f0', 
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        flexWrap: 'wrap',
+        alignItems: 'center'
+      }}>
+        <button
+          onClick={() => setActiveSubView('repair')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '7px 14px',
+            borderRadius: 6,
+            border: 'none',
+            fontSize: '0.78rem',
+            fontWeight: activeSubView === 'repair' ? 700 : 500,
+            background: activeSubView === 'repair' ? '#4f46e5' : 'transparent',
+            color: activeSubView === 'repair' ? '#fff' : '#475569',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Zap size={14} /> 1. Chẩn Đoán & Sửa Lỗi Tự Động (LAN & Dịch Vụ)
+          {diagnostics && diagnostics.issueCount > 0 && (
+            <span style={{ 
+              background: activeSubView === 'repair' ? '#ef4444' : '#fee2e2', 
+              color: activeSubView === 'repair' ? '#fff' : '#b91c1c', 
+              fontSize: '0.66rem', 
+              padding: '1px 6px', 
+              borderRadius: 10, 
+              fontWeight: 700 
+            }}>
+              {diagnostics.issueCount}
+            </span>
+          )}
+        </button>
 
-      {/* ═════ KHỐI 0: BẢNG CHẨN ĐOÁN SỨC KHỎE MÁY IN TOÀN DIỆN ═════ */}
+        <button
+          onClick={() => setActiveSubView('printers')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '7px 14px',
+            borderRadius: 6,
+            border: 'none',
+            fontSize: '0.78rem',
+            fontWeight: activeSubView === 'printers' ? 700 : 500,
+            background: activeSubView === 'printers' ? '#4f46e5' : 'transparent',
+            color: activeSubView === 'printers' ? '#fff' : '#475569',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Printer size={14} /> 2. Quản Lý Máy In & Hàng Đợi In ({printers.length})
+          {jobs.length > 0 && (
+            <span style={{ 
+              background: activeSubView === 'printers' ? '#ef4444' : '#fee2e2', 
+              color: activeSubView === 'printers' ? '#fff' : '#b91c1c', 
+              fontSize: '0.66rem', 
+              padding: '1px 6px', 
+              borderRadius: 10, 
+              fontWeight: 700 
+            }}>
+              {jobs.length} kẹt
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveSubView('drivers')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '7px 14px',
+            borderRadius: 6,
+            border: 'none',
+            fontSize: '0.78rem',
+            fontWeight: activeSubView === 'drivers' ? 700 : 500,
+            background: activeSubView === 'drivers' ? '#4f46e5' : 'transparent',
+            color: activeSubView === 'drivers' ? '#fff' : '#475569',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Download size={14} /> 3. Nhận Diện & Cài Driver Chuẩn
+        </button>
+
+        <button
+          onClick={() => setActiveSubView('all')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '7px 14px',
+            borderRadius: 6,
+            border: 'none',
+            fontSize: '0.78rem',
+            fontWeight: activeSubView === 'all' ? 700 : 500,
+            background: activeSubView === 'all' ? '#4f46e5' : 'transparent',
+            color: activeSubView === 'all' ? '#fff' : '#64748b',
+            cursor: 'pointer',
+            marginLeft: 'auto',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Layers size={14} /> 📋 Xem Toàn Bộ Trang
+        </button>
+      </div>
+
+      {/* ═════ CHUYÊN MỤC 1: CHẨN ĐOÁN & SỬA LỖI MẠNG LAN / DỊCH VỤ ═════ */}
+      {(activeSubView === 'repair' || activeSubView === 'all') && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
+
+          {/* ═════ KHỐI 0: BẢNG CHẨN ĐOÁN SỨC KHỎE MÁY IN TOÀN DIỆN ═════ */}
           <div style={{ 
             background: diagnostics ? (diagnostics.issueCount === 0 ? '#f0fdf4' : '#fffbeb') : '#f8fafc', 
             border: `1px solid ${diagnostics ? (diagnostics.issueCount === 0 ? '#86efac' : '#fde68a') : '#e2e8f0'}`, 
@@ -1760,247 +2121,41 @@ export default function PrinterTab() {
             </div>
           </div>
 
-          {/* ═════ TẦNG 2: QUẢN LÝ MÁY IN CHI TIẾT & THEO DÕI HỆ THỐNG REAL-TIME ═════ */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: '1.25rem', alignItems: 'start' }}>
-            
-            {/* Cột Trái: Danh Sách Máy In (Khối 3) & Cài Driver Chuẩn (Khối 4) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
+          {/* Hộp Console Log khi ở chuyên mục Sửa Lỗi */}
+          {activeSubView === 'repair' && renderConsoleLogBlock(220)}
+        </div>
+      )}
 
-              {/* ═════ KHỐI 3: DANH SÁCH MÁY IN VÀ THAO TÁC TRỰC TIẾP ═════ */}
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Printer size={16} color="#6366f1" /> Danh sách Máy In trên máy tính ({printers.length})
-              </h3>
-              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                Click chọn máy in để In Test, Đặt Mặc Định, Xem Lệnh hoặc Tự Sửa Lỗi
-              </span>
-            </div>
-            
-            <div style={{ display: 'grid', gap: 8 }}>
-              {printers.length === 0 && (
-                <div style={{ fontSize: '0.8rem', color: '#64748b', textAlign: 'center', padding: '1.5rem', background: '#f8fafc', borderRadius: 6 }}>
-                  Vui lòng bấm nút <strong>"Quét & Chẩn Đoán Toàn Bộ Lỗi"</strong> ở góc trên để quét máy in và chẩn đoán toàn diện lỗi hệ thống.
-                </div>
-              )}
-              {printers.map(p => {
-                const isSelected = p.Name === selectedPrinter;
-                const status = getStatusText(p.PrinterStatus);
-                const isVirtual = p.PortName?.toLowerCase().includes('prompt') || p.PortName?.toLowerCase().includes('nul') || p.PortName?.includes('FILE');
-                const hasError = p.PrinterStatus === 2 || p.JobCount > 0;
-                const suggestedDriver = COMMON_DRIVERS.find(d => d.regex.test(p.Name) || d.regex.test(p.DriverName));
-
-                return (
-                  <div key={p.Name} style={{ border: `1px solid ${isSelected ? '#6366f1' : hasError ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 6, background: isSelected ? '#f5f7ff' : hasError ? '#fff5f5' : isVirtual ? '#f8fafc' : '#fff', overflow: 'hidden' }}>
-                    <div
-                      onClick={() => loadJobs(p.Name)}
-                      style={{ padding: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                    >
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          {p.Name}
-                          {isVirtual && <span style={{ fontSize: '0.65rem', background: '#e2e8f0', padding: '2px 6px', borderRadius: 4 }}>Máy in ảo</span>}
-                          {suggestedDriver && <span style={{ fontSize: '0.65rem', background: '#dcfce7', color: '#16a34a', padding: '2px 6px', borderRadius: 4 }}>✓ Có driver phù hợp</span>}
-                        </div>
-                        <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 4 }}>Cổng: {p.PortName || 'Không rõ'} | Driver: {p.DriverName}</div>
-                      </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
-                        <div style={{ fontSize: '0.73rem', fontWeight: 600, color: status.color, background: `${status.color}15`, padding: '2px 8px', borderRadius: 12, display: 'inline-block' }}>
-                          {status.text}
-                        </div>
-                        {p.JobCount > 0 && (
-                          <div style={{ fontSize: '0.73rem', color: '#ef4444', marginTop: 4, fontWeight: 500 }}>⚠ Kẹt {p.JobCount} lệnh</div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Toolbar thao tác trực tiếp trên máy in đang chọn */}
-                    {isSelected && (
-                      <div style={{ padding: '0 0.75rem 0.75rem', display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid #e0e7ff', paddingTop: '0.6rem' }}>
-                        {/* Hàng 1: In test, Đặt mặc định, Bỏ tạm dừng/Online */}
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          <button
-                            onClick={() => handlePrintTestPage(p.Name)}
-                            style={{ flex: '1 1 auto', padding: '6px 10px', fontSize: '0.74rem', fontWeight: 600, borderRadius: 4, border: '1px solid #6366f1', background: '#4f46e5', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}
-                            title="Gửi lệnh in một trang thử nghiệm (Test Page) chuẩn Windows"
-                          >
-                            <Printer size={13} /> In Trang Thử (Test Page)
-                          </button>
-
-                          <button
-                            onClick={() => handleSetDefault(p.Name)}
-                            style={{ flex: '1 1 auto', padding: '6px 10px', fontSize: '0.74rem', fontWeight: 600, borderRadius: 4, border: '1px solid #cbd5e1', background: '#fff', color: '#334155', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}
-                            title="Đặt máy in này làm máy in mặc định hệ thống"
-                          >
-                            <Star size={13} color="#f59e0b" /> Đặt Mặc Định
-                          </button>
-
-                          <button
-                            onClick={() => handleResumePrinter(p.Name)}
-                            style={{ flex: '1 1 auto', padding: '6px 10px', fontSize: '0.74rem', fontWeight: 600, borderRadius: 4, border: '1px solid #cbd5e1', background: '#fff', color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}
-                            title="Bỏ tạm dừng và chuyển trạng thái máy in về Online"
-                          >
-                            <Play size={13} /> Bỏ Tạm Dừng / Online
-                          </button>
-                        </div>
-
-                        {/* Hàng 2: Xem Queue, Thuộc tính, Tự sửa lỗi, Driver */}
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          <button
-                            onClick={() => handleOpenQueue(p.Name)}
-                            style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', borderRadius: 4, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
-                            title="Mở cửa sổ hàng đợi in gốc của Windows"
-                          >
-                            <FileText size={12} /> Xem Hàng Đợi In
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenProperties(p.Name)}
-                            style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', borderRadius: 4, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
-                            title="Mở thuộc tính cài đặt (Properties) của máy in"
-                          >
-                            <Settings size={12} /> Cài Đặt (Properties)
-                          </button>
-
-                          <button
-                            onClick={() => autoFixPrinter(p.Name, p.DriverName)}
-                            disabled={loading}
-                            style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', fontWeight: 600, borderRadius: 4, border: '1px solid #f59e0b', background: '#fffbeb', color: '#92400e', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
-                            title="Xóa cấu hình cũ, cài lại máy in từ driver có sẵn và reset Spooler"
-                          >
-                            <Wrench size={12} /> Tự Sửa Lỗi (Reset + Cài lại)
-                          </button>
-
-                          {suggestedDriver && (
-                            <button
-                              onClick={() => autoFixAndInstallDriver(p.Name, p.DriverName)}
-                              disabled={loading}
-                              style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', fontWeight: 600, borderRadius: 4, border: '1px solid #6366f1', background: '#ede9fe', color: '#4338ca', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
-                            >
-                              <Download size={12} /> Cài Driver ({suggestedDriver.name.split(' ').slice(0,3).join(' ')})
-                            </button>
-                          )}
-
-                          <button
-                            onClick={() => handleUninstallPrinter(p.Name, p.DriverName)}
-                            disabled={loading}
-                            style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', fontWeight: 700, borderRadius: 4, border: '1px solid #ef4444', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
-                            title="Gỡ bỏ hoàn toàn máy in này khỏi hệ thống, dọn sạch Registry và Driver để trong Word/Excel/HIS không còn hiển thị"
-                          >
-                            <Trash2 size={12} /> Gỡ Bỏ Tận Gốc (Xóa Sạch 100%)
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+      {/* ═════ CHUYÊN MỤC 2: QUẢN LÝ MÁY IN & HÀNG ĐỢI IN ═════ */}
+      {activeSubView === 'printers' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: '1.25rem', width: '100%', alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
+            {renderPrintersListBlock()}
           </div>
-
-          {/* Download Drivers Section */}
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem' }}>
-             <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Download size={16} color="#10b981" /> Tự động nhận diện & Cài Driver Máy In
-            </h3>
-            <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '1rem' }}>
-              Hệ thống cung cấp link tải driver chuẩn cho các dòng máy in phổ biến tại Bệnh viện/Phòng khám.
-            </p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {COMMON_DRIVERS.map(drv => {
-                const detected = printers.some(p => drv.regex.test(p.Name) || drv.regex.test(p.DriverName));
-                return (
-                  <button 
-                    key={drv.name}
-                    onClick={() => downloadAndInstallDriver(drv)}
-                    disabled={loading}
-                    style={{ 
-                      padding: '0.75rem', border: `1px solid ${detected ? '#10b981' : '#e2e8f0'}`, borderRadius: 6,
-                      textAlign: 'left', color: '#1e293b', background: detected ? '#f0fdf4' : '#fff', cursor: loading ? 'wait' : 'pointer'
-                    }}
-                  >
-                    <div style={{ fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {detected ? <CheckCircle2 size={14} color="#10b981" /> : <Download size={14} color="#64748b" />} {drv.name}
-                    </div>
-                    {detected ? (
-                      <div style={{ fontSize: '0.7rem', color: '#10b981', marginTop: 4 }}>Đã phát hiện thiết bị này</div>
-                    ) : (
-                      <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 4 }}>Click để tải & cài đặt</div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
+            {renderPrintJobsBlock()}
+            {renderConsoleLogBlock(260)}
           </div>
         </div>
+      )}
 
-        {/* Cột Phải (Bám theo màn hình khi cuộn): Lệnh In Kẹt & Nhật Ký Hệ Thống Realtime */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', position: 'sticky', top: '1rem', alignSelf: 'start', minWidth: 0 }}>
-          
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
-              <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Search size={16} color="#f59e0b" /> Lệnh in đang chờ/kẹt
-              </h3>
-              {selectedPrinter && jobs.length > 0 && (
-                <button
-                  onClick={() => clearAllJobsOnPrinter(selectedPrinter)}
-                  disabled={loading}
-                  style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                  title={`Xóa toàn bộ ${jobs.length} lệnh in đang kẹt trên máy ${selectedPrinter}`}
-                >
-                  <Trash2 size={12} /> Xóa Hết ({jobs.length})
-                </button>
-              )}
-            </div>
-            
-            {!selectedPrinter ? (
-              <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '2rem 0' }}>
-                Chọn một máy in bên trái để xem lệnh in kẹt.
-              </div>
-            ) : jobs.length === 0 ? (
-              <div style={{ fontSize: '0.8rem', color: '#10b981', textAlign: 'center', padding: '2rem 0', background: '#f0fdf4', borderRadius: 6 }}>
-                Không có lệnh in nào bị kẹt trên {selectedPrinter}.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
-                {jobs.map(j => (
-                  <div key={j.Id} style={{ padding: '8px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ overflow: 'hidden', flex: 1, paddingRight: 8 }}>
-                      <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#7f1d1d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {j.DocumentName}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', color: '#991b1b', marginTop: 4, display: 'flex', gap: 16 }}>
-                        <span>User: {j.UserName}</span>
-                        <span>Mã lỗi: {j.JobStatus}</span>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => selectedPrinter && deleteSingleJob(selectedPrinter, j.Id)}
-                      disabled={loading}
-                      style={{ background: '#ef4444', color: 'white', border: 'none', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}
-                    >
-                      <Trash2 size={12} /> Xóa
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={{ background: '#0f172a', borderRadius: 8, padding: '0.75rem', height: 260, display: 'flex', flexDirection: 'column' }}>
-            <h3 style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Wrench size={14} /> Nhật ký hệ thống (Console)
-            </h3>
-            <div style={{ flex: 1, overflowY: 'auto', fontSize: '0.75rem', color: '#38bdf8', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {logs.map((log, i) => <div key={i}>{log}</div>)}
-              {logs.length === 0 && <div style={{ color: '#475569' }}>Đang chờ thao tác...</div>}
-            </div>
-          </div>
-
+      {/* ═════ CHUYÊN MỤC 3: NHẬN DIỆN & TẢI DRIVER CHUẨN ═════ */}
+      {activeSubView === 'drivers' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
+          {renderDriversBlock()}
+          {renderConsoleLogBlock(220)}
         </div>
+      )}
 
-      </div>
+      {/* ═════ CHUYÊN MỤC 4: XEM TOÀN BỘ TRÊN MỘT TRANG (CUỘN DỌC TỰ NHIÊN) ═════ */}
+      {activeSubView === 'all' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
+          {renderPrintersListBlock()}
+          {renderPrintJobsBlock()}
+          {renderDriversBlock()}
+          {renderConsoleLogBlock(240)}
+        </div>
+      )}
 
       {/* ═════ MODAL KẾT NỐI MÁY IN LOCAL PORT ═════ */}
       {showLocalPortModal && (

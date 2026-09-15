@@ -194,26 +194,26 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Đại Tu Giao Diện Bác Sĩ Máy In: Tái Cấu Trúc Bố Cục 2 Tầng & Khắc Phục Triệt Để Co Cụm Layout / Mảng Trắng
+        body: `### 🚀 DMH Tools ${tagName} - Đại Tu Bố Cục Bác Sĩ Máy In: Loại Bỏ Hoàn Toàn Thuộc Tính Cố Định (Sticky) Gây Lỗi Giao Diện, Phân Luồng Sub-Tabs & Responsive Grid Tự Nhiên
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.8:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.9:
 
-- **1. Đại Tu Hoàn Toàn Bố Cục Giao Diện Bác Sĩ Máy In (2 Tầng Độc Lập)**:
-  + **Tầng 1 (Full-Width 100% Chiều Ngang)**:
-    - *Header Bar Hiện Đại*: Căn chỉnh ngăn nắp, loại bỏ thuộc tính dính (sticky) từng gây che khuất các thẻ bên dưới.
-    - *Khối 0 (Bảng Chẩn Đoán Sức Khỏe)*: Trải đều 6 chỉ số kỹ thuật toàn màn hình, mở tab là người dùng nhìn thấy ngay tình trạng tổng thể xanh/vàng kèm nút sửa nhanh.
-    - *Khối 1 (Khắc Phục Lỗi Mạng LAN 0x709 / 0x11b / 0x40 / 0xbcb)*: Dàn đều 4 thẻ rộng rãi, hiển thị đầy đủ các nút bấm thao tác (Sửa 1-Click, Kết nối Local Port, Chép CMD, Reset PC).
-    - *Khối 2 (Khắc Phục Dịch Vụ In & Spooler)*: Dàn đều 3 thẻ cứu hộ Spooler crash, máy in Offline SNMP và treo ứng dụng Office/HIS.
-  + **Tầng 2 (Chia 2 Cột Cân Đối Với Cột Phải Sticky Đồng Hành)**:
-    - *Cột Trái*: Danh sách máy in chi tiết kèm các thao tác In test, Đặt mặc định, Tự sửa lỗi, Cài driver và Gỡ bỏ tận gốc + Bộ tải Driver tự động.
-    - *Cột Phải Sticky*: Hộp Lệnh in kẹt và Console Log thời gian thực luôn dính bám theo màn hình khi người dùng cuộn chuột, **loại bỏ 100% hiện tượng bên phải màn hình bị trắng xóa**!
+- **1. Loại Bỏ Triệt Để 100% Thuộc Tính "Cố Định" (Sticky / Fixed)**:
+  + Khắc phục hoàn toàn các lỗi layout điển hình khi cố định giao diện trên desktop:
+    - Loại bỏ hiện tượng các phần tử header/cột bị đè lên nhau khi cuộn trang.
+    - Loại bỏ tình trạng cột dính quá dài làm che khuất hộp Console Log ở chân màn hình (đặc biệt trên các màn hình phòng khám độ phân giải 1366x768 hoặc tỷ lệ 4:3).
+    - Loại bỏ hoàn toàn các cấu trúc 2 cột ép tỉ lệ cứng nhắc gây khoảng trắng thừa hoặc co cụm nút bấm.
 
-- **2. Khắc Phục Lỗi Co Cụm Layout Từ Thẻ Container \`display: contents\`**:
-  + Thay thế toàn bộ thẻ bao bọc Virtual Keep-Alive Tab Stack sang chuẩn \`display: block; width: 100%\`, bảo toàn trọn vẹn CSS Box Model, ngăn ngừa hiện tượng các phần tử con bên trong tab bị bóp méo hay co cụm sang lề trái.
+- **2. Tích Hợp Hệ Thống Sub-Tabs Điều Hướng Chuyên Mục Trực Quan**:
+  + Thêm 4 chế độ hiển thị chuyên biệt ngay dưới thanh tiêu đề:
+    1. **⚡ Chẩn Đoán & Sửa Lỗi Tự Động (LAN & Dịch Vụ)**: Trải rộng 100% chiều ngang, hiển thị đầy đủ bảng chỉ số sức khỏe, cứu hộ lỗi mạng LAN (0x709, 0x11b, 0x40, 0xbcb) và khắc phục Spooler crash, SNMP, treo máy in. Kèm console log chân trang.
+    2. **🖨️ Quản Lý Máy In & Hàng Đợi In**: Bố cục lưới co dãn tự nhiên \`repeat(auto-fit, minmax(380px, 1fr))\` cho danh sách máy in và hộp lệnh in kẹt. Màn hình lớn tự động chia 2 cột, màn hình nhỏ tự co thành 1 cột cân đối, không đè lấn.
+    3. **📥 Nhận Diện & Cài Driver Chuẩn**: Lưới tải Driver chuẩn hãng (Canon, Epson, HP, Brother) tự động co dãn thông minh, tích hợp console log theo dõi tiến trình tải.
+    4. **📋 Xem Toàn Bộ Trang**: Hiển thị toàn bộ các khối chức năng theo luồng dọc tự nhiên cho người dùng muốn theo dõi toàn cảnh mà không lo vỡ khung.
 
-- **3. Tối Ưu Trải Nghiệm & Độ Ổn Định Toàn Diện**:
-  + Tốc độ chuyển tab vẫn giữ nguyên 0ms không độ trễ (Instant Virtual Switching).
-  + Tự động UAC Administrator Elevation cho các thao tác sửa Registry máy in mạng LAN.
+- **3. Tối Ưu Hóa Hiệu Năng & Độ Tương Thích**:
+  + Giữ vững nguyên tắc Virtual Keep-Alive Tab Stack chuyển tab tức thì 0ms.
+  + Toàn bộ logic sửa lỗi mạng LAN, Spooler, xoá lệnh in kẹt và tải driver đều là các lệnh PowerShell/Registry hệ thống thực tế 100%.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,
