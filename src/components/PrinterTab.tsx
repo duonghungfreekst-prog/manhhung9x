@@ -3,7 +3,7 @@ import {
   Printer, RefreshCw, Trash2, CheckCircle2, Search, Wrench, 
   Download, Activity, Share2, Copy, Check, Power, Terminal,
   ShieldAlert, Wifi, FileText, Settings, ExternalLink, Play, Star,
-  AlertTriangle, CheckCircle, ShieldCheck, Zap, Network, X, Layers
+  AlertTriangle, CheckCircle, ShieldCheck, Zap, Network, X, Layers, BookOpen
 } from 'lucide-react';
 import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 
@@ -314,6 +314,9 @@ export default function PrinterTab() {
   const [shareRpcStatus, setShareRpcStatus] = useState<{ isFixed: boolean; rpcUseNamedPipe?: number; rpcAuthnLevelPrivacy?: number; spoolerStatus?: string } | null>(null);
   const [fixingShare, setFixingShare] = useState(false);
   const [fixing0x40, setFixing0x40] = useState(false);
+  const [showError0x40Modal, setShowError0x40Modal] = useState(false);
+  const [showError709Modal, setShowError709Modal] = useState(false);
+  const [copied0x40Reg, setCopied0x40Reg] = useState(false);
   const [fixingPointAndPrint, setFixingPointAndPrint] = useState(false);
   const [enablingSharing, setEnablingSharing] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -550,23 +553,38 @@ export default function PrinterTab() {
     try {
       setFixing0x40(true);
       setLoading(true);
-      startGlobalLoading('printer-fix-0x40', 'Đang sửa lỗi tên mạng 0x00000040 (SMB Signing & Private Network)...');
+      startGlobalLoading('printer-fix-0x40', 'Đang sửa lỗi tên mạng 0x00000040 (Point & Print, SMB Signing & RPC)...');
       addLog('🛠️ Đang đặc trị lỗi 0x00000040 (The specified network name is no longer available)...');
+      addLog('• Vô hiệu hóa hạn chế Point and Print (PointAndPrintRestrictions = 0, RestrictDriverInstallationToAdministrators = 0)...');
+      addLog('• Cấu hình RPC Named Pipe (RpcUseNamedPipeProtocol = 1, RpcAuthnLevelPrivacyEnabled = 0)...');
       addLog('• Tắt SMB Signing (RequireSecuritySignature) để Win 11 kết nối mượt với Win 10/7...');
       addLog('• Chuyển đổi Network Profile sang Private (Riêng tư) để tránh bị Firewall ngắt phiên...');
       addLog('• Tắt timeout ngắt kết nối session SMB (AutoDisconnect)...');
-      addLog('• Kích hoạt NetBIOS over TCP/IP và khởi động toàn bộ dịch vụ mạng LAN...');
+      addLog('• Kích hoạt NetBIOS over TCP/IP và khởi động lại dịch vụ Print Spooler...');
       const w = window as any;
       if (w.electronAPI?.printer?.fixError0x40) {
         const res = await w.electronAPI.printer.fixError0x40();
         if (res?.ok && res?.success) {
           addLog('✅ ' + (res.message || 'Đã khắc phục lỗi 0x00000040 thành công!'));
-          alert('🎉 ĐÃ KHẮC PHỤC THÀNH CÔNG LỖI 0x00000040!\n\n• Đã tắt SMB Signing bắt buộc của Windows 11.\n• Đã chuyển mạng sang Private Network.\n• Đã bật NetBIOS và phục hồi toàn bộ dịch vụ chia sẻ LAN.\n\n👉 Bạn hãy thử in lại trang thử (Print Test Page) hoặc kết nối lại máy in!');
+          alert('🎉 ĐÃ KHẮC PHỤC THÀNH CÔNG LỖI 40 (0x00000040)!\n\n• Đã vô hiệu hóa chính sách Point and Print Restrictions (cho phép nhận driver qua mạng).\n• Đã cấu hình RPC Named Pipe & miễn trừ xác thực RPC.\n• Đã tắt SMB Signing bắt buộc của Windows 11.\n• Đã chuyển mạng sang Private Network & mở Tường lửa.\n• Đã khởi động lại dịch vụ Print Spooler.\n\n👉 Bạn hãy thử kết nối lại máy in chia sẻ qua mạng LAN hoặc in thử một trang (Print Test Page)!');
         } else {
           addLog('⚠️ ' + (res?.message || res?.error || 'Không thể áp dụng cấu hình'));
         }
       } else {
         await runPS(`
+          # 1. Vô hiệu hóa hạn chế Point and Print theo Group Policy
+          reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f
+          reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictDriverInstallationToAdministrators" /t REG_DWORD /d 0 /f
+          reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictedDriver_InstallationAttribute" /t REG_DWORD /d 0 /f
+          reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "NoWarningNoElevationOnInstall" /t REG_DWORD /d 1 /f
+          reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "UpdatePromptSettings" /t REG_DWORD /d 2 /f
+          
+          # 2. Cấu hình RPC Named Pipe & RPC Privacy
+          reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f
+          reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f
+          reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelExemption" /t REG_DWORD /d 1 /f
+
+          # 3. Chuyển mạng Private & Tắt SMB Signing
           Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
           Set-SmbClientConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
           reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f
@@ -588,8 +606,35 @@ export default function PrinterTab() {
     }
   };
 
+  const copy0x40RegToClipboard = () => {
+    const regText = `reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f\nreg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictDriverInstallationToAdministrators" /t REG_DWORD /d 0 /f\nreg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictedDriver_InstallationAttribute" /t REG_DWORD /d 0 /f\nreg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "NoWarningNoElevationOnInstall" /t REG_DWORD /d 1 /f\nreg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "UpdatePromptSettings" /t REG_DWORD /d 2 /f\nreg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f\nreg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f\nreg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f\nnet stop spooler && net start spooler`;
+    navigator.clipboard.writeText(regText);
+    setCopied0x40Reg(true);
+    addLog('📋 Đã sao chép lệnh Registry sửa lỗi 0x00000040 vào Clipboard!');
+    setTimeout(() => setCopied0x40Reg(false), 3000);
+  };
+
+  const restartSpooler = async () => {
+    try {
+      setLoading(true);
+      addLog('🔄 Đang khởi động lại dịch vụ Print Spooler...');
+      const w = window as any;
+      if (w.electronAPI?.printer?.restartSpooler) {
+        await w.electronAPI.printer.restartSpooler();
+      } else {
+        await runPS('Restart-Service -Name Spooler -Force');
+      }
+      addLog('✅ Khởi động lại Print Spooler thành công!');
+      await loadPrinters();
+    } catch (err: unknown) {
+      addLog('❌ Lỗi khởi động Spooler: ' + String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const copyCmdToClipboard = () => {
-    const cmdText = `REG ADD "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f\nREG ADD "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f\nnet stop spooler && net start spooler`;
+    const cmdText = `REG ADD "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f\nREG ADD "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f\nREG ADD "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f\nnet stop spooler && net start spooler`;
     navigator.clipboard.writeText(cmdText);
     setCopiedCmd(true);
     addLog('📋 Đã sao chép 2 câu lệnh Registry CMD vào bộ nhớ đệm (Clipboard)!');
@@ -1148,6 +1193,7 @@ export default function PrinterTab() {
       if (tool === 'printmanagement') cmd = 'printmanagement.msc';
       else if (tool === 'services') cmd = 'services.msc';
       else if (tool === 'devmgmt') cmd = 'devmgmt.msc';
+      else if (tool === 'gpedit') cmd = 'gpedit.msc';
       runPS(`Start-Process "${cmd}"`).catch(() => {});
     }
     addLog(`🚀 Đã mở công cụ Windows: ${tool}`);
@@ -1966,6 +2012,13 @@ export default function PrinterTab() {
                   >
                     <Network size={12} /> 🌐 Kết Nối Bằng Local Port
                   </button>
+                  <button
+                    onClick={() => setShowError709Modal(true)}
+                    style={{ background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: 4, padding: '5px 8px', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                    title="Xem chi tiết hướng dẫn 4 bước sửa lỗi 0x709 qua Registry Editor (Epson LQ-310 & LAN)"
+                  >
+                    <BookOpen size={12} /> 📖 Hướng Dẫn Sửa Bằng Tay (Regedit)
+                  </button>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
                       onClick={copyCmdToClipboard}
@@ -1990,21 +2043,46 @@ export default function PrinterTab() {
               <div style={{ background: '#fffbeb', border: '1px solid #fed7aa', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#9a3412', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <AlertTriangle size={14} color="#ea580c" /> Lỗi 0x00000040 (Tên Mạng)
+                    <AlertTriangle size={14} color="#ea580c" /> Lỗi 40 (0x00000040)
                   </div>
                   <p style={{ fontSize: '0.7rem', color: '#7c2d12', margin: '4px 0 8px 0', lineHeight: 1.4 }}>
-                    Đặc trị lỗi <em>"The specified network name is no longer available"</em> do SMB Signing Win 11 hoặc mạng Public.
+                    Đặc trị lỗi <em>"The specified network name is no longer available"</em> khi 2 máy khác bản Windows (Point & Print, RPC, SMB Signing).
                   </p>
                 </div>
-                <button
-                  onClick={fixError0x40}
-                  disabled={loading || fixing0x40}
-                  style={{ background: '#ea580c', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                  title="Tắt SMB Signing, chuyển mạng Private, bật NetBIOS và phục hồi các dịch vụ mạng LAN"
-                >
-                  <Zap size={12} className={fixing0x40 ? 'spin' : ''} />
-                  {fixing0x40 ? 'Đang sửa...' : '⚡ Sửa Lỗi 0x00000040'}
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <button
+                    onClick={fixError0x40}
+                    disabled={loading || fixing0x40}
+                    style={{ background: '#ea580c', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                    title="Vô hiệu hóa Point & Print Restrictions, cấu hình RPC Named Pipe, tắt SMB Signing và khởi động lại Spooler"
+                  >
+                    <Zap size={12} className={fixing0x40 ? 'spin' : ''} />
+                    {fixing0x40 ? 'Đang sửa...' : '⚡ Sửa Tự Động 1-Click'}
+                  </button>
+                  <button
+                    onClick={() => setShowError0x40Modal(true)}
+                    style={{ background: '#fff', color: '#c2410c', border: '1px solid #fdba74', borderRadius: 4, padding: '5px 8px', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                    title="Xem chi tiết nguyên nhân và 4 bước khắc phục bằng Group Policy (gpedit.msc) và Registry"
+                  >
+                    <FileText size={12} /> 📖 Hướng Dẫn 4 Bước (gpedit)
+                  </button>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      onClick={() => handleOpenWindowsTool('gpedit')}
+                      style={{ flex: 1, background: '#fff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px', fontSize: '0.67rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}
+                      title="Mở Group Policy Editor (gpedit.msc)"
+                    >
+                      <Settings size={11} /> gpedit.msc
+                    </button>
+                    <button
+                      onClick={() => handleOpenWindowsTool('services')}
+                      style={{ flex: 1, background: '#fff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px', fontSize: '0.67rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}
+                      title="Mở Services (services.msc) kiểm tra Spooler"
+                    >
+                      <Activity size={11} /> services.msc
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Thẻ 3: Lỗi 0x00000bcb / Point & Print */}
@@ -2054,7 +2132,7 @@ export default function PrinterTab() {
                 <AlertTriangle size={13} /> Lưu ý quan trọng khi bị lỗi 0x00000709 hoặc 0x00000040 giữa 2 máy khác Win (Win 11 & Win 10/7):
               </div>
               <div style={{ paddingLeft: '0.5rem' }}>
-                • <strong>Khi bị lỗi 0x00000040 ("The specified network name is no longer available"):</strong> Bấm ngay nút <strong>⚡ Sửa Lỗi 0x00000040</strong> để tắt SMB Signing bắt buộc của Windows 11 và chuyển sang Private Network.<br />
+                • <strong>Khi bị lỗi 0x00000040 ("The specified network name is no longer available"):</strong> Bấm ngay nút <strong>⚡ Sửa Tự Động 1-Click</strong> hoặc xem <strong>📖 Hướng Dẫn 4 Bước (gpedit)</strong> để vô hiệu hóa Point & Print Restrictions, cấu hình RPC Named Pipe, tắt SMB Signing Windows 11 và chuyển sang Private Network.<br />
                 • <strong>Khi bị lỗi 0x00000709 / 0x11b:</strong> Bấm <strong>⚡ Sửa Tự Động 1-Click</strong> trên <u>CẢ 2 MÁY</u> (Cả Máy Chủ cắm máy in và Máy Khách cần in), sau đó Restart máy.<br />
                 • <strong>Trên máy chủ cắm máy in:</strong> Đổi tên chia sẻ (Share Name) thành tên <strong>viết liền không dấu cách</strong> (ví dụ đặt <code>LQ310</code> hoặc <code>Canon2900</code>).<br />
                 • <strong>Vũ khí tối thượng:</strong> Bấm nút <strong>[ 🌐 Kết Nối Bằng Local Port ]</strong> để tạo cổng in nội bộ qua mạng, in mượt mà 100% không qua RPC Spooler từ xa!
@@ -2074,6 +2152,7 @@ export default function PrinterTab() {
             {showCmdDetails && (
               <div style={{ marginTop: '0.4rem', background: '#0f172a', borderRadius: 6, padding: '0.6rem', fontSize: '0.7rem', color: '#e2e8f0', fontFamily: 'Consolas, monospace', lineHeight: 1.5, overflowX: 'auto' }}>
                 <div style={{ color: '#94a3b8' }}># Bật RPC Named Pipe cho máy in:</div>
+                <div style={{ color: '#38bdf8' }}>REG ADD "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f</div>
                 <div style={{ color: '#38bdf8' }}>REG ADD "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f</div>
                 <div style={{ color: '#94a3b8', marginTop: 4 }}># Tắt yêu cầu bảo mật mức cao RPC Print:</div>
                 <div style={{ color: '#38bdf8' }}>REG ADD "HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f</div>
@@ -2330,6 +2409,334 @@ export default function PrinterTab() {
               </div>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Modal Hướng Dẫn & Đặc Trị Lỗi 40 (0x00000040) */}
+      {/* ── MODAL ĐẶC TRỊ LỖI 0x00000709 (EPSON LQ-310 & MÁY IN LAN) ── */}
+      {showError709Modal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.7)',
+          zIndex: 2200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(4px)', padding: '1rem'
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 12, width: '100%', maxWidth: 720,
+            maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)', overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)',
+              color: '#fff', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ background: 'rgba(255,255,255,0.2)', padding: 6, borderRadius: 8 }}>
+                  <Share2 size={20} color="#fff" />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, letterSpacing: 0.3 }}>
+                    Đặc Trị Lỗi 0x00000709 - Kết Nối Máy In Chia Sẻ Mạng LAN
+                  </h3>
+                  <div style={{ fontSize: '0.72rem', color: '#e0e7ff', marginTop: 2 }}>
+                    Chuyên trị máy in kim Epson LQ-310 / LQ-300+, Canon LBP, HP bị chặn khi kết nối qua mạng nội bộ
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowError709Modal(false)}
+                style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 4, display: 'flex' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '1.25rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.9rem', fontSize: '0.75rem', lineHeight: 1.5, color: '#334155' }}>
+              
+              {/* Nguyên nhân */}
+              <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8, padding: '0.8rem 1rem' }}>
+                <div style={{ fontWeight: 700, color: '#5b21b6', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <AlertTriangle size={14} color="#7c3aed" /> Nguyên Nhân Gây Lỗi 0x00000709:
+                </div>
+                <div style={{ color: '#4c1d95', fontSize: '0.73rem' }}>
+                  • Xuất hiện khi bạn đang cố kết nối mạng máy in chia sẻ (đặc biệt phổ biến với dòng <strong>Epson LQ-310</strong> in hóa đơn/bảng kê, máy in kim, Canon).<br />
+                  • <strong>Nguyên nhân gốc rễ:</strong> Do Windows chặn quyền truy cập hoặc ghi đè khóa cấu hình máy in mặc định qua mạng LAN (cơ chế xác thực RPC Named Pipes bị siết chặt bởi các bản cập nhật bảo mật của Microsoft).
+                </div>
+              </div>
+
+              {/* 4 Bước Registry Editor */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '0.9rem 1rem' }}>
+                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>🛠️ 4 Bước Chỉnh Sửa Registry Trên Máy Tính Bị Lỗi (Thủ Công):</span>
+                  <button
+                    onClick={() => handleOpenWindowsTool('regedit')}
+                    style={{ background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                    title="Mở Registry Editor ngay"
+                  >
+                    <ExternalLink size={11} /> Mở regedit.exe
+                  </button>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>1</div>
+                    <div>
+                      <strong>Truy cập Registry Editor:</strong> Nhấn tổ hợp phím <code>Windows + R</code>, gõ <code>regedit</code> rồi nhấn Enter để mở công cụ Registry Editor.
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>2</div>
+                    <div>
+                      <strong>Tìm thư mục Printers:</strong> Điều hướng đến khóa Printer theo đúng đường dẫn:<br />
+                      <code style={{ background: '#e2e8f0', padding: '2px 6px', borderRadius: 4, color: '#0f172a' }}>HKEY_LOCAL_MACHINE\Software\Policies\Microsoft\Windows NT\Printers</code><br />
+                      <span style={{ fontSize: '0.7rem', color: '#64748b' }}>*(Nếu không tìm thấy khóa Printers, bạn nhấp chuột phải vào thư mục <strong>Windows NT</strong> chọn <strong>New &gt; Key</strong> và đặt tên là <strong>Printers</strong>)*.</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>3</div>
+                    <div>
+                      <strong>Thêm khóa RPC Named Pipe:</strong> Nhấp chuột phải vào không gian trống bên phải, chọn <strong>New &gt; DWORD (32-bit) Value</strong> và đặt tên chính xác là <code style={{ color: '#4338ca', fontWeight: 700 }}>RpcUseNamedPipeProtocol</code>.<br />
+                      <span style={{ fontSize: '0.7rem', color: '#64748b' }}>*(Khuyên dùng: DMH Tools cũng cấu hình luôn khóa này trong thư mục con <code>Printers\RPC</code> và <code>Control\Print</code> để bảo đảm 100% bản Windows đều nhận diện)*.</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>4</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div>
+                        <strong>Sửa giá trị thành 1 &amp; Khởi động lại:</strong> Nhấp đúp vào <code>RpcUseNamedPipeProtocol</code>, đổi ô Value data thành <strong>1</strong> rồi bấm <strong>OK</strong>. Sau đó khởi động lại máy tính (hoặc khởi động lại dịch vụ Print Spooler).
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                        <button
+                          onClick={restartSpooler}
+                          style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', borderRadius: 4, padding: '2px 6px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          ⚡ Khởi Động Lại Spooler Ngay
+                        </button>
+                        <button
+                          onClick={handleRestartPc}
+                          style={{ background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: 4, padding: '2px 6px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          Khởi Động Lại Máy Tính (Reset PC)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Giải pháp tự động 1-Click của DMH Tools */}
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '0.8rem 1rem' }}>
+                <div style={{ fontWeight: 700, color: '#166534', marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <CheckCircle2 size={14} color="#16a34a" /> Khắc Phục Tự Động 1-Click (Khuyên Dùng):
+                  </span>
+                  <button
+                    onClick={copyCmdToClipboard}
+                    style={{ background: copiedCmd ? '#dcfce7' : '#fff', color: copiedCmd ? '#15803d' : '#166534', border: '1px solid #86efac', borderRadius: 4, padding: '3px 8px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                  >
+                    {copiedCmd ? <Check size={11} /> : <Copy size={11} />}
+                    {copiedCmd ? 'Đã chép lệnh CMD' : 'Chép Lệnh Registry CMD'}
+                  </button>
+                </div>
+                <div style={{ color: '#15803d', fontSize: '0.72rem' }}>
+                  Bạn không cần thao tác regedit thủ công phức tạp! DMH_Tools đã tích hợp tự động ghi đồng bộ cả 2 khóa Registry (trong cả <code>Printers</code> và <code>Printers\RPC</code>), miễn trừ bảo mật RPC Spooler và khởi động lại dịch vụ in chỉ trong 1 giây.
+                </div>
+              </div>
+
+              {/* Cách kiểm tra thành công */}
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '0.7rem 1rem', fontSize: '0.72rem', color: '#1e40af' }}>
+                <strong>🎯 Cách kiểm tra thành công:</strong> Sau khi máy tính khởi động lại, bạn tiến hành kết nối lại với máy in qua mạng LAN (ví dụ vào Run gõ <code>\\IP_MAY_CHU</code> rồi nhấp đúp vào máy in Epson LQ-310), thông báo lỗi <strong>0x00000709</strong> sẽ hoàn toàn biến mất và máy in sẽ được thêm thành công!
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '0.75rem 1.25rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <button
+                onClick={() => setShowError709Modal(false)}
+                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Đóng
+              </button>
+              <button
+                onClick={() => {
+                  setShowError709Modal(false);
+                  fixShareError();
+                }}
+                disabled={loading || fixingShare}
+                style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: '#4f46e5', color: '#fff', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Share2 size={13} className={fixingShare ? 'spin' : ''} />
+                {fixingShare ? 'Đang áp dụng...' : '⚡ Sửa Tự Động 1-Click Ngay'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showError0x40Modal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.7)',
+          zIndex: 2200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(4px)', padding: '1rem'
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 12, width: '100%', maxWidth: 720,
+            maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)', overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #c2410c 0%, #ea580c 100%)',
+              color: '#fff', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ background: 'rgba(255,255,255,0.2)', padding: 6, borderRadius: 8 }}>
+                  <AlertTriangle size={20} color="#fff" />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, letterSpacing: 0.3 }}>
+                    Đặc Trị Lỗi 40 (0x00000040) - "The specified network name is no longer available"
+                  </h3>
+                  <div style={{ fontSize: '0.72rem', color: '#ffedd5', marginTop: 2 }}>
+                    Khắc phục sự cố kết nối chia sẻ máy in giữa 2 phiên bản Windows khác nhau (Win 7/10 ↔ Win 10/11)
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowError0x40Modal(false)}
+                style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 4, display: 'flex' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '1.25rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.9rem', fontSize: '0.75rem', lineHeight: 1.5, color: '#334155' }}>
+              
+              {/* Nguyên nhân */}
+              <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '0.8rem 1rem' }}>
+                <div style={{ fontWeight: 700, color: '#9a3412', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <AlertTriangle size={14} color="#ea580c" /> Nguyên Nhân Gây Lỗi:
+                </div>
+                <div style={{ color: '#7c2d12', fontSize: '0.73rem' }}>
+                  • <strong>Bản vá bảo mật Windows (Chính sách Point and Print &amp; RPC):</strong> Chặn máy tính client kết nối tự động hoặc tải driver từ máy chủ chia sẻ máy in nhằm phòng chống lỗ hổng bảo mật mạng.<br />
+                  • <strong>Bắt buộc SMB Signing trên Windows 11:</strong> Khi máy Windows 11 kết nối tới Windows 10/7, cơ chế bắt buộc ký số SMB làm đứt phiên mạng với thông báo: <em>"The specified network name is no longer available" (Tên mạng được chỉ định không còn khả dụng)</em>.
+                </div>
+              </div>
+
+              {/* 4 Bước Group Policy */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '0.9rem 1rem' }}>
+                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>🛠️ 4 Bước Chỉnh Sửa Chính Sách Hệ Thống (Group Policy):</span>
+                  <button
+                    onClick={() => handleOpenWindowsTool('gpedit')}
+                    style={{ background: '#ea580c', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                    title="Mở Group Policy Editor ngay"
+                  >
+                    <ExternalLink size={11} /> Mở gpedit.msc
+                  </button>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ background: '#ea580c', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>1</div>
+                    <div>
+                      <strong>Mở Group Policy Editor:</strong> Thực hiện trên máy tính bị lỗi không kết nối được. Nhấn tổ hợp phím <code>Windows + R</code>, gõ <code>gpedit.msc</code> rồi nhấn Enter. <em>(Lưu ý: Nếu dùng Windows bản Home không có sẵn gpedit.msc, bạn dùng nút Sửa Tự Động hoặc mã Registry phía dưới)</em>.
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ background: '#ea580c', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>2</div>
+                    <div>
+                      <strong>Truy cập mục Point and Print:</strong> Trong cửa sổ hiện ra, điều hướng theo đường dẫn:<br />
+                      <code style={{ background: '#e2e8f0', padding: '2px 6px', borderRadius: 4, color: '#0f172a' }}>Computer Configuration &gt; Administrative Templates &gt; Printers</code>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ background: '#ea580c', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>3</div>
+                    <div>
+                      <strong>Vô hiệu hóa hạn chế Point and Print:</strong> Tìm mục <strong>Point and Print Restrictions</strong>, nhấp đúp vào nó, chọn <strong>Disabled</strong>, sau đó nhấn <strong>Apply</strong> và <strong>OK</strong> để cho phép máy con nhận driver qua mạng.
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ background: '#ea580c', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>4</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div>
+                        <strong>Khởi động lại dịch vụ Print Spooler:</strong> Làm mới kết nối in bằng cách nhấn <code>Windows + R</code>, gõ <code>services.msc</code> &gt; tìm dịch vụ <strong>Print Spooler</strong> &gt; nhấp chuột phải chọn <strong>Restart</strong>.
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                        <button
+                          onClick={() => handleOpenWindowsTool('services')}
+                          style={{ background: '#fff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '2px 6px', fontSize: '0.66rem', cursor: 'pointer' }}
+                        >
+                          Mở services.msc
+                        </button>
+                        <button
+                          onClick={restartSpooler}
+                          style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', borderRadius: 4, padding: '2px 6px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          ⚡ Khởi Động Lại Spooler Ngay
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Giải pháp Registry cho Windows Home & 1-Click */}
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '0.8rem 1rem' }}>
+                <div style={{ fontWeight: 700, color: '#166534', marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <CheckCircle2 size={14} color="#16a34a" /> Khắc Phục Tự Động 1-Click (Hỗ trợ 100% Win Home &amp; Pro):
+                  </span>
+                  <button
+                    onClick={copy0x40RegToClipboard}
+                    style={{ background: copied0x40Reg ? '#dcfce7' : '#fff', color: copied0x40Reg ? '#15803d' : '#166534', border: '1px solid #86efac', borderRadius: 4, padding: '3px 8px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                  >
+                    {copied0x40Reg ? <Check size={11} /> : <Copy size={11} />}
+                    {copied0x40Reg ? 'Đã chép mã Registry' : 'Chép Mã Registry CMD'}
+                  </button>
+                </div>
+                <div style={{ color: '#15803d', fontSize: '0.72rem' }}>
+                  Đối với Windows Home không có <code>gpedit.msc</code>, DMH_Tools tự động ghi trực tiếp cấu hình Registry tương đương: Vô hiệu hóa Point &amp; Print Restrictions, bật RPC Named Pipe, tắt SMB Signing và khởi động lại Spooler chỉ với 1 click!
+                </div>
+              </div>
+
+              {/* Cách kiểm tra thành công */}
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '0.7rem 1rem', fontSize: '0.72rem', color: '#1e40af' }}>
+                <strong>🎯 Cách kiểm tra thành công:</strong> Thử kết nối lại tới máy in chia sẻ qua mạng LAN (ví dụ vào Run gõ <code>\\IP_MAY_CHU</code> rồi nhấp đúp vào máy in) hoặc thêm lại máy in. Nếu hệ thống cho phép cài đặt và in thử một trang (Print Test Page) thành công nghĩa là đã khắc phục hoàn toàn lỗi!
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '0.75rem 1.25rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <button
+                onClick={() => setShowError0x40Modal(false)}
+                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Đóng
+              </button>
+              <button
+                onClick={() => {
+                  setShowError0x40Modal(false);
+                  fixError0x40();
+                }}
+                disabled={loading || fixing0x40}
+                style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: '#ea580c', color: '#fff', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Zap size={13} className={fixing0x40 ? 'spin' : ''} />
+                {fixing0x40 ? 'Đang áp dụng...' : '⚡ Chạy Sửa Tự Động 1-Click Ngay'}
+              </button>
+            </div>
           </div>
         </div>
       )}

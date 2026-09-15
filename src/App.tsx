@@ -1052,7 +1052,11 @@ function App() {
         )}
 
         {visitedTabs.has('endoscopy') && (
-          <div key="tab-endoscopy" style={{ display: canAccess(activeTab) && activeTab === 'endoscopy' ? 'block' : 'none', width: '100%' }}>
+          <div
+            key="tab-endoscopy"
+            className="tab-panel-fullbleed"
+            style={{ display: canAccess(activeTab) && activeTab === 'endoscopy' ? 'flex' : 'none' }}
+          >
             <ErrorBoundary inline tabTitle={TAB_LABELS['endoscopy']} fallbackTab={() => setActiveTab('compare')}>
               <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['endoscopy']} />}>
                 <EndoscopyTab />
@@ -1122,7 +1126,11 @@ function App() {
         )}
 
         {visitedTabs.has('pctools') && (
-          <div key="tab-pctools" style={{ display: canAccess(activeTab) && activeTab === 'pctools' ? 'block' : 'none', width: '100%' }}>
+          <div
+            key="tab-pctools"
+            className="tab-panel-fullbleed"
+            style={{ display: canAccess(activeTab) && activeTab === 'pctools' ? 'flex' : 'none' }}
+          >
             <ErrorBoundary inline tabTitle={TAB_LABELS['pctools']} fallbackTab={() => setActiveTab('compare')}>
               <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['pctools']} />}>
                 <PcToolsTab />

@@ -2277,23 +2277,26 @@ export function PcToolsTab() {
       })()}
 
       {/* ── MAIN WORKSPACE: SIDEBAR (DARK SLATE) + CONTENT ── */}
-      <div style={{ display: 'flex', flex: 1, minHeight: 0, height: '100%', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
 
         {/* ── SIDEBAR ĐẶC TRƯNG DMH (DARK SLATE TECH LOOK) ── */}
-        <div style={{
-          width: 270,
-          flexShrink: 0,
-          height: '100%',
-          background: '#0f172a', // Deep navy slate — cực ngầu và hiện đại
-          color: '#e2e8f0',
-          borderRight: '1px solid #1e293b',
-          overflowY: 'auto',
-          padding: '16px 10px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 16,
-          userSelect: 'none'
-        }}>
+        <div
+          className="dark-slate-scrollbar"
+          style={{
+            width: 270,
+            flexShrink: 0,
+            height: '100%',
+            background: '#0f172a', // Deep navy slate — cực ngầu và hiện đại
+            color: '#e2e8f0',
+            borderRight: '1px solid #1e293b',
+            overflowY: 'auto',
+            padding: '16px 10px 40px 10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            userSelect: 'none'
+          }}
+        >
           {/* Quick System Badge in Sidebar */}
           <div style={{
             background: 'rgba(255,255,255,0.04)',
@@ -2417,7 +2420,7 @@ export function PcToolsTab() {
         </div>
 
         {/* ── CONTENT AREA (RIGHT) ── */}
-        <div style={{ flex: 1, minHeight: 0, height: '100%', overflowY: 'auto', padding: 22, background: '#f8fafc' }}>
+        <div style={{ flex: 1, minHeight: 0, height: '100%', overflowY: 'auto', padding: '22px 24px 60px 24px', background: '#f8fafc' }}>
 
           {/* 1. CẤU HÌNH & VI XỬ LÝ */}
           {activeSubTab === 'sys_info' && (() => {

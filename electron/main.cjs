@@ -3238,6 +3238,17 @@ function stopCompareServer() {
     const ps = `
       $ErrorActionPreference = 'SilentlyContinue'
       # 1. Đồng bộ toàn bộ khóa chia sẻ máy in LAN (0x709, 0x11b, RPC Named Pipes)
+      $printersKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers"
+      if (!(Test-Path $printersKey)) { New-Item -Path $printersKey -Force | Out-Null }
+      Set-ItemProperty -Path $printersKey -Name "RpcUseNamedPipeProtocol" -Value 1 -Type DWord -Force
+
+      $rpcKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\RPC"
+      if (!(Test-Path $rpcKey)) { New-Item -Path $rpcKey -Force | Out-Null }
+      Set-ItemProperty -Path $rpcKey -Name "RpcUseNamedPipeProtocol" -Value 1 -Type DWord -Force
+      Set-ItemProperty -Path $rpcKey -Name "RpcProtocols" -Value 7 -Type DWord -Force
+      Set-ItemProperty -Path $rpcKey -Name "RpcOverNamedPipes" -Value 1 -Type DWord -Force
+      Set-ItemProperty -Path $rpcKey -Name "RpcAuthentication" -Value 0 -Type DWord -Force
+
       $printReg = "HKLM:\\System\\CurrentControlSet\\Control\\Print"
       if (!(Test-Path $printReg)) { New-Item -Path $printReg -Force | Out-Null }
       Set-ItemProperty -Path $printReg -Name "RpcAuthnLevelPrivacyEnabled" -Value 0 -Type DWord -Force
@@ -4358,7 +4369,7 @@ function stopCompareServer() {
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
   });
 
-  // ── PRINTER SUITE: Đặc trị lỗi 0x00000040 (The specified network name is no longer available / Đứt phiên SMB) ──
+  // ── PRINTER SUITE: Đặc trị lỗi 0x00000040 (The specified network name is no longer available / Đứt phiên SMB / Point & Print) ──
   ipcMain.handle('printer:fix-error-0x40', async () => {
     const ps = `
       $ErrorActionPreference = 'SilentlyContinue'
@@ -4374,12 +4385,30 @@ function stopCompareServer() {
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
 
-      # 3. Chống ngắt kết nối session SMB rảnh (LanmanServer AutoDisconnect)
+      # 3. Vô hiệu hóa hạn chế Point and Print theo Group Policy (Disabling Point and Print Restrictions)
+      $pnpKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint"
+      if (-not (Test-Path $pnpKey)) { New-Item -Path $pnpKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictDriverInstallationToAdministrators" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictedDriver_InstallationAttribute" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "NoWarningNoElevationOnInstall" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "UpdatePromptSettings" /t REG_DWORD /d 2 /f | Out-Null
+
+      # 4. Cấu hình RPC Named Pipe & RPC Privacy (chống chặn kết nối RPC giữa các phiên bản Windows)
+      $rpcKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC"
+      if (-not (Test-Path $rpcKey)) { New-Item -Path $rpcKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcProtocols" /t REG_DWORD /d 7 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcOverNamedPipes" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelExemption" /t REG_DWORD /d 1 /f | Out-Null
+
+      # 5. Chống ngắt kết nối session SMB rảnh (LanmanServer AutoDisconnect)
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "Size" /t REG_DWORD /d 3 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "IRPStackSize" /t REG_DWORD /d 30 /f | Out-Null
 
-      # 4. Cho phép Guest Authentication không mật khẩu & SPN Strict Name Checking
+      # 6. Cho phép Guest Authentication không mật khẩu & SPN Strict Name Checking
       $lanman = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation"
       if (!(Test-Path $lanman)) { New-Item -Path $lanman -Force | Out-Null }
       Set-ItemProperty -Path $lanman -Name "AllowInsecureGuestAuth" -Value 1 -Type DWord -Force
@@ -4388,26 +4417,26 @@ function stopCompareServer() {
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "DisableLoopbackCheck" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "LimitBlankPasswordUse" /t REG_DWORD /d 0 /f | Out-Null
 
-      # 5. Kích hoạt NetBIOS over TCP/IP trên tất cả card mạng
+      # 7. Kích hoạt NetBIOS over TCP/IP trên tất cả card mạng
       Get-WmiObject Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPEnabled } | ForEach-Object { $_.SetTcpipNetbios(1) } | Out-Null
 
-      # 6. Mở và khởi động toàn bộ dịch vụ mạng nền tảng của Windows
+      # 8. Mở và khởi động toàn bộ dịch vụ mạng nền tảng của Windows
       $services = @("lmhosts", "LanmanServer", "LanmanWorkstation", "FDResPub", "fdPHost", "SSDPSRV", "upnphost", "Dnscache")
       foreach ($s in $services) {
         Set-Service -Name $s -StartupType Automatic -ErrorAction SilentlyContinue
         Start-Service -Name $s -ErrorAction SilentlyContinue
       }
 
-      # 7. Mở toàn diện Tường lửa cho File and Printer Sharing & Network Discovery
+      # 9. Mở toàn diện Tường lửa cho File and Printer Sharing & Network Discovery
       netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes | Out-Null
       netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes | Out-Null
 
-      # 8. Làm mới bộ đệm NetBIOS và DNS
+      # 10. Làm mới bộ đệm NetBIOS và DNS
       nbtstat -R 2>&1 | Out-Null
       nbtstat -RR 2>&1 | Out-Null
       ipconfig /flushdns | Out-Null
 
-      # 9. Khởi động lại Spooler
+      # 11. Khởi động lại Spooler
       Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
       Start-Sleep -Milliseconds 600
       Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
@@ -4415,7 +4444,7 @@ function stopCompareServer() {
       [PSCustomObject]@{
         ok = $true
         success = $true
-        message = "Đã đặc trị thành công lỗi 0x00000040! Đã chuyển mạng Private, tắt SMB Signing, bật NetBIOS và phục hồi toàn bộ dịch vụ mạng LAN."
+        message = "Đã đặc trị thành công lỗi 0x00000040! Đã vô hiệu hóa Point and Print Restrictions, cấu hình RPC Named Pipe, tắt SMB Signing, chuyển mạng Private và khởi động lại Print Spooler."
       } | ConvertTo-Json -Compress
     `;
     const res = await runElevatedPSToolScript(ps);
@@ -4428,7 +4457,13 @@ function stopCompareServer() {
     const ps = `
       $ErrorActionPreference = 'SilentlyContinue'
       
-      # Bước 1: Tạo khóa Registry RPC và kích hoạt RpcUseNamedPipeProtocol = 1
+      # Bước 1: Tạo khóa Registry Printers & RPC và kích hoạt RpcUseNamedPipeProtocol = 1
+      $printersKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers"
+      if (-not (Test-Path $printersKey)) {
+        New-Item -Path $printersKey -Force | Out-Null
+      }
+      reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f | Out-Null
+
       $rpcKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC"
       if (-not (Test-Path $rpcKey)) {
         New-Item -Path $rpcKey -Force | Out-Null
@@ -4487,12 +4522,13 @@ function stopCompareServer() {
       Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
 
       # Bước 7: Kiểm tra lại các giá trị Registry vừa thiết lập
-      $val1 = (Get-ItemProperty -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" -Name "RpcUseNamedPipeProtocol" -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
+      $val1a = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers" -Name "RpcUseNamedPipeProtocol" -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
+      $val1b = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\RPC" -Name "RpcUseNamedPipeProtocol" -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
       $val2 = (Get-ItemProperty -Path "HKLM:\\System\\CurrentControlSet\\Control\\Print" -Name "RpcAuthnLevelPrivacyEnabled" -ErrorAction SilentlyContinue).RpcAuthnLevelPrivacyEnabled
       $val3 = (Get-ItemProperty -Path "HKLM:\\System\\CurrentControlSet\\Control\\Print" -Name "RpcAuthnLevelExemption" -ErrorAction SilentlyContinue).RpcAuthnLevelExemption
       $spooler = (Get-Service -Name Spooler -ErrorAction SilentlyContinue).Status.ToString()
 
-      $success = ($val1 -eq 1 -or $val2 -eq 0 -or $val3 -eq 1)
+      $success = ($val1a -eq 1 -or $val1b -eq 1 -or $val2 -eq 0 -or $val3 -eq 1)
 
       [PSCustomObject]@{
         ok = $true
@@ -4858,6 +4894,8 @@ function stopCompareServer() {
     if (toolName === 'printmanagement') cmd = 'printmanagement.msc';
     else if (toolName === 'services') cmd = 'services.msc';
     else if (toolName === 'devmgmt') cmd = 'devmgmt.msc';
+    else if (toolName === 'gpedit') cmd = 'gpedit.msc';
+    else if (toolName === 'regedit') cmd = 'regedit.exe';
     
     const ps = `
       Start-Process "${cmd}"
@@ -5076,10 +5114,12 @@ function stopCompareServer() {
 
       # 2. Kiểm tra Registry RPC LAN (Lỗi 0x00000709 & 0x0000011b)
       $rpcKey = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC'
-      $val1 = (Get-ItemProperty -Path $rpcKey -Name 'RpcUseNamedPipeProtocol' -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
+      $printersKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers'
+      $val1a = (Get-ItemProperty -Path $printersKey -Name 'RpcUseNamedPipeProtocol' -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
+      $val1b = (Get-ItemProperty -Path $rpcKey -Name 'RpcUseNamedPipeProtocol' -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
       $val2 = (Get-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Print' -Name 'RpcAuthnLevelPrivacyEnabled' -ErrorAction SilentlyContinue).RpcAuthnLevelPrivacyEnabled
       $val3 = (Get-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Print' -Name 'RpcAuthnLevelExemption' -ErrorAction SilentlyContinue).RpcAuthnLevelExemption
-      $lanRpcOk = ($val1 -eq 1 -or $val2 -eq 0 -or $val3 -eq 1)
+      $lanRpcOk = ($val1a -eq 1 -or $val1b -eq 1 -or $val2 -eq 0 -or $val3 -eq 1)
 
       # 3. Kiểm tra Chính sách Point and Print (Lỗi 0x00000bcb)
       $pnpKey = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint'
@@ -5200,6 +5240,10 @@ function stopCompareServer() {
       & icacls $spoolDir /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" /grant "Users:(OI)(CI)F" /grant "EVERYONE:(OI)(CI)M" /T /C /Q | Out-Null
 
       # 4. Sửa lỗi LAN 0x00000709 & 0x0000011b (Registry RPC)
+      $printersKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers"
+      if (-not (Test-Path $printersKey)) { New-Item -Path $printersKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f | Out-Null
+
       $rpcKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC"
       if (-not (Test-Path $rpcKey)) { New-Item -Path $rpcKey -Force | Out-Null }
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f | Out-Null

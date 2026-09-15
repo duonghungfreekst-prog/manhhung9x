@@ -120,10 +120,19 @@ Hoặc trong thư mục cài đặt: `resources\scripts\install_tts.bat`
 
 ---
 
-## 🖨 8. MÁY IN
+## 🖨 8. MÁY IN & CỨU HỘ IN MẠNG LAN
 
-1. Quản lý danh sách máy in kết nối.
-2. Bấm 1 nút để khởi động lại `Print Spooler` khi máy in bị đơ/kẹt lệnh in.
+1. **Quản lý danh sách máy in:** Theo dõi trạng thái Online/Offline, hàng đợi lệnh in, driver và cổng in của từng máy in.
+2. **Đặc trị Lỗi 40 (0x00000040 - The specified network name is no longer available):**
+   - Thường gặp khi chia sẻ máy in giữa 2 phiên bản Windows khác nhau (Win 7/10 ↔ Win 10/11) do chính sách bảo mật **Point and Print Restrictions** và cơ chế RPC chặn nạp driver qua mạng, kết hợp cơ chế bắt buộc SMB Signing của Windows 11.
+   - **Cách 1 - Sửa tự động 1-Click:** Bấm nút **[⚡ Sửa Tự Động 1-Click]** tại thẻ *Lỗi 40 (0x00000040)*. Phần mềm sẽ tự động vô hiệu hóa Point & Print Restrictions, cấu hình RPC Named Pipe, tắt SMB Signing và khởi động lại Print Spooler (hỗ trợ cả Windows Pro và Home).
+   - **Cách 2 - Sửa thủ công qua Group Policy:**
+     - Bước 1: Nhấn `Windows + R`, gõ `gpedit.msc` rồi Enter trên máy con bị lỗi.
+     - Bước 2: Vào `Computer Configuration > Administrative Templates > Printers`.
+     - Bước 3: Nhấp đúp vào `Point and Print Restrictions`, chọn `Disabled`, nhấn Apply và OK.
+     - Bước 4: Nhấn `Windows + R`, gõ `services.msc` > tìm dịch vụ `Print Spooler` > chuột phải chọn `Restart`.
+3. **Đặc trị Lỗi 0x00000709 & 0x0000011b:** Bấm nút **[⚡ Sửa Tự Động 1-Click]** hoặc dùng **[🌐 Kết Nối Bằng Local Port]** để tạo cổng in cục bộ qua mạng, in mượt mà 100% không lo lỗi RPC từ xa.
+4. **Cứu hộ kẹt lệnh & Spooler:** Xóa sạch lệnh in kẹt, phân quyền thư mục Spooler và chuyển máy in về Online (tắt lỗi SNMP ảo).
 
 ---
 

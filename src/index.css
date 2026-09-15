@@ -36,6 +36,45 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ─── Global Scrollbar Styling (Trực quan, mượt mà, chống ẩn cuộn) ─── */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* Dark Slate Scrollbar (Cho sidebar và panel tối màu) */
+.dark-slate-scrollbar::-webkit-scrollbar {
+  width: 7px;
+}
+.dark-slate-scrollbar::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+.dark-slate-scrollbar::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+.dark-slate-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
 /* ─── Layout ───────────────────────────────────── */
 .app-container {
   display: flex;
@@ -50,7 +89,7 @@ body {
 .main-content {
   flex: 1;
   min-height: 0;
-  padding: 1.25rem 2rem 2rem;
+  padding: 1.25rem 2rem 3.5rem;
   max-width: 100%;
   margin: 0 auto;
   width: 100%;
@@ -58,6 +97,7 @@ body {
   flex-direction: column;
   gap: 1.25rem;
   overflow-y: auto;
+  scroll-behavior: smooth;
 }
 
 .main-content.main-content-full {
@@ -66,11 +106,26 @@ body {
   margin: 0 !important;
   padding: 0 !important;
   gap: 0 !important;
-  flex: 1 !important;
+  flex: 1 1 auto !important;
   min-height: 0 !important;
   height: 100% !important;
   max-height: 100% !important;
   overflow: hidden !important;
+  background: #f8fafc !important;
+}
+
+/* Tab Panel Fullbleed: Cho phép các tab có layout workspace (như PcToolsTab, EndoscopyTab)
+   nhận đúng 100% chiều cao và co giãn các cột cuộn bên trong chuẩn xác */
+.tab-panel-fullbleed {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  width: 100%;
+  overflow: hidden;
+  position: relative;
 }
 
 /* ─── Menu Bar ─────────────────────────────────── */

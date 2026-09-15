@@ -194,29 +194,25 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Tích Hợp Dòng Biểu Tượng & Thanh Trạng Thái Đang Xử Lý Toàn Bộ Ứng Dụng (Global Processing Indicator)
+        body: `### 🚀 DMH Tools ${tagName} - Khắc Phục Triệt Để Lỗi Mất Thanh Cuộn & Tái Cấu Trúc Toàn Diện Vùng Cuộn Giao Diện (Layout Scroll Fix)
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.9.1:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.9.2:
 
-- **1. Tích Hợp Dòng Biểu Tượng & Thông Báo Xử Lý Nổi Bật Tại Header (Header Processing Indicator)**:
-  + Nằm ngay tại khoảng trống trung tâm trên thanh Header chính (giữa nút "Tất cả (15)" và cụm License/Enterprise).
-  + Biểu tượng xoay tròn liên tục (\`Loader2\` animated spin) kết hợp chấm xung điện phát sáng màu xanh ngọc (Live pulse dot) báo hiệu hệ thống đang thực thi nhiệm vụ thực tế.
-  + Hiển thị trực quan thông điệp mô tả chi tiết tác vụ đang chạy trên toàn hệ thống:
-    - ⚡ *Đang quét & chẩn đoán toàn bộ lỗi máy in & mạng LAN...*
-    - 🛠️ *Đang tự động sửa tất cả lỗi máy in, Spooler & chia sẻ LAN...*
-    - 🖨️ *Đang dừng Spooler & dọn sạch toàn bộ lệnh in kẹt...*
-    - 🌐 *Đang thiết lập Cổng Local Port máy in LAN...*
-    - 🕒 *Đang kết nối tới máy vân tay & tải dữ liệu chấm công qua mạng LAN...*
-    - 📑 *Đang phân tích dữ liệu hồ sơ XML 3176...*
-    - 📊 *Đang tạo và kết xuất file Excel 01BH...*
-    - 🔄 *Đang chuyển đổi định dạng tệp tin...*
-  + Hỗ trợ quản lý đa tác vụ đồng thời: Tự động hiển thị huy hiệu đếm số lượng tác vụ và cho phép xem chi tiết từng tác vụ đang chạy ngầm.
+- **1. Khắc Phục Triệt Để Lỗi Mất Thanh Cuộn (Scrollbar) & Cắt Cụt Nội Dung Đáy**:
+  + Sửa tận gốc lỗi CSS Flexbox khiến vùng hiển thị nội dung phân hệ Kỹ Thuật PC (\`PcToolsTab\`) và Trạm Nội Soi (\`EndoscopyTab\`) bị đẩy tràn khung nhìn và cắt cụt nội dung ở phía dưới.
+  + Loại bỏ thuộc tính xung đột chiều cao \`height: 100%\` bên trong flex container có header, giúp vùng làm việc tự động nhận diện chính xác 100% không gian khả dụng của màn hình.
+  + Đảm bảo 100% danh mục phần mềm (Kho Ứng Dụng Thiết Yếu, Bộ gõ, Giải nén, Hỗ trợ từ xa, Runtime, Trình phát đa phương tiện...) và tất cả các sub-tab đều cuộn được mượt mà từ đầu tới cuối.
 
-- **2. Vạch Tiến Trình Đỉnh Toàn Màn Hình (Top Indeterminate Progress Line)**:
-  + Dải gradient sóng động (\`cyan ➔ blue ➔ emerald\`) chạy lướt liên tục trên mép đỉnh cao nhất của ứng dụng khi có tác vụ bận, đảm bảo người dùng cuộn ở bất kỳ đâu cũng luôn nhận biết được trạng thái hoạt động của phần mềm, hoàn toàn triệt tiêu cảm giác app bị treo.
+- **2. Tích Hợp Bộ Thanh Cuộn Trực Quan Toàn Cầu (Global Webkit Scrollbar Styling)**:
+  + Trang bị giao diện thanh cuộn 9px cao cấp, trực quan với rãnh trượt tinh tế, ngăn chặn triệt để tình trạng Windows 10/11 tự động ẩn thanh cuộn (Overlay Scrollbar) gây khó khăn cho người dùng.
+  + Thiết kế riêng thanh cuộn \`dark-slate-scrollbar\` siêu ngầu cho thanh Sidebar chuyên mục Kỹ Thuật PC, đồng bộ hoàn hảo với phong cách dark navy slate hiện đại.
 
-- **3. Kiến Trúc Quản Lý Trạng Thái Tập Trung Toàn Cầu (\`globalLoading.ts\`)**:
-  + Tự động liên kết mượt mà với toàn bộ các phân hệ chức năng: Bác Sĩ Máy In, Chấm Công Vân Tay, Đọc & Trích Xuất File, Chuyển Đổi Tài Liệu, Đối Chiếu Hồ Sơ BHYT.
+- **3. Tái Cấu Trúc Wrapper Phân Hệ Với \`.tab-panel-fullbleed\`**:
+  + Thay thế cấu trúc cũ bằng class chuẩn \`.tab-panel-fullbleed\` (\`flex: 1 1 auto; min-height: 0; height: 100%;\`), loại bỏ hoàn toàn khoảng trống xanh nhạt (\`#dbeafe\`) bị hở ở đáy màn hình.
+  + Bổ sung đệm đáy rộng rãi (\`padding-bottom: 60px\` cho Workspace và \`3.5rem\` cho toàn bộ các tab tài liệu), giúp các nút bấm và card nội dung cuối cùng luôn cách mép đáy thoáng đãng, không bao giờ bị thanh Taskbar Windows che khuất.
+
+- **4. Tối Ưu Hóa & Kiểm Thử Toàn Diện 15 Phân Hệ**:
+  + Kiểm tra và tinh chỉnh độ mượt khi cuộn trên mọi độ phân giải màn hình từ Laptop (1366x768, 1600x900) đến Màn hình máy bàn (1920x1080, 2K, 4K) và các mức phóng to tỉ lệ hiển thị (Zoom 125%, 150%).
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,
