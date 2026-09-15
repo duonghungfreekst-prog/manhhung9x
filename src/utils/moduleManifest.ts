@@ -29,12 +29,12 @@ export const MODULE_REGISTRY: Record<string, ModuleInfo> = {
     shortDesc: 'Bộ lọc quang học NBI, Thước Caliper ảo, HDMI Trigger & Python Server',
     fullDesc: 'Cung cấp toàn bộ máy chủ bắt hình độ phân giải 4K UHD DirectShow, bộ lọc màu NBI 415/540nm thời gian thực, thước đo polyp và thuật toán AI nhận diện cóc đạp máy soi qua cáp HDMI.',
     category: 'CLINICAL',
-    version: '6.6.1',
-    sizeMb: 48,
+    version: '6.7.4',
+    sizeMb: 62,
     iconName: 'Eye',
     relatedTabs: ['endoscopy'],
     licenseBitRequired: TAB_BITS.endoscopy,
-    releaseAssetFileName: 'dmh-mod-endoscopy-v6.6.1.zip',
+    releaseAssetFileName: 'dmh-mod-endoscopy-v6.7.4.zip',
     requiredFiles: [
       'python_core/endoscopy_server/endoscopy_server.exe',
       'scripts/install_camera_driver.bat'
@@ -46,12 +46,12 @@ export const MODULE_REGISTRY: Record<string, ModuleInfo> = {
     shortDesc: 'Mô hình phát thanh âm thanh Neural Tiếng Việt & Màn hình hiển thị hàng đợi',
     fullDesc: 'Chứa mô hình trí tuệ nhân tạo phát âm tiếng Việt chuẩn y khoa (Piper ONNX) chạy 100% offline không cần mạng, cùng giao diện màn hình chờ Full HD cho phòng khám.',
     category: 'AI',
-    version: '6.6.1',
-    sizeMb: 32,
+    version: '6.7.4',
+    sizeMb: 101,
     iconName: 'Tv',
     relatedTabs: ['hiscall'],
     licenseBitRequired: TAB_BITS.hiscall,
-    releaseAssetFileName: 'dmh-mod-hiscall-v6.6.1.zip',
+    releaseAssetFileName: 'dmh-mod-hiscall-v6.7.4.zip',
     requiredFiles: [
       'vendor/piper/piper.exe',
       'scripts/tts_server.py'
@@ -63,12 +63,12 @@ export const MODULE_REGISTRY: Record<string, ModuleInfo> = {
     shortDesc: 'Engine trích xuất và chuyển đổi tài liệu y khoa định dạng cao',
     fullDesc: 'Bộ xử lý tệp tin nhị phân và tài liệu y bạ số, chuyển đổi hồ sơ bệnh án sang PDF bảo mật và nén tệp cận lâm sàng dung lượng lớn.',
     category: 'OFFICE',
-    version: '6.6.1',
-    sizeMb: 18,
+    version: '6.7.4',
+    sizeMb: 83,
     iconName: 'FileSpreadsheet',
     relatedTabs: ['converter'],
     licenseBitRequired: TAB_BITS.converter,
-    releaseAssetFileName: 'dmh-mod-converter-v6.6.1.zip',
+    releaseAssetFileName: 'dmh-mod-converter-v6.7.4.zip',
     requiredFiles: [
       'bin/convert_pdf.exe'
     ],
@@ -79,12 +79,12 @@ export const MODULE_REGISTRY: Record<string, ModuleInfo> = {
     shortDesc: 'Engine so khớp dữ liệu cổng giám định BHYT và HIS bệnh viện',
     fullDesc: 'Máy chủ so sánh đa luồng phân tích hàng trăm nghìn dòng dữ liệu chi phí khám chữa bệnh BHYT, phát hiện lệch tiền viện phí và xuất toán tức thì.',
     category: 'SYSTEM',
-    version: '6.6.1',
-    sizeMb: 24,
+    version: '6.7.4',
+    sizeMb: 14,
     iconName: 'GitCompare',
     relatedTabs: ['compare'],
     licenseBitRequired: TAB_BITS.compare,
-    releaseAssetFileName: 'dmh-mod-compare-v6.6.1.zip',
+    releaseAssetFileName: 'dmh-mod-compare-v6.7.4.zip',
     requiredFiles: [
       'python_core/compare_server/compare_server.exe',
       'python_core/xml3176_server/xml3176_server.exe'

@@ -93,6 +93,7 @@ function initAttendanceTables() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS attendance_shifts (
       id TEXT PRIMARY KEY,
+      code TEXT,
       name TEXT NOT NULL,
       start_time TEXT NOT NULL,
       end_time TEXT NOT NULL,
@@ -104,6 +105,10 @@ function initAttendanceTables() {
       updated_at TEXT DEFAULT (datetime('now', 'localtime'))
     );
   `);
+
+  try {
+    db.exec(`ALTER TABLE attendance_shifts ADD COLUMN code TEXT;`);
+  } catch {}
 
   // Cấu hình lịch biểu & phân ca
   db.exec(`
@@ -297,8 +302,16 @@ function initXmlTables() {
 // ════════════════════════════════════════════════════════════════════════════
 // CRUD: PHÂN HỆ CHẤM CÔNG (ATTENDANCE)
 // ════════════════════════════════════════════════════════════════════════════
+function normalizeEmpId(rawId) {
+  if (rawId === null || rawId === undefined) return '';
+  const str = String(rawId).replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim();
+  const numMatch = str.match(/^0*([1-9]\d*|0)$/);
+  if (numMatch) return numMatch[1];
+  return str;
+}
+
 const attendance = {
-  // Lưu hàng loạt lượt quẹt thẻ (Bulk Insert an toàn)
+  // Lưu hàng loạt lượt quẹt thẻ (Bulk Insert an toàn, không ném lỗi RangeError)
   savePunchLogs(logs) {
     if (!logs || !logs.length) return { ok: true, count: 0 };
     initDatabase();
@@ -312,23 +325,43 @@ const attendance = {
 
       let insertedCount = 0;
       for (const log of logs) {
-        const timeStr = typeof log.timestamp === 'string'
-          ? log.timestamp
-          : (log.timestamp instanceof Date ? log.timestamp.toISOString() : new Date(log.timestamp).toISOString());
-        const info = stmt.run(
-          String(log.empId || '').trim(),
-          String(log.empName || '').trim(),
-          timeStr,
-          String(log.punchType || 'UNKNOWN'),
-          String(log.deviceId || '')
-        );
+        if (!log) continue;
+        const rawTime = log.punchTime || log.timestamp || log.punch_time;
+        if (!rawTime) continue;
+
+        let timeStr = '';
+        if (rawTime instanceof Date && !isNaN(rawTime.getTime())) {
+          const yyyy = rawTime.getFullYear();
+          const mm = String(rawTime.getMonth() + 1).padStart(2, '0');
+          const dd = String(rawTime.getDate()).padStart(2, '0');
+          const hh = String(rawTime.getHours()).padStart(2, '0');
+          const min = String(rawTime.getMinutes()).padStart(2, '0');
+          const ss = String(rawTime.getSeconds()).padStart(2, '0');
+          timeStr = `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+        } else if (typeof rawTime === 'string') {
+          timeStr = rawTime.trim();
+        } else {
+          timeStr = String(rawTime).trim();
+        }
+        if (!timeStr) continue;
+
+        const rawEmpId = log.empId || log.userId || log.deviceUserId || '';
+        const empId = normalizeEmpId(rawEmpId) || String(rawEmpId).trim();
+        if (!empId) continue;
+
+        const empName = String(log.empName || log.name || log.emp_name || '').trim();
+        const punchType = String(log.punchType || log.punch_type || 'UNKNOWN');
+        const deviceId = String(log.deviceId || log.device_id || '');
+
+        const info = stmt.run(empId, empName, timeStr, punchType, deviceId);
         if (info.changes > 0) insertedCount++;
       }
       db.exec('COMMIT;');
       return { ok: true, count: insertedCount, totalProcessed: logs.length };
     } catch (e) {
-      db.exec('ROLLBACK;');
-      throw e;
+      try { db.exec('ROLLBACK;'); } catch {}
+      console.error('[SQLITE] Lỗi savePunchLogs:', e);
+      return { ok: false, error: e.message };
     }
   },
 
@@ -345,8 +378,14 @@ const attendance = {
       params.push(`${yStr}-${mStr}%`, `%${mStr}/${yStr}%`);
     }
     if (filter.empId) {
-      query += ' AND emp_id = ?';
-      params.push(String(filter.empId).trim());
+      const normEmpId = normalizeEmpId(filter.empId);
+      if (normEmpId && normEmpId !== String(filter.empId).trim()) {
+        query += ' AND (emp_id = ? OR emp_id = ?)';
+        params.push(String(filter.empId).trim(), normEmpId);
+      } else {
+        query += ' AND emp_id = ?';
+        params.push(String(filter.empId).trim());
+      }
     }
 
     query += ' ORDER BY punch_time ASC';
@@ -412,26 +451,38 @@ const attendance = {
 
   // Quản lý Ca làm việc
   saveShifts(shifts) {
-    if (!shifts) return { ok: true };
+    if (!shifts || !Array.isArray(shifts)) return { ok: true };
     initDatabase();
     db.exec('BEGIN TRANSACTION;');
     try {
       db.exec('DELETE FROM attendance_shifts;');
       const stmt = db.prepare(`
-        INSERT INTO attendance_shifts (id, name, start_time, end_time, grace_late, grace_early, work_units, color, is_overnight, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+        INSERT INTO attendance_shifts (id, code, name, start_time, end_time, grace_late, grace_early, work_units, color, is_overnight, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
       `);
       for (const s of shifts) {
+        const code = s.code || (s.id === 'shift_hc' ? 'HC' : s.id === 'shift_sang' ? 'S' : s.id === 'shift_chieu' ? 'C' : s.id === 'shift_toi' ? 'T' : 'CA');
+        const startTime = s.startTime || s.start_time || '07:30';
+        const endTime = s.endTime || s.end_time || '17:00';
+        const graceLate = s.graceLateMinutes ?? s.grace_late ?? 15;
+        const graceEarly = s.graceEarlyMinutes ?? s.grace_early ?? 15;
+        const workUnits = typeof s.workUnits === 'number' && !isNaN(s.workUnits)
+          ? s.workUnits
+          : (typeof s.work_units === 'number' && !isNaN(s.work_units) ? s.work_units : 1.0);
+        const color = s.color || '#10b981';
+        const isOvernight = (s.isOvernight || s.is_overnight) ? 1 : 0;
+
         stmt.run(
           s.id,
-          s.name,
-          s.startTime,
-          s.endTime,
-          s.graceLateMinutes || 15,
-          s.graceEarlyMinutes || 15,
-          s.workUnitsEarned || 1.0,
-          s.color || '#3b82f6',
-          s.isOvernight ? 1 : 0
+          code,
+          s.name || 'Ca làm việc',
+          startTime,
+          endTime,
+          graceLate,
+          graceEarly,
+          workUnits,
+          color,
+          isOvernight
         );
       }
       db.exec('COMMIT;');
@@ -445,7 +496,19 @@ const attendance = {
   getShifts() {
     initDatabase();
     const rows = db.prepare('SELECT * FROM attendance_shifts ORDER BY start_time ASC').all();
-    return { ok: true, shifts: rows };
+    const shifts = rows.map(r => ({
+      id: r.id,
+      code: r.code || (r.id === 'shift_hc' ? 'HC' : r.id === 'shift_sang' ? 'S' : r.id === 'shift_chieu' ? 'C' : r.id === 'shift_toi' ? 'T' : 'CA'),
+      name: r.name,
+      startTime: r.start_time || '07:30',
+      endTime: r.end_time || '17:00',
+      workUnits: typeof r.work_units === 'number' && !isNaN(r.work_units) ? r.work_units : 1.0,
+      graceLateMinutes: r.grace_late ?? 15,
+      graceEarlyMinutes: r.grace_early ?? 15,
+      color: r.color || '#10b981',
+      isOvernight: !!r.is_overnight,
+    }));
+    return { ok: true, shifts };
   },
 
   // Quản lý Lịch phân ca

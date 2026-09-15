@@ -31,17 +31,22 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
 
   const eModules = (window as any).electronAPI?.modules;
   const eAPI = (window as any).electronAPI;
+  const lastProgressUpdateRef = React.useRef<number>(0);
 
-  // Lắng nghe tiến trình tải
+  // Lắng nghe tiến trình tải với throttle để bảo vệ UI không bị nghẽn IPC
   useEffect(() => {
     if (!eModules?.onDownloadProgress) return;
     const unsub = eModules.onDownloadProgress((data: any) => {
       if (data) {
-        setDownloadProgress(data.percent || 0);
-        setDownloadSpeed({
-          downloadedMb: +(data.downloadedBytes / (1024 * 1024)).toFixed(1),
-          totalMb: +(data.totalBytes / (1024 * 1024)).toFixed(1),
-        });
+        const now = Date.now();
+        if (now - lastProgressUpdateRef.current > 200 || data.percent === 100 || data.percent === 0) {
+          lastProgressUpdateRef.current = now;
+          setDownloadProgress(data.percent || 0);
+          setDownloadSpeed({
+            downloadedMb: +(data.downloadedBytes / (1024 * 1024)).toFixed(1),
+            totalMb: +(data.totalBytes / (1024 * 1024)).toFixed(1),
+          });
+        }
       }
     });
 
@@ -63,15 +68,28 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
     onClose();
   };
 
+  // Tải trực tiếp qua trình duyệt web mặc định (Chrome / Edge / Cốc Cốc)
+  const handleBrowserDownload = () => {
+    const directExeUrl = updateInfo.installerAsset?.downloadUrl || 
+      `https://github.com/duonghungfreekst-prog/manhhung9x/releases/download/v${updateInfo.latestVersion}/DMH_Tools_Setup_${updateInfo.latestVersion}_Slim.exe`;
+    if (eAPI?.openDriverUrl) {
+      eAPI.openDriverUrl(directExeUrl);
+    } else if (eAPI?.openExternal) {
+      eAPI.openExternal(directExeUrl);
+    } else {
+      window.open(directExeUrl, '_blank');
+    }
+  };
+
   // Tải và chạy bộ cài tự động
   const handleAutoUpdate = async () => {
     const directExeUrl = updateInfo.installerAsset?.downloadUrl || 
       `https://github.com/duonghungfreekst-prog/manhhung9x/releases/download/v${updateInfo.latestVersion}/DMH_Tools_Setup_${updateInfo.latestVersion}_Slim.exe`;
     const installerName = updateInfo.installerAsset?.name || `DMH_Tools_Setup_${updateInfo.latestVersion}_Slim.exe`;
 
-    // Nếu không có Electron API -> tải trực tiếp file exe
+    // Nếu không có Electron API -> tải trực tiếp file exe qua trình duyệt
     if (!eModules?.downloadGithub) {
-      window.location.href = directExeUrl;
+      handleBrowserDownload();
       return;
     }
 
@@ -88,7 +106,7 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
       });
 
       if (res?.ok) {
-        setStatusMessage('Đã tải hoàn tất! Đang khởi động trình cài đặt cập nhật...');
+        setStatusMessage('Đã tải xong! Đang mở bộ cài đặt để nâng cấp...');
         setDownloadProgress(100);
 
         if (eAPI?.runInstaller) {
@@ -97,11 +115,11 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
           setStatusMessage('Vui lòng chạy file cài đặt vừa tải để hoàn tất cập nhật!');
         }
       } else {
-        setErrorMessage(res?.error || 'Tải bộ cài đặt thất bại');
+        setErrorMessage(res?.error || 'Tải bộ cài đặt thất bại. Bạn có thể bấm nút "Tải Qua Trình Duyệt" bên dưới để tải trực tiếp!');
         setIsDownloading(false);
       }
     } catch (err: any) {
-      setErrorMessage(`Lỗi mạng: ${err.message || err}`);
+      setErrorMessage(`Lỗi mạng: ${err.message || err}. Bạn có thể bấm nút "Tải Qua Trình Duyệt" để tải về mà không lo bị ngắt!`);
       setIsDownloading(false);
     }
   };
@@ -258,7 +276,7 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
         {errorMessage && (
           <div style={{
             margin: '14px 24px 0',
-            padding: '10px 14px',
+            padding: '12px 16px',
             background: 'rgba(239, 68, 68, 0.12)',
             border: '1px solid rgba(239, 68, 68, 0.4)',
             borderRadius: 10,
@@ -266,10 +284,30 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
             fontSize: '0.78rem',
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
+            justifyContent: 'space-between',
+            gap: 10,
           }}>
-            <AlertCircle size={16} color="#f87171" style={{ flexShrink: 0 }} />
-            <span>{errorMessage}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertCircle size={16} color="#f87171" style={{ flexShrink: 0 }} />
+              <span>{errorMessage}</span>
+            </div>
+            <button
+              onClick={handleBrowserDownload}
+              style={{
+                padding: '5px 10px',
+                borderRadius: 6,
+                background: '#ef4444',
+                border: 'none',
+                color: '#ffffff',
+                fontSize: '0.74rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              Tải Bằng Trình Duyệt
+            </button>
           </div>
         )}
 
@@ -401,6 +439,30 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
             >
               <ExternalLink size={13} />
               <span>Xem GitHub</span>
+            </button>
+
+            <button
+              onClick={handleBrowserDownload}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 8,
+                background: 'rgba(16, 185, 129, 0.15)',
+                border: '1px solid rgba(16, 185, 129, 0.4)',
+                color: '#34d399',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.25)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)'}
+              title="Tải tệp bộ cài đặt (.exe) trực tiếp bằng trình duyệt Chrome/Edge với tốc độ tối đa"
+            >
+              <Download size={14} />
+              <span>Tải Qua Trình Duyệt</span>
             </button>
 
             <button

@@ -17,6 +17,8 @@ import type {
 import {
   DEFAULT_SHIFTS,
   DEFAULT_WEEKLY_TEMPLATE,
+  normalizeEmpId,
+  parseAnyDate,
   parseBiometricExcelOrCsv,
   parseBiometricTextOrDat,
   evaluateMonthlyAttendance,
@@ -75,6 +77,33 @@ function computeHisSummaries(rows: RawDoctorRow[]): DoctorSummary[] {
     .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
 }
 
+function normalizeShiftPresets(rawList: any[]): ShiftPreset[] {
+  if (!Array.isArray(rawList) || rawList.length === 0) return DEFAULT_SHIFTS;
+  return rawList.map(s => {
+    const rawUnits = s.workUnits ?? s.work_units;
+    const validUnits = typeof rawUnits === 'number' && !isNaN(rawUnits) && rawUnits > 0 ? rawUnits : 1.0;
+    return {
+      id: s.id || 'shift_hc',
+      code: s.code || (s.id === 'shift_hc' ? 'HC' : s.id === 'shift_sang' ? 'S' : s.id === 'shift_chieu' ? 'C' : s.id === 'shift_toi' ? 'T' : 'CA'),
+      name: s.name || 'Ca làm việc',
+      startTime: s.startTime || s.start_time || '07:30',
+      endTime: s.endTime || s.end_time || '17:00',
+      breakStart: s.breakStart || s.break_start,
+      breakEnd: s.breakEnd || s.break_end,
+      workUnits: validUnits,
+      graceLateMinutes: s.graceLateMinutes ?? s.grace_late ?? 15,
+      graceEarlyMinutes: s.graceEarlyMinutes ?? s.grace_early ?? 15,
+      checkInWindowStart: s.checkInWindowStart || s.check_in_window_start,
+      checkInWindowEnd: s.checkInWindowEnd || s.check_in_window_end,
+      checkOutWindowStart: s.checkOutWindowStart || s.check_out_window_start,
+      checkOutWindowEnd: s.checkOutWindowEnd || s.check_out_window_end,
+      overtimeThresholdMinutes: s.overtimeThresholdMinutes ?? s.overtime_threshold ?? 30,
+      isOvernight: !!(s.isOvernight || s.is_overnight),
+      color: s.color || '#10b981',
+    };
+  });
+}
+
 // ── COMPONENT CHÍNH ATTENDANCE TAB ──────────────────────────────────────────
 
 export function AttendanceTab() {
@@ -85,7 +114,7 @@ export function AttendanceTab() {
   const [shifts, setShifts] = useState<ShiftPreset[]>(() => {
     try {
       const saved = localStorage.getItem('dmh_shift_presets');
-      return saved ? JSON.parse(saved) : DEFAULT_SHIFTS;
+      return saved ? normalizeShiftPresets(JSON.parse(saved)) : DEFAULT_SHIFTS;
     } catch {
       return DEFAULT_SHIFTS;
     }
@@ -142,7 +171,7 @@ export function AttendanceTab() {
     // 2. Tải danh mục ca từ SQLite nếu có
     sqliteAPI.attendance?.getShifts?.().then((res: any) => {
       if (res?.ok && res.shifts?.length > 0) {
-        setShifts(res.shifts);
+        setShifts(normalizeShiftPresets(res.shifts));
       }
     }).catch(() => {});
 
@@ -157,9 +186,9 @@ export function AttendanceTab() {
     sqliteAPI.attendance?.getLogs?.({ month: selectedMonth, year: selectedYear }).then((res: any) => {
       if (res?.ok && res.logs?.length > 0) {
         const parsedLogs: RawPunchLog[] = res.logs.map((l: any) => ({
-          empId: l.emp_id,
+          empId: normalizeEmpId(l.emp_id) || l.emp_id,
           empName: l.emp_name,
-          timestamp: new Date(l.punch_time),
+          timestamp: parseAnyDate(l.punch_time) || new Date(l.punch_time),
           punchType: l.punch_type || 'UNKNOWN',
           deviceId: l.device_id,
         }));
@@ -270,9 +299,9 @@ export function AttendanceTab() {
       const res = await eAPI.pullLogs(targetIp, targetPort, 15000);
       if (res.ok && res.logs) {
         const punchLogs: RawPunchLog[] = res.logs.map((l: any) => ({
-          empId: l.empId,
+          empId: normalizeEmpId(l.empId) || l.empId,
           empName: l.empName,
-          timestamp: new Date(l.timestamp),
+          timestamp: new Date(l.timestamp || l.punchTime),
           punchType: l.punchType || 'UNKNOWN',
           deviceId: l.deviceId,
         }));
@@ -288,9 +317,10 @@ export function AttendanceTab() {
           setSelectedMonth(lastLog.timestamp.getMonth() + 1);
           setSelectedYear(lastLog.timestamp.getFullYear());
           setBioFileName(`Máy ${targetIp}:${targetPort} (${punchLogs.length} lượt quẹt)`);
+          const rangeInfo = res.minDate && res.maxDate ? ` [${res.minDate} ➔ ${res.maxDate}]` : '';
           setLanStatus({
             ok: true,
-            message: `🎉 Đã kéo thành công ${punchLogs.length} lượt quẹt thẻ từ máy ${targetIp}! (Đã tự động lưu vào SQLite vĩnh viễn)`,
+            message: `🎉 Đã kéo thành công ${punchLogs.length} lượt quẹt thẻ${rangeInfo} từ máy ${targetIp}! (Đã lưu vào SQLite)`,
           });
           setLanIp(targetIp);
           setLanPort(targetPort);
@@ -301,14 +331,20 @@ export function AttendanceTab() {
           // ── Tự động lưu vĩnh viễn vào SQLite Native Database ──
           const sqliteAPI = (window as any).electronAPI?.sqlite;
           if (sqliteAPI?.attendance?.saveLogs) {
-            const dbLogs = punchLogs.map(p => ({
-              empId: p.empId,
-              empName: p.empName,
-              punchTime: p.timestamp instanceof Date ? p.timestamp.toISOString() : String(p.timestamp),
-              punchType: p.punchType || 'UNKNOWN',
-              deviceId: p.deviceId || `lan_${targetIp}`,
-              verifyType: 1
-            }));
+            const dbLogs = punchLogs.map(p => {
+              const iso = p.timestamp instanceof Date && !isNaN(p.timestamp.getTime())
+                ? p.timestamp.toISOString()
+                : String(p.timestamp);
+              return {
+                empId: normalizeEmpId(p.empId) || p.empId,
+                empName: p.empName,
+                punchTime: iso,
+                timestamp: iso,
+                punchType: p.punchType || 'UNKNOWN',
+                deviceId: p.deviceId || `lan_${targetIp}`,
+                verifyType: 1
+              };
+            });
             sqliteAPI.attendance.saveLogs(dbLogs).then(() => {
               sqliteAPI.system?.getStats?.().then((st: any) => {
                 if (st?.stats) {
@@ -646,14 +682,20 @@ export function AttendanceTab() {
     const persistToSqlite = (logs: RawPunchLog[]) => {
       const sqliteAPI = (window as any).electronAPI?.sqlite;
       if (sqliteAPI?.attendance?.saveLogs) {
-        const dbLogs = logs.map(p => ({
-          empId: p.empId,
-          empName: p.empName,
-          punchTime: p.timestamp instanceof Date ? p.timestamp.toISOString() : String(p.timestamp),
-          punchType: p.punchType || 'UNKNOWN',
-          deviceId: p.deviceId || 'usb_file',
-          verifyType: 1
-        }));
+        const dbLogs = logs.map(p => {
+          const iso = p.timestamp instanceof Date && !isNaN(p.timestamp.getTime())
+            ? p.timestamp.toISOString()
+            : String(p.timestamp);
+          return {
+            empId: normalizeEmpId(p.empId) || p.empId,
+            empName: p.empName,
+            punchTime: iso,
+            timestamp: iso,
+            punchType: p.punchType || 'UNKNOWN',
+            deviceId: p.deviceId || 'usb_file',
+            verifyType: 1
+          };
+        });
         sqliteAPI.attendance.saveLogs(dbLogs).then(() => {
           sqliteAPI.system?.getStats?.().then((st: any) => {
             if (st?.stats) {
@@ -1465,8 +1507,41 @@ export function AttendanceTab() {
 
               {/* Chọn Tháng/Năm */}
               <div style={cardStyle}>
-                <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Calendar size={14} color="#3b82f6" /> Chọn Tháng Chấm Công
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8, color: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Calendar size={14} color="#3b82f6" /> Chọn Tháng Chấm Công
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sqliteAPI = (window as any).electronAPI?.sqlite;
+                      if (sqliteAPI?.attendance?.getLogs) {
+                        sqliteAPI.attendance.getLogs({ month: selectedMonth, year: selectedYear }).then((res: any) => {
+                          if (res?.ok && res.logs?.length > 0) {
+                            const parsedLogs: RawPunchLog[] = res.logs.map((l: any) => ({
+                              empId: normalizeEmpId(l.emp_id) || l.emp_id,
+                              empName: l.emp_name,
+                              timestamp: new Date(l.punch_time),
+                              punchType: l.punch_type || 'UNKNOWN',
+                              deviceId: l.device_id,
+                            }));
+                            setRawPunchLogs(parsedLogs);
+                            setBioFileName(`SQLite: ${parsedLogs.length} lượt quẹt (T${selectedMonth}/${selectedYear})`);
+                            setLanStatus({ ok: true, message: `Đã nạp ${parsedLogs.length} lượt quẹt thẻ tháng ${selectedMonth}/${selectedYear} từ SQLite.` });
+                          } else {
+                            setLanStatus({ ok: false, message: `Tháng ${selectedMonth}/${selectedYear} chưa có bản ghi nào trong SQLite.` });
+                          }
+                        }).catch(console.error);
+                      }
+                    }}
+                    style={{
+                      background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer',
+                      fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 600
+                    }}
+                    title="Nạp dữ liệu tháng này từ cơ sở dữ liệu SQLite"
+                  >
+                    <Database size={12} /> Nạp SQLite
+                  </button>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <select
@@ -1661,13 +1736,13 @@ export function AttendanceTab() {
                                 </th>
                               );
                             })}
-                            <th style={{ padding: '8px 6px', textAlign: 'center', background: '#ecfdf5', color: '#065f46', minWidth: 55, position: 'sticky', right: 110, zIndex: 2 }}>
+                            <th style={{ padding: '8px 6px', textAlign: 'center', background: '#ecfdf5', color: '#065f46', minWidth: 65, position: 'sticky', right: 135, zIndex: 2 }}>
                               Công
                             </th>
-                            <th style={{ padding: '8px 6px', textAlign: 'center', background: '#f0fdf4', color: '#166534', minWidth: 55, position: 'sticky', right: 55, zIndex: 2 }}>
+                            <th style={{ padding: '8px 6px', textAlign: 'center', background: '#f0fdf4', color: '#166534', minWidth: 70, position: 'sticky', right: 65, zIndex: 2 }}>
                               Giờ Làm
                             </th>
-                            <th style={{ padding: '8px 6px', textAlign: 'center', background: '#fffbeb', color: '#b45309', minWidth: 55, position: 'sticky', right: 0, zIndex: 2 }}>
+                            <th style={{ padding: '8px 6px', textAlign: 'center', background: '#fffbeb', color: '#b45309', minWidth: 65, position: 'sticky', right: 0, zIndex: 2 }}>
                               Muộn (L)
                             </th>
                           </tr>
@@ -1711,15 +1786,20 @@ export function AttendanceTab() {
                                   let cellColor = '#94a3b8';
                                   let tooltip = `${rec.dateDisplay} (${['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][rec.dayOfWeek]})`;
 
-                                  if (rec.status === 'OFF') {
+                                  if (rec.status === 'FUTURE') {
+                                    cellText = '-';
+                                    cellColor = '#cbd5e1';
+                                    tooltip += ' - Chưa diễn ra';
+                                  } else if (rec.status === 'OFF') {
                                     cellText = '-';
                                     cellColor = '#cbd5e1';
                                   } else if (rec.status === 'ABSENT') {
                                     cellText = 'V';
                                     cellColor = '#ef4444';
                                     tooltip += ' - Vắng mặt';
-                                  } else if (rec.workUnitsEarned > 0) {
-                                    cellText = rec.assignedShift?.code || String(rec.workUnitsEarned);
+                                  } else if (rec.workUnitsEarned > 0 || (rec.allPunches && rec.allPunches.length > 0)) {
+                                    const defaultCode = rec.workUnitsEarned === 0.5 ? '0.5' : (rec.workUnitsEarned > 0 ? String(rec.workUnitsEarned) : 'HC');
+                                    cellText = rec.assignedShift?.code || defaultCode;
                                     cellColor = rec.assignedShift?.color || '#10b981';
                                     cellBg = `${cellColor}18`;
                                     tooltip += `\nCa: ${rec.assignedShift?.name || 'Tự do'}`;
@@ -1751,10 +1831,10 @@ export function AttendanceTab() {
                                   );
                                 })}
 
-                                <td style={{ textAlign: 'center', fontWeight: 800, color: '#059669', background: '#ecfdf5', position: 'sticky', right: 110, zIndex: 1, borderLeft: '2px solid #a7f3d0' }}>
+                                <td style={{ textAlign: 'center', fontWeight: 800, color: '#059669', background: '#ecfdf5', position: 'sticky', right: 135, zIndex: 1, borderLeft: '2px solid #a7f3d0' }}>
                                   {s.totalWorkUnits}
                                 </td>
-                                <td style={{ textAlign: 'center', fontWeight: 700, color: '#15803d', background: '#f0fdf4', position: 'sticky', right: 55, zIndex: 1 }}>
+                                <td style={{ textAlign: 'center', fontWeight: 700, color: '#15803d', background: '#f0fdf4', position: 'sticky', right: 65, zIndex: 1 }}>
                                   {s.totalWorkHours}h
                                 </td>
                                 <td style={{ textAlign: 'center', fontWeight: 700, color: s.totalLateCount > 0 ? '#b45309' : '#94a3b8', background: '#fffbeb', position: 'sticky', right: 0, zIndex: 1 }}>
@@ -1789,12 +1869,13 @@ export function AttendanceTab() {
                           {filteredSummaries.flatMap(s =>
                             monthDays.map(d => {
                               const rec = s.days[d];
-                              if (!rec || (rec.status === 'OFF' && rec.allPunches.length === 0)) return null;
+                              if (!rec || ((rec.status === 'OFF' || rec.status === 'FUTURE') && rec.allPunches.length === 0)) return null;
 
                               let badgeColor = '#10b981';
                               let badgeBg = '#ecfdf5';
                               let badgeText = 'Đúng giờ';
-                              if (rec.status === 'LATE') { badgeColor = '#f59e0b'; badgeBg = '#fffbeb'; badgeText = 'Đi muộn'; }
+                              if (rec.status === 'FUTURE') { badgeColor = '#94a3b8'; badgeBg = '#f8fafc'; badgeText = 'Chưa tới'; }
+                              else if (rec.status === 'LATE') { badgeColor = '#f59e0b'; badgeBg = '#fffbeb'; badgeText = 'Đi muộn'; }
                               else if (rec.status === 'EARLY') { badgeColor = '#ec4899'; badgeBg = '#fdf2f8'; badgeText = 'Về sớm'; }
                               else if (rec.status === 'LATE_EARLY') { badgeColor = '#ea580c'; badgeBg = '#fff7ed'; badgeText = 'Muộn & Sớm'; }
                               else if (rec.status === 'MISSING_OUT') { badgeColor = '#dc2626'; badgeBg = '#fef2f2'; badgeText = 'Quên quẹt ra'; }

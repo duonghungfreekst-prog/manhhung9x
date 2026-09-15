@@ -248,10 +248,12 @@ async function pullBiometricAttendanceLogs(ip, port = 4370, timeoutMs = 15000) {
         if (usersRes && Array.isArray(usersRes.data)) {
           usersList = usersRes.data;
           for (const u of usersList) {
-            const uId = String(u.userId || u.uid || '').trim();
+            const rawUId = String(u.userId || u.uid || '').trim();
+            const normUId = rawUId.replace(/[\u0000-\u001F\u007F-\u009F]/g, '').replace(/^0*([1-9]\d*|0)$/, '$1').trim();
             const name = (u.name || '').trim();
-            if (uId && name) {
-              userMap[uId] = name;
+            if (rawUId && name) {
+              userMap[rawUId] = name;
+              if (normUId) userMap[normUId] = name;
             }
           }
         }
@@ -292,10 +294,14 @@ async function pullBiometricAttendanceLogs(ip, port = 4370, timeoutMs = 15000) {
       };
     }
 
-    // 4. Ánh xạ dữ liệu sang RawPunchLog chuẩn của hệ thống
+    // 4. Ánh xạ dữ liệu sang RawPunchLog chuẩn của hệ thống (chuẩn hóa empId)
     const mappedLogs = [];
     for (const item of attLogs) {
-      const empId = String(item.deviceUserId || item.userId || item.sn || '').trim();
+      const rawEmpId = String(item.deviceUserId || item.userId || item.sn || '').trim();
+      if (!rawEmpId) continue;
+      const cleanEmpId = rawEmpId.replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim();
+      const numMatch = cleanEmpId.match(/^0*([1-9]\d*|0)$/);
+      const empId = numMatch ? numMatch[1] : cleanEmpId;
       if (!empId) continue;
 
       let dateObj = null;
@@ -309,12 +315,21 @@ async function pullBiometricAttendanceLogs(ip, port = 4370, timeoutMs = 15000) {
         continue;
       }
 
-      const empName = userMap[empId] || `Nhân viên ${empId}`;
+      const empName = userMap[empId] || userMap[cleanEmpId] || userMap[rawEmpId] || `Nhân viên ${empId}`;
+      const yyyy = dateObj.getFullYear();
+      const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const dd = String(dateObj.getDate()).padStart(2, '0');
+      const hh = String(dateObj.getHours()).padStart(2, '0');
+      const min = String(dateObj.getMinutes()).padStart(2, '0');
+      const ss = String(dateObj.getSeconds()).padStart(2, '0');
+      const timeLocalStr = `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
 
       mappedLogs.push({
         empId,
+        rawEmpId,
         empName,
-        timestamp: dateObj.toISOString(),
+        timestamp: timeLocalStr,
+        punchTime: timeLocalStr,
         punchType: 'UNKNOWN',
         deviceId: `${ip}:${port}`,
       });
@@ -323,13 +338,22 @@ async function pullBiometricAttendanceLogs(ip, port = 4370, timeoutMs = 15000) {
     // Sắp xếp thời gian tăng dần
     mappedLogs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
+    let minDateStr = '';
+    let maxDateStr = '';
+    if (mappedLogs.length > 0) {
+      minDateStr = mappedLogs[0].timestamp.split('T')[0];
+      maxDateStr = mappedLogs[mappedLogs.length - 1].timestamp.split('T')[0];
+    }
+
     return {
       ok: true,
       logs: mappedLogs,
       totalLogs: mappedLogs.length,
       userCount: usersList.length,
       deviceIp: ip,
-      message: `Đã tải thành công ${mappedLogs.length} lượt quẹt thẻ từ ${usersList.length || 'nhiều'} nhân viên trên máy.`,
+      minDate: minDateStr,
+      maxDate: maxDateStr,
+      message: `Đã tải thành công ${mappedLogs.length} lượt quẹt thẻ (từ ${minDateStr} đến ${maxDateStr}) từ ${usersList.length || 'nhiều'} nhân viên trên máy.`,
     };
   } catch (err) {
     clearTimeout(timer);

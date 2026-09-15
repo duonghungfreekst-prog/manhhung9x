@@ -347,9 +347,10 @@ export async function validateLicenseKey(
       return FAIL(`Key bản quyền này được cấp cho máy tính khác (Khóa HWID: ${targetHwid}). Vui lòng liên hệ nhà phát hành để cấp lại!`);
     }
 
-    // Kiểm tra lượt dùng
+    // Kiểm tra lượt dùng: CHỈ giới hạn khi kích hoạt máy mới (doIncrement = true)
+    // Khi kiểm tra định kỳ trên máy đã lưu bản quyền (doIncrement = false), KHÔNG được tự coi là usesExhausted!
     const currentUses   = getKeyUses(key);
-    const usesExhausted = parsed.maxUses > 0 && currentUses >= parsed.maxUses;
+    const usesExhausted = doIncrement && (parsed.maxUses > 0 && currentUses >= parsed.maxUses);
 
     const usedCount = (doIncrement && !expired && !usesExhausted && hwidMatched)
       ? incrementKeyUses(key)
@@ -428,28 +429,41 @@ export function getTrialStatus(persistentInitSec?: number): { isTrialActive: boo
   return { isTrialActive, daysLeft, expiryTimestamp, initTimestamp: initSec };
 }
 
+const LS_KEY = 'dmh_license_key';
+
 // ─── TỰ ĐỘNG KIỂM TRA BẢN QUYỀN HOẶC FALLBACK DÙNG THỬ ─────────────────────────
 export async function checkLicenseOrTrial(): Promise<LicenseResult> {
-  const savedKey = loadSavedLicense();
+  let savedKey: string | null = loadSavedLicense();
   const currentHwid = await getDeviceHardwareId();
   const eAPI = (window as any).electronAPI;
 
-  if (savedKey) {
-    if (eAPI?.checkLicenseRevocation) {
-      const rev = await eAPI.checkLicenseRevocation(savedKey);
-      if (rev?.revoked) {
-        clearLicense();
-      } else {
-        const verified = await validateLicenseKey(savedKey, false, currentHwid);
-        if (verified.valid && !verified.expired && verified.hwidMatched) {
-          return verified;
-        }
+  // CƠ CHẾ TỰ PHỤC HỒI (SELF-HEALING):
+  // Nếu LocalStorage bị dọn rác/xóa mất, tự động khôi phục Key từ Registry HKCU hoặc ProgramData!
+  if (!savedKey && eAPI?.getBackupKey) {
+    try {
+      const bRes = await eAPI.getBackupKey();
+      if (bRes?.ok && bRes.key && typeof bRes.key === 'string' && bRes.key.length >= 16) {
+        const recoveredKey: string = bRes.key;
+        savedKey = recoveredKey;
+        localStorage.setItem(LS_KEY, recoveredKey);
       }
-    } else {
-      const verified = await validateLicenseKey(savedKey, false, currentHwid);
-      if (verified.valid && !verified.expired && verified.hwidMatched) {
-        return verified;
-      }
+    } catch {}
+  }
+
+  if (savedKey && typeof savedKey === 'string') {
+    const validKey = savedKey;
+    // Tự động giải phóng nếu key này trước đó từng bị kẹt trong danh sách đen do thay đổi Instance ID
+    if (eAPI?.cleanRevokedKey) {
+      try { await eAPI.cleanRevokedKey(validKey); } catch {}
+    }
+    // Củng cố lưu trữ đa tầng
+    if (eAPI?.saveBackupKey) {
+      try { await eAPI.saveBackupKey(validKey); } catch {}
+    }
+
+    const verified = await validateLicenseKey(validKey, false, currentHwid);
+    if (verified.valid && !verified.expired && verified.hwidMatched) {
+      return verified;
     }
   }
 
@@ -554,14 +568,20 @@ export async function checkLicenseOrTrial(): Promise<LicenseResult> {
 }
 
 // ─── LocalStorage persistence ─────────────────────────────────────────────────
-const LS_KEY = 'dmh_license_key';
-
 export async function saveLicense(key: string) {
-  localStorage.setItem(LS_KEY, key);
+  const clean = (key || '').trim();
+  if (!clean) return;
+  localStorage.setItem(LS_KEY, clean);
   try {
     const eAPI = (window as any).electronAPI;
     if (eAPI?.bindLicenseKey) {
-      await eAPI.bindLicenseKey(key);
+      await eAPI.bindLicenseKey(clean);
+    }
+    if (eAPI?.saveBackupKey) {
+      await eAPI.saveBackupKey(clean);
+    }
+    if (eAPI?.cleanRevokedKey) {
+      await eAPI.cleanRevokedKey(clean);
     }
   } catch {}
 }
@@ -570,6 +590,12 @@ export function loadSavedLicense(): string | null {
 }
 export function clearLicense() {
   localStorage.removeItem(LS_KEY);
+  try {
+    const eAPI = (window as any).electronAPI;
+    if (eAPI?.clearBackupKey) {
+      eAPI.clearBackupKey();
+    }
+  } catch {}
 }
 
 // ─── Tiện ích ─────────────────────────────────────────────────────────────────

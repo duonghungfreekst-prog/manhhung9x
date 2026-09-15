@@ -203,6 +203,89 @@ function getAppInstanceId(userDataPath) {
 }
 
 /**
+ * Lưu chuỗi Key bản quyền dự phòng vào đa tầng (Windows Registry + ProgramData)
+ * Đảm bảo khi localStorage bị xóa/dọn rác, app tự phục hồi 100%
+ */
+function saveBackupKey(rawKey) {
+  if (!rawKey || typeof rawKey !== 'string') return;
+  const clean = rawKey.trim();
+  // 1. Lưu Registry HKCU
+  writeRegistryValue('SavedKey', clean);
+
+  // 2. Lưu ProgramData
+  try {
+    const vault = loadVaultState();
+    vault.savedKey = clean;
+    saveVaultState(vault);
+  } catch {}
+}
+
+/**
+ * Đọc chuỗi Key bản quyền dự phòng từ Windows Registry hoặc ProgramData
+ */
+function getBackupKey() {
+  // 1. Thử đọc từ Registry HKCU
+  try {
+    const regKey = readRegistryValue('SavedKey');
+    if (regKey && regKey.length >= 16) {
+      return regKey.trim();
+    }
+  } catch {}
+
+  // 2. Thử đọc từ ProgramData
+  try {
+    const vault = loadVaultState();
+    if (vault.savedKey && typeof vault.savedKey === 'string' && vault.savedKey.length >= 16) {
+      return vault.savedKey.trim();
+    }
+  } catch {}
+
+  return null;
+}
+
+/**
+ * Xóa chuỗi Key dự phòng khi người dùng chủ động gỡ key
+ */
+function clearBackupKey() {
+  try {
+    execRegSafe(`reg delete "${REG_KEY}" /v "SavedKey" /f`);
+  } catch {}
+  try {
+    const vault = loadVaultState();
+    delete vault.savedKey;
+    saveVaultState(vault);
+  } catch {}
+}
+
+/**
+ * Làm sạch danh sách đen RevokedKeys cho key hợp lệ trên máy tính này
+ */
+function cleanRevokedKey(rawKey) {
+  if (!rawKey) return;
+  const kHash = hashKey(rawKey);
+  const vault = loadVaultState();
+  let changed = false;
+
+  if (vault.revokedKeys.includes(kHash)) {
+    vault.revokedKeys = vault.revokedKeys.filter(h => h !== kHash);
+    changed = true;
+  }
+  if (vault.uninstalledAt > 0) {
+    vault.uninstalledAt = 0;
+    changed = true;
+  }
+
+  if (changed) {
+    saveVaultState(vault);
+    try {
+      writeRegistryValue('RevokedKeys', vault.revokedKeys.join(','));
+      writeRegistryValue('UninstalledAt', '0');
+      writeRegistryValue('Status', 'ACTIVE');
+    } catch {}
+  }
+}
+
+/**
  * Kiểm tra xem mã key này có bị thu hồi do gỡ bỏ/xóa app trước đó không.
  */
 function checkKeyRevocation(rawKey, userDataPath) {
@@ -220,33 +303,13 @@ function checkKeyRevocation(rawKey, userDataPath) {
     };
   }
 
-  // B. Kiểm tra xem key này trước đó đã từng được bind vào một Instance ID khác chưa
+  // B. Nếu phiên cài đặt (Instance ID) thay đổi (do chạy quyền Admin hoặc update phiên bản mới):
+  // Tự động cập nhật lại Instance ID hiện tại mà TUYỆT ĐỐI KHÔNG khóa key của người dùng!
   const existingBind = vault.instances[kHash];
   if (existingBind && existingBind.instanceId && existingBind.instanceId !== currentInstanceId) {
-    // Phiên cài đặt cũ đã bị xóa khỏi máy -> Đưa ngay key này vào danh sách đen!
-    console.warn(`[Vault] Phát hiện Instance ID thay đổi (${existingBind.instanceId} -> ${currentInstanceId}). Khóa vĩnh viễn Key ${kHash}`);
-    if (!vault.revokedKeys.includes(kHash)) {
-      vault.revokedKeys.push(kHash);
-    }
+    existingBind.instanceId = currentInstanceId;
+    existingBind.updatedAt = Date.now();
     saveVaultState(vault);
-    return {
-      revoked: true,
-      reason: 'PREVIOUS_INSTANCE_DELETED',
-      message: 'Mã Key này đã hết hiệu lực do ứng dụng đã từng bị xóa khỏi máy tính này. Vui lòng liên hệ Admin để được cấp mã mới!'
-    };
-  }
-
-  // C. Kiểm tra nếu app đã từng bị Uninstaller gỡ sau thời điểm bind key
-  if (vault.uninstalledAt > 0 && existingBind && existingBind.boundAt && existingBind.boundAt <= vault.uninstalledAt) {
-    if (!vault.revokedKeys.includes(kHash)) {
-      vault.revokedKeys.push(kHash);
-    }
-    saveVaultState(vault);
-    return {
-      revoked: true,
-      reason: 'UNINSTALLED_REVOCATION',
-      message: 'Mã Key này đã hết hiệu lực do ứng dụng đã từng bị gỡ cài đặt khỏi máy tính. Vui lòng liên hệ Admin để được cấp mã mới!'
-    };
   }
 
   return {
@@ -568,4 +631,8 @@ module.exports = {
   saveRecordToAllLayers,
   signHWIDRecord,
   verifyHWIDRecord,
+  saveBackupKey,
+  getBackupKey,
+  clearBackupKey,
+  cleanRevokedKey,
 };

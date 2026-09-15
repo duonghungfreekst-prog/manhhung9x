@@ -119,6 +119,12 @@ function App() {
       setUpdateResult(res);
       if (res.hasUpdate) {
         setShowUpdateModal(true);
+      } else if (res.error) {
+        addToast({
+          type: 'error',
+          title: 'Lỗi kiểm tra cập nhật',
+          message: res.error,
+        });
       } else {
         addToast({
           type: 'success',

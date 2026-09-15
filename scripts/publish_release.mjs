@@ -194,24 +194,27 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Bản Vá Khẩn Cấp: Khắc Phục Triệt Để Lỗi Không Xóa Được Lệnh In Kẹt & Hỗ Trợ Tiếng Việt Có Dấu
+        body: `### 🚀 DMH Tools ${tagName} - Gỡ Bỏ Tận Gốc (Xóa Sạch 100%) Máy In & Dọn Sạch Registry Tàn Dư
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.1:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.2:
 
-- **1. Khắc phục triệt để lỗi bấm nút [Xóa] không có phản hồi**:
-  + Bổ sung hoàn chỉnh hàm xử lý xóa lệnh in đơn lẻ theo ID (\`printer:delete-job\`), kết hợp 3 tầng giải pháp:
-    1. Hủy lệnh in trực tiếp qua PowerShell (\`Remove-PrintJob -ID\`).
-    2. Hủy lệnh in cấp độ phần cứng qua WMI (\`Win32_PrintJob\`).
-    3. Tự động can thiệp cưỡng chế dọn dẹp file đệm (\`.SPL\` / \`.SHD\`) trong thư mục Spool nếu lệnh in bị kẹt cứng (Status: Deleting/Error).
-  + Bổ sung nút **[ 🗑️ Xóa Hết ]** ngay trên tiêu đề danh sách lệnh in để hủy nhanh toàn bộ lệnh in của máy in đang chọn chỉ với 1 click.
+- **1. Tính năng đột phá: [ 🗑️ Gỡ Bỏ Tận Gốc (Xóa Sạch 100%) ]**:
+  + Khắc phục triệt để tình trạng: *Gỡ driver máy in trong Settings/Control Panel rồi nhưng khi mở Word, Excel, Acrobat, phần mềm bệnh viện (HIS) để in vẫn thấy tên máy in cũ*.
+  + Cơ chế xử lý 9 bước tận gốc chuyên sâu:
+    1. Hủy và dọn sạch toàn bộ lệnh in kẹt, giải phóng các file đệm (\`.SPL\` / \`.SHD\`) đang bị khóa.
+    2. Gỡ bỏ máy in khỏi hàng đợi hệ thống qua PowerShell (\`Remove-Printer\`).
+    3. Buộc hủy đăng ký thiết bị in phần cứng qua WMI (\`Win32_Printer.Delete()\`).
+    4. Gọi API Windows (\`printui.dll /dl\`) để Spooler ngắt kết nối hoàn toàn.
+    5. **Dọn sạch Registry trong nhánh người dùng (\`HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices\`)** — nơi mà Word/Excel/HIS đọc danh sách máy in.
+    6. Dọn sạch Registry trong \`PrinterPorts\` và \`DevModes2\`.
+    7. Dọn sạch Registry cấu hình máy in trong \`HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers\`.
+    8. Tự động kiểm tra và gỡ sạch gói Driver (\`Remove-PrinterDriver\`) nếu không còn máy in nào khác sử dụng.
+    9. Tự động khởi động lại dịch vụ Print Spooler để Windows làm mới bộ nhớ cache in ấn 100%.
 
-- **2. Sửa lỗi hiển thị font Tiếng Việt (Khắc phục lỗi "Phi?u  ng k?")**:
-  + Thiết lập chuẩn \`UTF-8 OutputEncoding\` trong tất cả các truy vấn PowerShell in ấn, giúp hiển thị tên tài liệu tiếng Việt đầy đủ dấu (*"Phiếu đăng ký khám bệnh"*, *"Bảng kê chi phí"*, v.v.) thay vì bị biến thành dấu hỏi \`?\`.
-
-- **3. Nâng cấp toàn diện bộ công cụ Bác Sĩ Máy In**:
-  + Quét & Chẩn đoán Toàn Bộ Lỗi Hệ Thống (\`printer:diagnose-all\`).
-  + Bảng Điều Khiển Sức Khỏe Máy In (Diagnostic Health Dashboard).
-  + ⚡ Phím tắt **SỬA TỰ ĐỘNG TẤT CẢ LỖI (1-Click Auto Fix All)**.
+- **2. Kế thừa & tối ưu toàn bộ các tính năng từ v6.8.1 & v6.8.0**:
+  + Xóa từng lệnh in kẹt đơn lẻ theo ID & nút [Xóa Hết] toàn bộ hàng đợi.
+  + Hỗ trợ font Tiếng Việt Unicode chuẩn xác cho tên tài liệu in ấn.
+  + Bác Sĩ Máy In: Quét & Chẩn đoán Toàn Bộ Lỗi Hệ Thống & Sửa Tự Động 1-Click.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

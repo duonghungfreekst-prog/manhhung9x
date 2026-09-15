@@ -58,7 +58,8 @@ export type AttendanceStatus =
   | 'MISSING_OUT' // Quên quẹt ra
   | 'MISSING_IN'  // Quên quẹt vào
   | 'ABSENT'      // Vắng mặt
-  | 'OFF';        // Ngày nghỉ
+  | 'OFF'         // Ngày nghỉ
+  | 'FUTURE';     // Ngày trong tương lai (chưa diễn ra)
 
 export interface DailyAttendanceRecord {
   empId: string;
@@ -239,18 +240,49 @@ export function parseAnyDate(val: unknown): Date | null {
   }
   if (typeof val === 'string') {
     const str = val.trim();
-    // YYYY-MM-DD HH:mm:ss or YYYY/MM/DD
-    let d = new Date(str);
-    if (!isNaN(d.getTime())) return d;
-    // DD/MM/YYYY HH:mm:ss or DD-MM-YYYY
-    const match = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
-    if (match) {
-      const [, dd, mm, yyyy, h = '0', m = '0', s = '0'] = match;
-      d = new Date(+yyyy, +mm - 1, +dd, +h, +m, +s);
+    if (!str) return null;
+
+    // 1. Dạng ISO UTC (có đuôi Z hoặc timezone offset): dùng new Date để tự động bù giờ địa phương chuẩn
+    if (/Z$/i.test(str) || /[+-]\d{2}(?::?\d{2})?$/.test(str)) {
+      const d = new Date(str);
       if (!isNaN(d.getTime())) return d;
     }
+
+    // 2. Dạng Năm đứng đầu (ISO Local): YYYY-MM-DD hoặc YYYY/MM/DD
+    const isoMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+    if (isoMatch) {
+      const [, yyyy, mm, dd, h = '0', m = '0', s = '0'] = isoMatch;
+      const d = new Date(+yyyy, +mm - 1, +dd, +h, +m, +s);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    // 2. Dạng Chuẩn Việt Nam: DD/MM/YYYY hoặc DD-MM-YYYY hoặc DD.MM.YYYY (BẮT BUỘC ƯU TIÊN TRƯỚC new Date)
+    const vnMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+    if (vnMatch) {
+      const [, dd, mm, yyyy, h = '0', m = '0', s = '0'] = vnMatch;
+      const d = new Date(+yyyy, +mm - 1, +dd, +h, +m, +s);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    // 3. Fallback cho các định dạng khác
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) return d;
   }
   return null;
+}
+
+/**
+ * Chuẩn hóa Mã Nhân Viên (EmpID) để tránh lệch dữ liệu giữa danh bạ và nhật ký quẹt thẻ:
+ * - Bỏ ký tự điều khiển ASCII ẩn (\0, \r, \t...)
+ * - Cắt bỏ khoảng trắng thừa
+ * - Bỏ số 0 đệm ở đầu (Zero-padding: '0021' -> '21', '025' -> '25')
+ */
+export function normalizeEmpId(rawId: string | number | null | undefined): string {
+  if (rawId === null || rawId === undefined) return '';
+  const str = String(rawId).replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim();
+  const numMatch = str.match(/^0*([1-9]\d*|0)$/);
+  if (numMatch) return numMatch[1];
+  return str;
 }
 
 // ── Bộ phân tích file máy chấm công đa định dạng ────────────────────────────
@@ -273,8 +305,8 @@ export function parseBiometricTextOrDat(text: string): ParsedAttendanceResult {
   const punchLogs: RawPunchLog[] = [];
   const empMap = new Map<string, string>();
 
-  // Biểu thức chính quy bắt ngày giờ: YYYY-MM-DD HH:mm:ss hoặc YYYY/MM/DD HH:mm:ss
-  const dateRegex = /(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:\s+\d{1,2}:\d{1,2}(?::\d{1,2})?)?)/;
+  // Biểu thức chính quy bắt ngày giờ: Hỗ trợ cả YYYY-MM-DD và DD/MM/YYYY (Việt Nam)
+  const dateRegex = /(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:\s+\d{1,2}:\d{1,2}(?::\d{1,2})?)?|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}(?:\s+\d{1,2}:\d{1,2}(?::\d{1,2})?)?)/;
 
   for (const line of lines) {
     const match = line.match(dateRegex);
@@ -287,7 +319,8 @@ export function parseBiometricTextOrDat(text: string): ParsedAttendanceResult {
     // Lấy phần phía trước ngày giờ làm Mã NV
     const beforeDate = line.substring(0, match.index).trim();
     const partsBefore = beforeDate.split(/[\t\s,;]+/);
-    const empId = partsBefore[partsBefore.length - 1] || partsBefore[0] || 'NV_UNKNOWN';
+    const rawEmpId = partsBefore[partsBefore.length - 1] || partsBefore[0] || 'NV_UNKNOWN';
+    const empId = normalizeEmpId(rawEmpId);
 
     // Trạng thái quẹt (nếu có sau ngày giờ)
     const afterDate = line.substring((match.index ?? 0) + dateStr.length).trim();
@@ -393,12 +426,12 @@ export function parseBiometricExcelOrCsv(fileBuffer: ArrayBuffer): ParsedAttenda
     // ── XỬ LÝ ĐỊNH DẠNG MA TRẬN NGÀY (CỘT VÀO 1, RA 1, VÀO 2, RA 2...) ──
     for (const row of dataRows) {
       const rowArr = row as unknown[];
-      const empId = String(rowArr[empIdColIdx >= 0 ? empIdColIdx : 0] ?? '').trim();
-      const empName = empNameColIdx >= 0 ? String(rowArr[empNameColIdx] ?? '').trim() : `NV ${empId}`;
+      const rawEmpId = String(rowArr[empIdColIdx >= 0 ? empIdColIdx : 0] ?? '').trim();
+      const empName = empNameColIdx >= 0 ? String(rowArr[empNameColIdx] ?? '').trim() : `NV ${rawEmpId}`;
       const baseDate = parseAnyDate(rowArr[dateColIdx >= 0 ? dateColIdx : 1]);
 
-      if (!empId && !empName) continue;
-      const validEmpId = empId || empName;
+      if (!rawEmpId && !empName) continue;
+      const validEmpId = normalizeEmpId(rawEmpId) || empName;
       if (!empMap.has(validEmpId)) empMap.set(validEmpId, empName || validEmpId);
 
       for (const col of inOutCols) {
@@ -459,7 +492,7 @@ export function parseBiometricExcelOrCsv(fileBuffer: ArrayBuffer): ParsedAttenda
     const rawTime = rowArr[finalTimeIdx];
 
     if (!rawId && !rawName) continue;
-    const empId = rawId || rawName;
+    const empId = normalizeEmpId(rawId) || rawName;
     const empName = rawName || `NV ${empId}`;
 
     const timestamp = parseAnyDate(rawTime);
@@ -508,8 +541,7 @@ export function matchBestShift(
   // 1. Kiểm tra cấu hình lịch tuần nếu có ca chỉ định
   if (weeklyTemplate && weeklyTemplate[dayOfWeek]) {
     const scheduledShiftId = weeklyTemplate[dayOfWeek];
-    if (scheduledShiftId === 'OFF') return undefined;
-    if (scheduledShiftId !== 'AUTO') {
+    if (scheduledShiftId !== 'OFF' && scheduledShiftId !== 'AUTO') {
       const found = shifts.find(s => s.id === scheduledShiftId);
       if (found) return found;
     }
@@ -560,7 +592,8 @@ export function evaluateDailyAttendance(
   const allPunchStrings = sortedPunches.map(formatTimeHMS);
 
   // Xác định Ca làm việc áp dụng
-  const roster = scheduleConfig.employeeRosters[empId];
+  const normEmpId = normalizeEmpId(empId);
+  const roster = scheduleConfig.employeeRosters[empId] || scheduleConfig.employeeRosters[normEmpId];
   let assignedShift: ShiftPreset | undefined;
 
   if (roster?.customShifts?.[dateKey]) {
@@ -588,6 +621,20 @@ export function evaluateDailyAttendance(
 
   // Nếu không có lần quẹt nào
   if (sortedPunches.length === 0) {
+    const today = new Date();
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    const curMidnight = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    if (curMidnight > todayMidnight) {
+      return {
+        empId, empName, dateKey, dateDisplay, dayOfWeek, assignedShift,
+        firstIn: null, lastOut: null, allPunches: [],
+        lateMinutes: 0, earlyMinutes: 0, workHours: 0, overtimeHours: 0,
+        workUnitsEarned: 0,
+        status: 'FUTURE',
+        notes: ['Chưa tới ngày làm việc'],
+      };
+    }
+
     const isScheduledOff = scheduleConfig.weeklyTemplate[dayOfWeek] === 'OFF';
     return {
       empId, empName, dateKey, dateDisplay, dayOfWeek, assignedShift,
@@ -606,30 +653,44 @@ export function evaluateDailyAttendance(
   const lastOutStr = lastPunch ? formatTimeHM(lastPunch) : null;
 
   if (!assignedShift) {
-    // Không xác định được ca cụ thể -> tính theo giờ làm việc thô
-    const workHours = lastPunch ? Math.max(0, (lastPunch.getTime() - firstPunch.getTime()) / (1000 * 60 * 60)) : 0;
+    // Không xác định được ca cụ thể -> tính theo giờ làm việc thô có chặn trần
+    const hasValidOut = lastPunch && (lastPunch.getTime() - firstPunch.getTime() >= 15 * 60 * 1000);
+    const rawHours = hasValidOut
+      ? Math.max(0, (lastPunch.getTime() - firstPunch.getTime()) / (1000 * 60 * 60))
+      : 4.0;
+    const workHours = Math.min(8.0, rawHours);
+    const otHours = rawHours > 8.0 ? Number(Math.min(4.0, rawHours - 8.0).toFixed(2)) : 0;
     return {
       empId, empName, dateKey, dateDisplay, dayOfWeek,
-      firstIn: firstInStr, lastOut: lastOutStr, allPunches: allPunchStrings,
+      firstIn: firstInStr, lastOut: hasValidOut ? lastOutStr : null, allPunches: allPunchStrings,
       lateMinutes: 0, earlyMinutes: 0,
-      workHours: Number(workHours.toFixed(2)),
-      overtimeHours: 0,
-      workUnitsEarned: lastPunch ? 1.0 : 0.5,
-      status: lastPunch ? 'OK' : 'MISSING_OUT',
-      notes: [lastPunch ? 'Không có ca mẫu, tính 1 công' : 'Chỉ có 1 lần quẹt, thiếu quẹt ra'],
+      workHours: Number((workHours + otHours).toFixed(2)),
+      overtimeHours: otHours,
+      workUnitsEarned: hasValidOut ? 1.0 : 0.5,
+      status: hasValidOut ? 'OK' : 'MISSING_OUT',
+      notes: [hasValidOut ? 'Không có ca mẫu, tính 1 công' : 'Chỉ có 1 lần quẹt, tính nửa công (4 giờ làm)'],
     };
   }
 
   // ── Tính toán chi tiết dựa trên Ca làm việc ──
-  const shiftStartMin = timeStringToMinutes(assignedShift.startTime);
-  const shiftEndMin = timeStringToMinutes(assignedShift.endTime);
+  const shiftStartTime = assignedShift.startTime || (assignedShift as any).start_time || '07:30';
+  const shiftEndTime = assignedShift.endTime || (assignedShift as any).end_time || '17:00';
+  const rawUnits = assignedShift.workUnits ?? (assignedShift as any).work_units;
+  const shiftWorkUnits = typeof rawUnits === 'number' && !isNaN(rawUnits) && rawUnits > 0 ? rawUnits : 1.0;
+  const shiftGraceLate = assignedShift.graceLateMinutes ?? (assignedShift as any).grace_late ?? 15;
+  const shiftGraceEarly = assignedShift.graceEarlyMinutes ?? (assignedShift as any).grace_early ?? 15;
+  const shiftOvertimeThreshold = assignedShift.overtimeThresholdMinutes ?? (assignedShift as any).overtime_threshold ?? 30;
+  const shiftCode = assignedShift.code || (assignedShift.id === 'shift_hc' ? 'HC' : assignedShift.id === 'shift_sang' ? 'S' : assignedShift.id === 'shift_chieu' ? 'C' : assignedShift.id === 'shift_toi' ? 'T' : '1');
+
+  const shiftStartMin = timeStringToMinutes(shiftStartTime);
+  const shiftEndMin = timeStringToMinutes(shiftEndTime);
   const actualInMin = timeStringToMinutes(firstInStr);
   const notes: string[] = [];
 
   // Đi muộn: sau khi trừ thời gian ân hạn (grace period)
   let lateMinutes = 0;
   const inDiff = actualInMin - shiftStartMin;
-  if (inDiff > assignedShift.graceLateMinutes) {
+  if (inDiff > shiftGraceLate) {
     lateMinutes = inDiff;
     notes.push(`Đi muộn ${lateMinutes} phút`);
   }
@@ -639,7 +700,8 @@ export function evaluateDailyAttendance(
   let overtimeHours = 0;
   let workHours = 0;
 
-  if (lastPunch) {
+  const hasValidOut = lastPunch && (lastPunch.getTime() - firstPunch.getTime() >= 15 * 60 * 1000);
+  if (hasValidOut) {
     const actualOutMin = timeStringToMinutes(lastOutStr!);
     // Xử lý ca qua đêm
     const effectiveShiftEndMin = assignedShift.isOvernight && shiftEndMin < shiftStartMin
@@ -650,29 +712,44 @@ export function evaluateDailyAttendance(
       : actualOutMin;
 
     const outDiff = effectiveShiftEndMin - effectiveActualOutMin;
-    if (outDiff > assignedShift.graceEarlyMinutes) {
+    if (outDiff > shiftGraceEarly) {
       earlyMinutes = outDiff;
       notes.push(`Về sớm ${earlyMinutes} phút`);
     } else if (effectiveActualOutMin > effectiveShiftEndMin) {
       const extraMinutes = effectiveActualOutMin - effectiveShiftEndMin;
-      if (extraMinutes >= assignedShift.overtimeThresholdMinutes) {
+      if (extraMinutes >= shiftOvertimeThreshold) {
         overtimeHours = Number((extraMinutes / 60).toFixed(2));
         notes.push(`Tăng ca ${overtimeHours} giờ`);
       }
     }
 
-    // Tính tổng giờ làm việc thực tế (trừ giờ nghỉ trưa nếu có)
-    let totalMinutes = effectiveActualOutMin - actualInMin;
+    // Tính giờ làm việc tiêu chuẩn trong khung ca:
+    // Không cộng bừa bãi giờ quẹt quá sớm hoặc quên quẹt về quá muộn vào giờ làm việc hành chính
+    const effectiveInMin = Math.max(actualInMin, shiftStartMin);
+    const effectiveOutMin = Math.min(effectiveActualOutMin, effectiveShiftEndMin);
+
+    let inShiftMinutes = Math.max(0, effectiveOutMin - effectiveInMin);
     if (assignedShift.breakStart && assignedShift.breakEnd) {
       const breakStartMin = timeStringToMinutes(assignedShift.breakStart);
       const breakEndMin = timeStringToMinutes(assignedShift.breakEnd);
-      if (actualInMin <= breakStartMin && effectiveActualOutMin >= breakEndMin) {
-        totalMinutes -= (breakEndMin - breakStartMin);
+      if (effectiveInMin <= breakStartMin && effectiveOutMin >= breakEndMin) {
+        inShiftMinutes -= (breakEndMin - breakStartMin);
       }
     }
-    workHours = Number((Math.max(0, totalMinutes) / 60).toFixed(2));
+
+    const regularHours = Number((Math.max(0, inShiftMinutes) / 60).toFixed(2));
+    // Tăng ca hợp lý (tối đa 4h cho ca ngày, 8h cho ca đêm)
+    const maxOt = assignedShift.isOvernight ? 8 : 4;
+    const effectiveOt = Math.min(overtimeHours, maxOt);
+    workHours = Number((regularHours + effectiveOt).toFixed(2));
   } else {
-    notes.push('Chỉ quẹt 1 lần - Thiếu giờ quẹt ra');
+    // Chỉ có 1 lần quẹt: tính nửa thời lượng chuẩn của ca (ví dụ ca 8h -> 4h)
+    let shiftDuration = (shiftEndMin - shiftStartMin) / 60;
+    if (assignedShift.isOvernight && shiftDuration < 0) shiftDuration += 24;
+    if (shiftDuration <= 0) shiftDuration = 8.0;
+
+    workHours = Number((shiftDuration * 0.5).toFixed(2));
+    notes.push('Chỉ quẹt 1 lần - Thiếu giờ quẹt ra (tính nửa công)');
   }
 
   // Xác định trạng thái
@@ -688,13 +765,21 @@ export function evaluateDailyAttendance(
   }
 
   // Tính số công thực nhận
-  let workUnitsEarned = assignedShift.workUnits;
+  let workUnitsEarned = shiftWorkUnits;
   if (!lastPunch) {
     // Quên quẹt ra -> tính 50% công ca làm việc
-    workUnitsEarned = Number((assignedShift.workUnits * 0.5).toFixed(2));
+    workUnitsEarned = Number((shiftWorkUnits * 0.5).toFixed(2));
   } else if (lateMinutes > 120 || earlyMinutes > 120) {
     // Đi muộn hoặc về sớm quá 2 tiếng -> tính nửa công
-    workUnitsEarned = Number((assignedShift.workUnits * 0.5).toFixed(2));
+    workUnitsEarned = Number((shiftWorkUnits * 0.5).toFixed(2));
+  }
+
+  // Fallback an toàn tuyệt đối: Nếu có dữ liệu quẹt thẻ thì không bao giờ để công bị 0 hoặc NaN
+  if (isNaN(workUnitsEarned) || workUnitsEarned <= 0) {
+    workUnitsEarned = lastPunch ? 1.0 : 0.5;
+  }
+  if (isNaN(workHours) || (workHours <= 0 && workUnitsEarned > 0)) {
+    workHours = workUnitsEarned >= 1.0 ? 8.0 : 4.0;
   }
 
   return {
@@ -703,7 +788,13 @@ export function evaluateDailyAttendance(
     dateKey,
     dateDisplay,
     dayOfWeek,
-    assignedShift,
+    assignedShift: {
+      ...assignedShift,
+      code: shiftCode,
+      workUnits: shiftWorkUnits,
+      startTime: shiftStartTime,
+      endTime: shiftEndTime,
+    },
     firstIn: firstInStr,
     lastOut: lastOutStr,
     allPunches: allPunchStrings,
@@ -727,24 +818,43 @@ export function evaluateMonthlyAttendance(
   month: number, // 1..12
   year: number
 ): EmployeeMonthlySummary[] {
-  // Lập danh mục tất cả nhân viên từ log và từ cấu hình
+  // Lập danh mục tất cả nhân viên từ log và từ cấu hình (chuẩn hóa ID)
   const empMap = new Map<string, { id: string; name: string }>();
-  punchLogs.forEach(p => {
-    if (!empMap.has(p.empId)) empMap.set(p.empId, { id: p.empId, name: p.empName });
-  });
-  Object.values(scheduleConfig.employeeRosters).forEach(r => {
-    if (!empMap.has(r.empId)) empMap.set(r.empId, { id: r.empId, name: r.empName });
+
+  // 1. Nạp từ Roster trước để ưu tiên Tên chuẩn người dùng đã đặt
+  Object.values(scheduleConfig.employeeRosters || {}).forEach(r => {
+    const normId = normalizeEmpId(r.empId) || r.empId;
+    if (normId) {
+      empMap.set(normId, { id: normId, name: r.empName || `NV ${normId}` });
+    }
   });
 
-  // Gom nhóm lần quẹt theo: empId -> dateKey -> Date[]
+  // 2. Nạp thêm các nhân sự có trong log mà chưa có trong Roster
+  punchLogs.forEach(p => {
+    const normId = normalizeEmpId(p.empId) || p.empId;
+    if (!normId) return;
+    if (!empMap.has(normId)) {
+      empMap.set(normId, { id: normId, name: p.empName || `NV ${normId}` });
+    } else if (p.empName && !p.empName.startsWith('NV ') && empMap.get(normId)!.name.startsWith('NV ')) {
+      // Cập nhật tên thực tế nếu có
+      empMap.get(normId)!.name = p.empName;
+    }
+  });
+
+  // Gom nhóm lần quẹt theo: normId -> dateKey -> Date[]
   const punchesByEmpDate = new Map<string, Map<string, Date[]>>();
   for (const log of punchLogs) {
-    const logDate = log.timestamp;
+    const rawTime = log.timestamp;
+    const logDate = rawTime instanceof Date && !isNaN(rawTime.getTime())
+      ? rawTime
+      : parseAnyDate(rawTime);
+    if (!logDate || isNaN(logDate.getTime())) continue;
     if (logDate.getMonth() + 1 !== month || logDate.getFullYear() !== year) continue;
     const dateKey = formatDateKey(logDate);
+    const normId = normalizeEmpId(log.empId) || log.empId;
 
-    if (!punchesByEmpDate.has(log.empId)) punchesByEmpDate.set(log.empId, new Map());
-    const empDates = punchesByEmpDate.get(log.empId)!;
+    if (!punchesByEmpDate.has(normId)) punchesByEmpDate.set(normId, new Map());
+    const empDates = punchesByEmpDate.get(normId)!;
     if (!empDates.has(dateKey)) empDates.set(dateKey, []);
     empDates.get(dateKey)!.push(logDate);
   }
@@ -803,10 +913,11 @@ export function evaluateMonthlyAttendance(
       }
     }
 
+    const roster = scheduleConfig.employeeRosters?.[empId] || scheduleConfig.employeeRosters?.[normalizeEmpId(empId)];
     summaries.push({
       empId,
       empName: name,
-      department: scheduleConfig.employeeRosters[empId]?.department || '',
+      department: roster?.department || '',
       totalWorkDays,
       totalWorkUnits: Number(totalWorkUnits.toFixed(2)),
       totalWorkHours: Number(totalWorkHours.toFixed(2)),
@@ -855,6 +966,7 @@ export function exportMonthlyTimesheetExcel(
     const dayCells = dayNumbers.map(d => {
       const rec = s.days[d];
       if (!rec) return '';
+      if (rec.status === 'FUTURE') return '';
       if (rec.status === 'OFF') return 'Nghỉ';
       if (rec.status === 'ABSENT') return 'V';
       if (rec.workUnitsEarned > 0) {
@@ -945,7 +1057,7 @@ export function exportDetailedPunchLogsExcel(
     const daysInMonth = new Date(year, month, 0).getDate();
     for (let d = 1; d <= daysInMonth; d++) {
       const rec = s.days[d];
-      if (!rec || (rec.status === 'OFF' && rec.allPunches.length === 0)) continue;
+      if (!rec || ((rec.status === 'OFF' || rec.status === 'FUTURE') && rec.allPunches.length === 0)) continue;
 
       let statusText = 'Đúng giờ';
       if (rec.status === 'LATE') statusText = 'Đi muộn';
@@ -955,6 +1067,7 @@ export function exportDetailedPunchLogsExcel(
       else if (rec.status === 'MISSING_IN') statusText = 'Quên quẹt vào';
       else if (rec.status === 'ABSENT') statusText = 'Vắng mặt';
       else if (rec.status === 'OFF') statusText = 'Nghỉ';
+      else if (rec.status === 'FUTURE') statusText = 'Chưa tới';
 
       dataRows.push([
         s.empId,

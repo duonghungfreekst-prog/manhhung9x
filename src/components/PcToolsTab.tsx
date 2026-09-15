@@ -235,12 +235,206 @@ const ESSENTIAL_APPS = [
     ]
   },
   {
+    cat: 'Thư viện Runtime & Công cụ Kỹ thuật',
+    apps: [
+      { name: 'Visual C++ All-in-One (2005-2022)', desc: 'Bộ thư viện C++ cần thiết để chạy mọi phần mềm & game', winget: 'Microsoft.VCRedist.2015+.x64', url: 'https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist' },
+      { name: 'DirectX End-User Runtimes (June 2010)', desc: 'Thư viện đồ họa DirectX tương thích ngược cho game và app', winget: 'Microsoft.DirectX', url: 'https://www.microsoft.com/en-us/download/details.aspx?id=8109' },
+      { name: 'PDF24 Creator', desc: 'Trình tạo, ghép nối, chuyển đổi và nén PDF miễn phí 100%', winget: 'GeekSoftwareGmbH.PDF24Creator', url: 'https://tools.pdf24.org/' },
+      { name: 'LockHunter', desc: 'Mở khóa và xóa tệp tin cứng đầu bị phần mềm khác chiếm dụng', winget: 'CrystalRich.LockHunter', url: 'https://lockhunter.com/' },
+    ]
+  },
+  {
     cat: 'Đa phương tiện (Media)',
     apps: [
       { name: 'VLC Media Player', desc: 'Trình phát mọi định dạng âm thanh & video', winget: 'VideoLAN.VLC', url: 'https://www.videolan.org/vlc/' },
       { name: 'K-Lite Mega Codec Pack', desc: 'Bộ thư viện giải mã video chuyên nghiệp', winget: 'CodecGuide.K-LiteCodecPack.Mega', url: 'https://codecguide.com/download_k-lite_codec_pack_mega.htm' },
       { name: 'PotPlayer', desc: 'Xem video chuẩn 4K/HDR của Daum', winget: 'Daum.PotPlayer', url: 'https://potplayer.daum.net/' }
     ]
+  }
+];
+
+// ── Bảng Tinh Chỉnh DMH Windows 1-Click Optimizer (Phong cách Nguyễn Phi) ─────
+interface OptimizerTweakItem {
+  id: string;
+  title: string;
+  desc: string;
+  recommended: boolean;
+  group: 'interface' | 'debloat' | 'system';
+}
+
+const DMH_OPTIMIZER_TWEAKS: OptimizerTweakItem[] = [
+  // ── Nhóm 1: Giao Diện & Thao Tác Chuẩn ──
+  {
+    id: 'thispc-desktop',
+    title: 'Hiện This PC ra Desktop',
+    desc: 'Hiển thị icon This PC / Computer quen thuộc ra màn hình chính',
+    recommended: true,
+    group: 'interface'
+  },
+  {
+    id: 'show-file-ext',
+    title: 'Hiện Đuôi Mở Rộng File',
+    desc: 'Hiển thị rõ .exe, .docx, .xlsx... tránh bị lừa mở file virus',
+    recommended: true,
+    group: 'interface'
+  },
+  {
+    id: 'show-hidden-files',
+    title: 'Hiện Tệp & Thư Mục Ẩn',
+    desc: 'Cho phép xem các thư mục ẩn AppData, ProgramData khi cài phần mềm',
+    recommended: true,
+    group: 'interface'
+  },
+  {
+    id: 'numlock-startup',
+    title: 'Bật NumLock Khi Khởi Động',
+    desc: 'Tự động kích hoạt bàn phím số cho kế toán, thu ngân, văn phòng',
+    recommended: true,
+    group: 'interface'
+  },
+  {
+    id: 'classic-context-win11',
+    title: 'Chuột Phải Cổ Điển Win 11',
+    desc: 'Khôi phục menu chuột phải Win 10, bỏ qua dòng "Show more options"',
+    recommended: true,
+    group: 'interface'
+  },
+  {
+    id: 'add-take-ownership',
+    title: 'Thêm Menu Take Ownership',
+    desc: 'Thêm chuột phải chiếm quyền Admin cao nhất để xóa file cứng đầu',
+    recommended: true,
+    group: 'interface'
+  },
+  {
+    id: 'disable-stickykeys',
+    title: 'Tắt Dính Phím Sticky Keys',
+    desc: 'Tắt hộp thoại và âm thanh bíp khó chịu khi bấm Shift 5 lần',
+    recommended: true,
+    group: 'interface'
+  },
+
+  // ── Nhóm 2: Tối Ưu Hiệu Năng & Tắt Rác (Debloat) ──
+  {
+    id: 'disable-copilot-bing',
+    title: 'Tắt Copilot & Tìm Kiếm Bing',
+    desc: 'Tắt AI Copilot và tìm kiếm web trên thanh tác vụ để nhẹ RAM',
+    recommended: true,
+    group: 'debloat'
+  },
+  {
+    id: 'disable-widgets-news',
+    title: 'Tắt Widgets & Bảng Tin Tức',
+    desc: 'Ẩn bảng tin tức thời tiết Taskbar tránh tụt FPS và lag giật',
+    recommended: true,
+    group: 'debloat'
+  },
+  {
+    id: 'disable-start-recommendations',
+    title: 'Tắt Quảng Cáo Start Menu',
+    desc: 'Không hiển thị gợi ý app rác và nội dung quảng cáo Microsoft',
+    recommended: true,
+    group: 'debloat'
+  },
+  {
+    id: 'disable-edge-firstrun',
+    title: 'Tắt Chào Mừng Edge First-Run',
+    desc: 'Bỏ qua màn hình ép đăng nhập và giới thiệu của Microsoft Edge',
+    recommended: true,
+    group: 'debloat'
+  },
+  {
+    id: 'disable-bitlocker-auto',
+    title: 'Tắt Tự Mã Hóa BitLocker',
+    desc: 'Cứu tinh tránh bị BitLocker tự khóa ổ mất dữ liệu khi update BIOS',
+    recommended: true,
+    group: 'debloat'
+  },
+  {
+    id: 'disable-telemetry',
+    title: 'Tắt Windows Telemetry',
+    desc: 'Dừng dịch vụ theo dõi và gửi log ngầm về máy chủ Microsoft',
+    recommended: true,
+    group: 'debloat'
+  },
+  {
+    id: 'disable-gamebar',
+    title: 'Tắt Game Bar & DVR',
+    desc: 'Tránh tụt khung hình khi làm đồ họa hoặc chơi game',
+    recommended: false,
+    group: 'debloat'
+  },
+  {
+    id: 'ultimate-performance',
+    title: 'Gói Nguồn Ultimate Performance',
+    desc: 'Mở khóa gói năng lượng hiệu năng tối đa cho CPU & GPU',
+    recommended: true,
+    group: 'debloat'
+  },
+  {
+    id: 'disable-hibernate',
+    title: 'Tắt Hibernate (Ngủ Đông)',
+    desc: 'Giải phóng 8 - 32 GB dung lượng file hiberfil.sys trên ổ C',
+    recommended: false,
+    group: 'debloat'
+  },
+
+  // ── Nhóm 3: Mạng & Hệ Thống Kỹ Thuật ──
+  {
+    id: 'enable-dotnet35',
+    title: 'Kích Hoạt .NET Framework 3.5',
+    desc: 'Kích hoạt .NET 3.5 để chạy phần mềm kế toán, phòng khám, thuế cũ',
+    recommended: true,
+    group: 'system'
+  },
+  {
+    id: 'enable-smb1',
+    title: 'Bật SMB 1.0 / CIFS Client',
+    desc: 'Kết nối và chia sẻ máy in, tệp tin với máy Win 7 / Win XP cũ',
+    recommended: true,
+    group: 'system'
+  },
+  {
+    id: 'enable-lan-sharing',
+    title: 'Mở Khóa Ping & Chia Sẻ LAN',
+    desc: 'Bật Firewall ICMP Echo và Network Discovery để các máy thấy nhau',
+    recommended: true,
+    group: 'system'
+  },
+  {
+    id: 'disable-uac',
+    title: 'Hạ Cảnh Báo UAC (Tắt Làm Tối)',
+    desc: 'Không bị tối màn hình và chặn quyền khi chạy phần mềm kỹ thuật',
+    recommended: false,
+    group: 'system'
+  },
+  {
+    id: 'reset-spooler',
+    title: 'Reset Spooler & Dọn Hàng In',
+    desc: 'Dọn sạch các lệnh in bị kẹt và khởi động lại dịch vụ máy in',
+    recommended: false,
+    group: 'system'
+  },
+  {
+    id: 'rebuild-iconcache',
+    title: 'Làm Mới Icon Cache',
+    desc: 'Sửa lỗi các icon desktop bị trắng hoặc hiển thị sai biểu tượng',
+    recommended: false,
+    group: 'system'
+  },
+  {
+    id: 'flush-dns',
+    title: 'Xóa Bộ Đệm DNS (Flush DNS)',
+    desc: 'Khắc phục sự cố không truy cập được web hoặc sau khi đổi DNS',
+    recommended: false,
+    group: 'system'
+  },
+  {
+    id: 'disable-windows-update',
+    title: 'Tạm Dừng Windows Update',
+    desc: 'Tắt dịch vụ cập nhật tự động tránh lag máy và lỗi driver',
+    recommended: false,
+    group: 'system'
   }
 ];
 
@@ -533,6 +727,24 @@ export function PcToolsTab() {
 
   // ── Tweaks State ──
   const [tweakStatus, setTweakStatus] = useState<Record<string, string>>({});
+  const [selectedTweaks, setSelectedTweaks] = useState<string[]>(
+    DMH_OPTIMIZER_TWEAKS.filter(t => t.recommended).map(t => t.id)
+  );
+  const [isApplyingBatchTweaks, setIsApplyingBatchTweaks] = useState(false);
+  const [batchTweakResult, setBatchTweakResult] = useState<{ count: number; message: string; appliedList?: string[] } | null>(null);
+
+  // ── Batch Apps State ──
+  const [selectedApps, setSelectedApps] = useState<string[]>([
+    'Google Chrome',
+    'UniKey 4.3 RC5',
+    'WinRAR (64-bit)',
+    'Visual C++ All-in-One (2005-2022)',
+    'Zalo PC',
+    'UltraViewer'
+  ]);
+  const [isBatchInstallingApps, setIsBatchInstallingApps] = useState(false);
+  const [batchInstallProgress, setBatchInstallProgress] = useState<{ index: number; total: number; currentApp: string; percent: number } | null>(null);
+  const [batchInstallResults, setBatchInstallResults] = useState<Array<{ name: string; ok: boolean; message: string }> | null>(null);
 
   // ── Toggle Group ──
   const toggleGroup = (groupId: string) => {
@@ -1721,6 +1933,144 @@ export function PcToolsTab() {
       setTweakStatus(prev => ({ ...prev, [tweakId]: 'Lỗi: ' + e.message }));
     }
   };
+
+  // ── Optimizer Batch Tweaks Handlers ──
+  const handleToggleTweakSelect = (id: string) => {
+    setSelectedTweaks(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectRecommendedTweaks = () => {
+    setSelectedTweaks(DMH_OPTIMIZER_TWEAKS.filter(t => t.recommended).map(t => t.id));
+  };
+
+  const handleSelectAllTweaks = () => {
+    setSelectedTweaks(DMH_OPTIMIZER_TWEAKS.map(t => t.id));
+  };
+
+  const handleDeselectAllTweaks = () => {
+    setSelectedTweaks([]);
+  };
+
+  const handleApplyBatchTweaks = async () => {
+    if (selectedTweaks.length === 0) {
+      alert('Vui lòng chọn ít nhất 1 tinh chỉnh để áp dụng!');
+      return;
+    }
+    setIsApplyingBatchTweaks(true);
+    setBatchTweakResult(null);
+    try {
+      const eAPI = (window as any).electronAPI;
+      if (eAPI?.pcTools?.applyBatchTweaks) {
+        const res = await eAPI.pcTools.applyBatchTweaks(selectedTweaks);
+        if (res.ok) {
+          setBatchTweakResult({
+            count: res.count || selectedTweaks.length,
+            message: res.message || 'Đã áp dụng thành công toàn bộ tinh chỉnh đã chọn!',
+            appliedList: res.appliedList
+          });
+        } else {
+          alert('Lỗi áp dụng tinh chỉnh: ' + (res.error || 'Thất bại'));
+        }
+      }
+    } catch (e: any) {
+      alert('Lỗi thực thi: ' + e.message);
+    } finally {
+      setIsApplyingBatchTweaks(false);
+    }
+  };
+
+  // ── Batch Apps Handlers ──
+  const handleToggleAppSelect = (appName: string) => {
+    setSelectedApps(prev =>
+      prev.includes(appName) ? prev.filter(a => a !== appName) : [...prev, appName]
+    );
+  };
+
+  const handleSelectBasicApps = () => {
+    setSelectedApps([
+      'Google Chrome',
+      'UniKey 4.3 RC5',
+      'WinRAR (64-bit)',
+      'Visual C++ All-in-One (2005-2022)',
+      'Zalo PC',
+      'UltraViewer'
+    ]);
+  };
+
+  const handleSelectAllApps = () => {
+    const allWingetApps: string[] = [];
+    ESSENTIAL_APPS.forEach(g => {
+      g.apps.forEach(a => {
+        if (a.winget) allWingetApps.push(a.name);
+      });
+    });
+    setSelectedApps(allWingetApps);
+  };
+
+  const handleDeselectAllApps = () => {
+    setSelectedApps([]);
+  };
+
+  const handleInstallBatchApps = async () => {
+    if (selectedApps.length === 0) {
+      alert('Vui lòng chọn ít nhất 1 ứng dụng để cài đặt tự động!');
+      return;
+    }
+
+    const appsToInstall: Array<{ name: string; winget: string; url: string }> = [];
+    ESSENTIAL_APPS.forEach(g => {
+      g.apps.forEach(a => {
+        if (selectedApps.includes(a.name) && a.winget) {
+          appsToInstall.push(a);
+        }
+      });
+    });
+
+    if (appsToInstall.length === 0) {
+      alert('Không có ứng dụng nào trong danh sách chọn hỗ trợ cài đặt tự động qua Winget.');
+      return;
+    }
+
+    setIsBatchInstallingApps(true);
+    setBatchInstallProgress({
+      index: 0,
+      total: appsToInstall.length,
+      currentApp: 'Đang khởi tạo gói cài đặt...',
+      percent: 0
+    });
+    setBatchInstallResults(null);
+
+    try {
+      const eAPI = (window as any).electronAPI;
+      if (eAPI?.pcTools?.installBatchApps) {
+        const res = await eAPI.pcTools.installBatchApps(appsToInstall);
+        if (res.ok) {
+          setBatchInstallResults(res.results || []);
+        } else {
+          alert('Lỗi cài đặt hàng loạt: ' + (res.error || 'Thất bại'));
+        }
+      }
+    } catch (e: any) {
+      alert('Lỗi cài đặt: ' + e.message);
+    } finally {
+      setIsBatchInstallingApps(false);
+    }
+  };
+
+  // Listener lắng nghe tiến độ cài đặt hàng loạt
+  useEffect(() => {
+    const eAPI = (window as any).electronAPI;
+    if (eAPI?.pcTools?.onBatchInstallProgress) {
+      const removeListener = eAPI.pcTools.onBatchInstallProgress((data: any) => {
+        if (data) setBatchInstallProgress(data);
+      });
+      return () => {
+        if (typeof removeListener === 'function') removeListener();
+      };
+    }
+  }, []);
 
   // ── Launch Tools ──
   const launchTool = (toolKey: string) => {
@@ -4160,18 +4510,132 @@ export function PcToolsTab() {
             </div>
           )}
 
-          {/* 9. KHO ỨNG DỤNG THIẾT YẾU */}
+          {/* 9. KHO ỨNG DỤNG THIẾT YẾU & CÀI ĐẶT SILENT HÀNG LOẠT */}
           {activeSubTab === 'app_downloader' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 18 }}>
-                <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <DownloadCloud size={18} color="#1d4ed8" />
-                  Kho Ứng Dụng Tiện Ích Văn Phòng & Kỹ Thuật
+              {/* Header */}
+              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14 }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 18, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <DownloadCloud size={20} color="#1d4ed8" />
+                      KHO PHẦN MỀM THIẾT YẾU & CÀI ĐẶT SILENT TỰ ĐỘNG (1-CLICK BATCH)
+                    </div>
+                    <div style={{ fontSize: 13, color: '#64748b' }}>
+                      Tích chọn danh sách các ứng dụng cần thiết và cài đặt ngầm tự động 100% qua Winget (không cần bấm Next/Finish)
+                    </div>
+                  </div>
+
+                  {/* Nút Cài Đặt Hàng Loạt */}
+                  <button
+                    onClick={handleInstallBatchApps}
+                    disabled={isBatchInstallingApps || selectedApps.length === 0}
+                    className="btn-primary"
+                    style={{
+                      padding: '12px 24px',
+                      fontSize: 14,
+                      fontWeight: 700,
+                      background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                      border: 'none',
+                      borderRadius: 10,
+                      color: '#fff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      cursor: selectedApps.length === 0 ? 'not-allowed' : 'pointer',
+                      boxShadow: '0 4px 14px rgba(5, 150, 105, 0.35)'
+                    }}
+                  >
+                    <DownloadCloud size={18} className={isBatchInstallingApps ? 'spin' : ''} />
+                    {isBatchInstallingApps ? 'Đang cài đặt hàng loạt...' : `⚡ CÀI ĐẶT ${selectedApps.length} PHẦN MỀM ĐÃ CHỌN`}
+                  </button>
                 </div>
-                <div style={{ fontSize: 13, color: '#64748b' }}>
-                  Cài đặt tự động im lặng qua Winget hoặc tải trực tiếp từ máy chủ chính thức của các phần mềm
+
+                {/* Batch Selector Buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, paddingTop: 14, borderTop: '1px solid #f1f5f9', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginRight: 4 }}>
+                    Chọn nhanh:
+                  </span>
+                  <button
+                    onClick={handleSelectBasicApps}
+                    className="btn-secondary"
+                    style={{ fontSize: 12, padding: '5px 12px', background: '#f0fdf4', color: '#15803d', borderColor: '#bbf7d0', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}
+                  >
+                    <Sparkles size={13} /> Bộ Cơ Bản (Chrome, UniKey, WinRAR, VC++, Zalo, UltraViewer)
+                  </button>
+                  <button
+                    onClick={handleSelectAllApps}
+                    className="btn-secondary"
+                    style={{ fontSize: 12, padding: '5px 12px' }}
+                  >
+                    Chọn Tất Cả Hỗ Trợ Tự Động
+                  </button>
+                  <button
+                    onClick={handleDeselectAllApps}
+                    className="btn-secondary"
+                    style={{ fontSize: 12, padding: '5px 12px', color: '#64748b' }}
+                  >
+                    Bỏ Chọn Hết
+                  </button>
+
+                  <div style={{ marginLeft: 'auto', fontSize: 12.5, color: '#1e293b', fontWeight: 700, background: '#f8fafc', padding: '4px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                    Đã chọn: <span style={{ color: '#059669' }}>{selectedApps.length}</span> ứng dụng
+                  </div>
                 </div>
               </div>
+
+              {/* Tiến độ Cài Đặt Hàng Loạt */}
+              {isBatchInstallingApps && batchInstallProgress && (
+                <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #93c5fd', padding: 18, boxShadow: '0 4px 12px rgba(59, 130, 246, 0.15)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: '#1d4ed8', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <RefreshCw size={16} className="spin" />
+                      Đang cài đặt ({batchInstallProgress.index} / {batchInstallProgress.total}): {batchInstallProgress.currentApp}
+                    </div>
+                    <span style={{ fontWeight: 800, fontSize: 14, color: '#1d4ed8' }}>
+                      {batchInstallProgress.percent}%
+                    </span>
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{ width: '100%', height: 10, background: '#e2e8f0', borderRadius: 5, overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${batchInstallProgress.percent}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #3b82f6, #059669)',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>
+                    Vui lòng không tắt ứng dụng. Trình cài đặt đang chạy ngầm và tự động cấp quyền hệ thống.
+                  </div>
+                </div>
+              )}
+
+              {/* Bảng Kết Quả Sau Cài Đặt */}
+              {batchInstallResults && (
+                <div style={{ background: '#f0fdf4', borderRadius: 12, border: '1px solid #bbf7d0', padding: 18 }}>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: '#166534', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <CheckCircle2 size={18} color="#16a34a" /> Kết Quả Cài Đặt Hàng Loạt
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8 }}>
+                    {batchInstallResults.map((r, i) => (
+                      <div key={i} style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '8px 12px', borderRadius: 6,
+                        background: r.ok ? '#fff' : '#fef2f2',
+                        border: `1px solid ${r.ok ? '#bbf7d0' : '#fecaca'}`
+                      }}>
+                        <span style={{ fontWeight: 700, fontSize: 12.5, color: r.ok ? '#15803d' : '#991b1b' }}>
+                          {r.name}
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: r.ok ? '#15803d' : '#b91c1c' }}>
+                          {r.ok ? '✓ Thành công' : '✕ ' + r.message}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* VC++ Runtime Hero Card */}
               <div style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)', borderRadius: 12, border: '1px solid #4338ca', padding: 20, color: '#fff' }}>
@@ -4221,40 +4685,79 @@ export function PcToolsTab() {
                 </div>
               )}
 
+              {/* Danh sách nhóm phần mềm có Checkbox */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {ESSENTIAL_APPS.map((group, idx) => (
                   <div key={idx} style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 18 }}>
                     <div style={{ fontWeight: 800, fontSize: 13, color: '#1e293b', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       {group.cat}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
-                      {group.apps.map(app => (
-                        <div key={app.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #f1f5f9' }}>
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{app.name}</div>
-                            <div style={{ fontSize: 11, color: '#64748b' }}>{app.desc}</div>
-                          </div>
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            {app.winget ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10 }}>
+                      {group.apps.map(app => {
+                        const isSelected = selectedApps.includes(app.name);
+                        return (
+                          <div
+                            key={app.name}
+                            onClick={() => app.winget && handleToggleAppSelect(app.name)}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              background: isSelected ? '#f0fdf4' : '#f8fafc',
+                              padding: '10px 14px',
+                              borderRadius: 8,
+                              border: isSelected ? '1px solid #86efac' : '1px solid #f1f5f9',
+                              cursor: app.winget ? 'pointer' : 'default',
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                              {app.winget ? (
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {}} // handled by parent onClick
+                                  style={{ cursor: 'pointer', width: 16, height: 16 }}
+                                />
+                              ) : (
+                                <div style={{ width: 16 }} />
+                              )}
+                              <div>
+                                <div style={{ fontWeight: 700, fontSize: 13, color: isSelected ? '#15803d' : '#1e293b' }}>
+                                  {app.name}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#64748b' }}>{app.desc}</div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
+                              {app.winget ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleInstallApp(app);
+                                  }}
+                                  disabled={installingApp === app.name}
+                                  className="btn-primary"
+                                  style={{ fontSize: 11, padding: '5px 10px', background: '#1d4ed8', whiteSpace: 'nowrap' }}
+                                >
+                                  {installingApp === app.name ? 'Đang cài...' : 'Cài lẻ'}
+                                </button>
+                              ) : null}
                               <button
-                                onClick={() => handleInstallApp(app)}
-                                disabled={installingApp === app.name}
-                                className="btn-primary"
-                                style={{ fontSize: 11, padding: '5px 10px', background: '#1d4ed8' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openUrl(app.url);
+                                }}
+                                className="btn-secondary"
+                                style={{ fontSize: 11, padding: '5px 8px', whiteSpace: 'nowrap' }}
                               >
-                                {installingApp === app.name ? 'Đang cài...' : 'Cài tự động'}
+                                Tải web
                               </button>
-                            ) : null}
-                            <button
-                              onClick={() => openUrl(app.url)}
-                              className="btn-secondary"
-                              style={{ fontSize: 11, padding: '5px 8px' }}
-                            >
-                              Tải web
-                            </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -4751,51 +5254,208 @@ export function PcToolsTab() {
             </div>
           )}
 
-          {/* 13. TINH CHỈNH WINDOWS */}
+          {/* 13. TINH CHỈNH WINDOWS - DMH 1-CLICK OPTIMIZER (PHONG CÁCH NGUYỄN PHI) */}
           {activeSubTab === 'windows_tweaks' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 1200 }}>
-              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 18 }}>
-                <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Settings size={18} color="#1d4ed8" />
-                  Bộ Tinh Chỉnh & Khắc Phục Lỗi Hệ Thống (DMH Tweaks)
+              {/* Header & Controls Toolbar */}
+              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14 }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 18, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Settings size={20} color="#1d4ed8" />
+                      WINDOWS 1-CLICK OPTIMIZER (TỐI ƯU & TINH CHỈNH WINDOWS 10 / 11)
+                    </div>
+                    <div style={{ fontSize: 13, color: '#64748b' }}>
+                      Kích hoạt thiết lập Registry chuẩn, dọn dẹp các tính năng rác, hiện icon This PC, bật NumLock và tối ưu hoá hệ thống chuẩn kỹ thuật viên
+                    </div>
+                  </div>
+
+                  {/* Nút Áp Dụng Toàn Bộ Hàng Loạt */}
+                  <button
+                    onClick={handleApplyBatchTweaks}
+                    disabled={isApplyingBatchTweaks || selectedTweaks.length === 0}
+                    className="btn-primary"
+                    style={{
+                      padding: '12px 24px',
+                      fontSize: 14,
+                      fontWeight: 700,
+                      background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 100%)',
+                      border: 'none',
+                      borderRadius: 10,
+                      color: '#fff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      cursor: selectedTweaks.length === 0 ? 'not-allowed' : 'pointer',
+                      boxShadow: '0 4px 14px rgba(29, 78, 216, 0.35)'
+                    }}
+                  >
+                    <Zap size={18} className={isApplyingBatchTweaks ? 'spin' : ''} />
+                    {isApplyingBatchTweaks ? 'Đang áp dụng hệ thống...' : `⚡ ÁP DỤNG ${selectedTweaks.length} TINH CHỈNH ĐÃ CHỌN`}
+                  </button>
                 </div>
-                <div style={{ fontSize: 13, color: '#64748b' }}>
-                  Kích hoạt hiệu năng nguồn tối đa, giải phóng bộ nhớ ngủ đông và khắc phục các sự cố Windows thường gặp
+
+                {/* Quick Selection Buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, paddingTop: 14, borderTop: '1px solid #f1f5f9', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginRight: 4 }}>
+                    Lựa chọn nhanh:
+                  </span>
+                  <button
+                    onClick={handleSelectRecommendedTweaks}
+                    className="btn-secondary"
+                    style={{ fontSize: 12, padding: '5px 12px', background: '#f0fdf4', color: '#15803d', borderColor: '#bbf7d0', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}
+                  >
+                    <Sparkles size={13} /> Khuyên Dùng ({DMH_OPTIMIZER_TWEAKS.filter(t => t.recommended).length})
+                  </button>
+                  <button
+                    onClick={handleSelectAllTweaks}
+                    className="btn-secondary"
+                    style={{ fontSize: 12, padding: '5px 12px' }}
+                  >
+                    Chọn Tất Cả ({DMH_OPTIMIZER_TWEAKS.length})
+                  </button>
+                  <button
+                    onClick={handleDeselectAllTweaks}
+                    className="btn-secondary"
+                    style={{ fontSize: 12, padding: '5px 12px', color: '#64748b' }}
+                  >
+                    Bỏ Chọn Hết
+                  </button>
+
+                  <div style={{ marginLeft: 'auto', fontSize: 12.5, color: '#1e293b', fontWeight: 700, background: '#f8fafc', padding: '4px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                    Đã chọn: <span style={{ color: '#1d4ed8' }}>{selectedTweaks.length}</span> / {DMH_OPTIMIZER_TWEAKS.length} mục
+                  </div>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-                {[
-                  { id: 'ultimate-performance', title: 'Ultimate Performance Power Plan', desc: 'Mở khóa gói năng lượng hiệu năng tối đa cho CPU & GPU' },
-                  { id: 'disable-hibernate', title: 'Tắt Hibernate (Ngủ Đông)', desc: 'Giải phóng 8 - 32 GB dung lượng file hiberfil.sys trên ổ C' },
-                  { id: 'enable-hibernate', title: 'Bật Lại Hibernate', desc: 'Bật lại tính năng ngủ đông cho Laptop' },
-                  { id: 'disable-telemetry', title: 'Tắt Windows Telemetry', desc: 'Dừng dịch vụ theo dõi và gửi log ngầm của Microsoft' },
-                  { id: 'disable-gamebar', title: 'Tắt Game Bar & DVR', desc: 'Tránh tụt khung hình (FPS) khi chạy đồ họa/game' },
-                  { id: 'flush-dns', title: 'Xóa Bộ Đệm DNS (Flush DNS)', desc: 'Sửa lỗi không vào được web hoặc thay đổi DNS mạng' },
-                  { id: 'reset-spooler', title: 'Sửa Lỗi Máy In (Reset Spooler)', desc: 'Dọn sạch hàng đợi in bị kẹt và khởi động lại Print Spooler' },
-                  { id: 'rebuild-iconcache', title: 'Làm Mới Icon Cache', desc: 'Sửa lỗi icon desktop bị trắng hoặc hiển thị sai' },
-                  { id: 'disable-windows-update', title: 'Tạm Dừng Windows Update', desc: 'Tắt dịch vụ cập nhật tự động tránh lag giật máy' },
-                  { id: 'enable-windows-update', title: 'Bật Lại Windows Update', desc: 'Kích hoạt lại dịch vụ cập nhật hệ thống' },
-                  { id: 'disable-defender', title: 'Tạm Tắt Defender Real-time', desc: 'Tắt bảo vệ thời gian thực khi cần cài phần mềm chuyên dụng' },
-                  { id: 'enable-defender', title: 'Bật Lại Windows Defender', desc: 'Kích hoạt lại bảo vệ an toàn cho máy' }
-                ].map(twk => (
-                  <div key={twk.id} style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', padding: 14 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', marginBottom: 4 }}>{twk.title}</div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>{twk.desc}</div>
-                    <button
-                      onClick={() => handleApplyTweak(twk.id)}
-                      className="btn-secondary"
-                      style={{ fontSize: 12, padding: '5px 12px' }}
-                    >
-                      Áp dụng tweak
-                    </button>
-                    {tweakStatus[twk.id] && (
-                      <div style={{ fontSize: 11, color: '#1d4ed8', marginTop: 6, fontWeight: 600 }}>
-                        {tweakStatus[twk.id]}
-                      </div>
-                    )}
+              {/* Thông báo kết quả sau khi áp dụng */}
+              {batchTweakResult && (
+                <div style={{
+                  padding: 16, borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534',
+                  boxShadow: '0 2px 6px rgba(22, 101, 52, 0.08)'
+                }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <CheckCircle2 size={18} color="#16a34a" /> {batchTweakResult.message}
                   </div>
-                ))}
+                  {batchTweakResult.appliedList && batchTweakResult.appliedList.length > 0 && (
+                    <div style={{ fontSize: 12, color: '#15803d', marginTop: 6, lineHeight: 1.5 }}>
+                      <strong>Các mục đã thực thi:</strong> {batchTweakResult.appliedList.join(' • ')}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 3 Nhóm Tinh Chỉnh */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: 16 }}>
+                {[
+                  {
+                    key: 'interface',
+                    title: '1. GIAO DIỆN & THAO TÁC CHUẨN',
+                    sub: 'Hiện This PC, đuôi file, menu chuột phải cổ điển Win 11, bật NumLock',
+                    badgeColor: '#0284c7',
+                    bgHeader: '#f0f9ff',
+                    borderHeader: '#bae6fd'
+                  },
+                  {
+                    key: 'debloat',
+                    title: '2. TỐI ƯU HIỆU NĂNG & TẮT RÁC (DEBLOAT)',
+                    sub: 'Tắt Copilot, tắt Widgets thời tiết, tắt BitLocker tự động, Ultimate Power',
+                    badgeColor: '#7c3aed',
+                    bgHeader: '#faf5ff',
+                    borderHeader: '#e9d5ff'
+                  },
+                  {
+                    key: 'system',
+                    title: '3. MẠNG & HỆ THỐNG KỸ THUẬT',
+                    sub: 'Bật .NET 3.5, SMB 1.0 chia sẻ máy in Win 7/XP, sửa lỗi Spooler, tắt UAC',
+                    badgeColor: '#059669',
+                    bgHeader: '#f0fdf4',
+                    borderHeader: '#bbf7d0'
+                  }
+                ].map(group => {
+                  const groupTweaks = DMH_OPTIMIZER_TWEAKS.filter(t => t.group === group.key);
+                  return (
+                    <div key={group.key} style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                      {/* Group Header */}
+                      <div style={{ padding: '14px 16px', background: group.bgHeader, borderBottom: `1px solid ${group.borderHeader}` }}>
+                        <div style={{ fontWeight: 800, fontSize: 13.5, color: group.badgeColor, letterSpacing: '0.3px' }}>
+                          {group.title}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 2 }}>
+                          {group.sub}
+                        </div>
+                      </div>
+
+                      {/* Items List */}
+                      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+                        {groupTweaks.map(twk => {
+                          const isSelected = selectedTweaks.includes(twk.id);
+                          return (
+                            <div
+                              key={twk.id}
+                              onClick={() => handleToggleTweakSelect(twk.id)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: 10,
+                                padding: '10px 12px',
+                                borderRadius: 8,
+                                border: isSelected ? '1px solid #93c5fd' : '1px solid #f1f5f9',
+                                background: isSelected ? '#eff6ff' : '#f8fafc',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              {/* Checkbox input */}
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {}} // handled by parent onClick
+                                style={{ marginTop: 3, cursor: 'pointer', width: 16, height: 16 }}
+                              />
+
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  <span style={{ fontWeight: 700, fontSize: 13, color: isSelected ? '#1e40af' : '#1e293b' }}>
+                                    {twk.title}
+                                  </span>
+                                  {twk.recommended && (
+                                    <span style={{ fontSize: 10, fontWeight: 700, background: '#dcfce7', color: '#15803d', padding: '1px 6px', borderRadius: 4 }}>
+                                      Khuyên dùng
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                                  {twk.desc}
+                                </div>
+
+                                {/* Status if single-applied */}
+                                {tweakStatus[twk.id] && (
+                                  <div style={{ fontSize: 11, color: '#2563eb', marginTop: 4, fontWeight: 600 }}>
+                                    {tweakStatus[twk.id]}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Nút chạy lẻ */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleApplyTweak(twk.id);
+                                }}
+                                className="btn-secondary"
+                                style={{ fontSize: 10.5, padding: '3px 8px', whiteSpace: 'nowrap', alignSelf: 'center' }}
+                                title="Chạy ngay tinh chỉnh này"
+                              >
+                                Chạy lẻ
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

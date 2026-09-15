@@ -4659,6 +4659,77 @@ function stopCompareServer() {
     }
   });
 
+  // ── PRINTER SUITE: Gỡ Bỏ Tận Gốc Máy In & Dọn Sạch Registry/Driver (100% Clean)
+  ipcMain.handle('printer:uninstall-printer', async (_event, printerName, driverName) => {
+    if (!printerName) return { ok: false, error: 'Thiếu tên máy in cần gỡ bỏ' };
+    const safePrinter = String(printerName).replace(/["']/g, '');
+    const safeDriver = driverName ? String(driverName).replace(/["']/g, '') : '';
+
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+
+      # 1. Hủy mọi lệnh in kẹt của máy in này
+      Get-PrintJob -PrinterName "${safePrinter}" -ErrorAction SilentlyContinue | ForEach-Object {
+        Remove-PrintJob -PrinterName "${safePrinter}" -ID $_.Id -Force -ErrorAction SilentlyContinue
+      }
+
+      # 2. Dừng Spooler và các tiến trình in phụ trợ
+      Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      Stop-Process -Name "splwow64", "spoolsv", "printfilterpipelinesvc" -Force -ErrorAction SilentlyContinue
+
+      # 3. Dọn sạch file đệm rác trong spool PRINTERS
+      $spoolDir = "$env:windir\\System32\\spool\\PRINTERS"
+      Remove-Item -Path "$spoolDir\\*.*" -Force -Recurse -ErrorAction SilentlyContinue
+
+      # 4. Khởi động lại Spooler để gỡ bỏ máy in
+      Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+      Start-Sleep -Milliseconds 600
+
+      # 5. Xóa máy in bằng lệnh PowerShell chính thức
+      Remove-Printer -Name "${safePrinter}" -ErrorAction SilentlyContinue
+
+      # 6. Xóa dự phòng qua WMI
+      Get-WmiObject -Class Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq "${safePrinter}" } | ForEach-Object {
+        $_.Delete() | Out-Null
+      }
+
+      # 7. Dọn sạch toàn bộ khóa Registry tồn dư trong HKLM và HKCU
+      if (Test-Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers\\${safePrinter}") {
+        Remove-Item -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers\\${safePrinter}" -Recurse -Force -ErrorAction SilentlyContinue
+      }
+      Remove-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices" -Name "${safePrinter}" -ErrorAction SilentlyContinue
+      Remove-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\PrinterPorts" -Name "${safePrinter}" -ErrorAction SilentlyContinue
+      Remove-ItemProperty -Path "HKCU:\\Printers\\DevModes2" -Name "${safePrinter}" -ErrorAction SilentlyContinue
+
+      # 8. Thử gỡ bỏ Driver nếu không còn máy in nào khác sử dụng
+      if ("${safeDriver}") {
+        $otherPrinters = Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.DriverName -eq "${safeDriver}" -and $_.Name -ne "${safePrinter}" }
+        if (-not $otherPrinters) {
+          Remove-PrinterDriver -Name "${safeDriver}" -ErrorAction SilentlyContinue
+          rundll32.exe printui.dll,PrintUIEntry /dd /m "${safeDriver}" | Out-Null
+        }
+      }
+
+      # 9. Khởi động lại Spooler để Windows cập nhật danh sách máy in sạch sẽ
+      Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Milliseconds 400
+      Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+
+      [PSCustomObject]@{
+        ok = $true
+        message = "Đã gỡ bỏ tận gốc máy in '${safePrinter}' và dọn sạch toàn bộ khóa Registry khỏi hệ thống!"
+      } | ConvertTo-Json -Compress
+    `;
+
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: true, message: `Đã gỡ bỏ tận gốc máy in ${safePrinter}.` };
+    }
+  });
+
   // ── PRINTER SUITE: Quét & Chẩn đoán Toàn Bộ Lỗi Hệ Thống Máy In ────────────
   ipcMain.handle('printer:diagnose-all', async () => {
     const ps = `

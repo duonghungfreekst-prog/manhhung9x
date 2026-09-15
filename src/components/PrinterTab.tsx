@@ -640,6 +640,52 @@ export default function PrinterTab() {
     }
   };
 
+  // ── Gỡ bỏ tận gốc máy in & dọn sạch Registry (100% Clean Uninstall) ────────
+  const handleUninstallPrinter = async (printerName: string, driverName?: string) => {
+    const ok = window.confirm(
+      `🗑️ XÁC NHẬN GỠ BỎ TẬN GỐC MÁY IN: "${printerName}"\n\n` +
+      `Thao tác này sẽ giải quyết triệt để lỗi "vẫn thấy máy in trong Word/Excel/HIS":\n` +
+      `1. Hủy sạch toàn bộ lệnh in đang kẹt (giải phóng khóa Spooler).\n` +
+      `2. Buộc gỡ bỏ máy in hoàn toàn khỏi hàng đợi Windows.\n` +
+      `3. Dọn sạch toàn bộ khóa Registry trong HKLM và HKCU (để các ứng dụng không còn nhìn thấy).\n` +
+      `4. Gỡ bỏ driver khỏi hệ thống nếu không còn máy in nào khác dùng chung.\n\n` +
+      `Bạn có chắc chắn muốn gỡ bỏ hoàn toàn máy in này không?`
+    );
+    if (!ok) return;
+
+    try {
+      setLoading(true);
+      addLog(`🗑️ Đang tiến hành gỡ bỏ tận gốc máy in "${printerName}"...`);
+      const w = window as any;
+      if (w.electronAPI?.printer?.uninstallPrinter) {
+        const res = await w.electronAPI.printer.uninstallPrinter(printerName, driverName);
+        if (res?.ok) {
+          addLog(`✅ ` + (res.message || `Đã gỡ bỏ tận gốc máy in "${printerName}" thành công!`));
+        } else {
+          addLog(`⚠️ Gỡ bỏ thất bại: ` + (res?.error || 'Có thể cần quyền Administrator.'));
+        }
+      } else {
+        const safe = printerName.replace(/["']/g, '');
+        await runPS(`
+          Remove-Printer -Name "${safe}" -ErrorAction SilentlyContinue
+          Remove-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices" -Name "${safe}" -ErrorAction SilentlyContinue
+        `);
+        addLog(`✅ Đã gửi lệnh gỡ bỏ máy in "${printerName}".`);
+      }
+
+      setSelectedPrinter(null);
+      setJobs([]);
+      await loadPrinters();
+      if (diagnostics) {
+        await diagnoseAllPrinters();
+      }
+    } catch (err: unknown) {
+      addLog(`❌ Lỗi khi gỡ bỏ máy in: ` + String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // ── Xóa sạch toàn bộ kẹt lệnh in toàn hệ thống ──────────────────────────
   const clearPrintQueue = async () => {
     try {
@@ -1639,6 +1685,15 @@ export default function PrinterTab() {
                               <Download size={12} /> Cài Driver ({suggestedDriver.name.split(' ').slice(0,3).join(' ')})
                             </button>
                           )}
+
+                          <button
+                            onClick={() => handleUninstallPrinter(p.Name, p.DriverName)}
+                            disabled={loading}
+                            style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', fontWeight: 700, borderRadius: 4, border: '1px solid #ef4444', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
+                            title="Gỡ bỏ hoàn toàn máy in này khỏi hệ thống, dọn sạch Registry và Driver để trong Word/Excel/HIS không còn hiển thị"
+                          >
+                            <Trash2 size={12} /> Gỡ Bỏ Tận Gốc (Xóa Sạch 100%)
+                          </button>
                         </div>
                       </div>
                     )}

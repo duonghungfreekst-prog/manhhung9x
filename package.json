@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.8.1",
-  "description": "DMH_Tools v6.8.1 - Bản Vá Khẩn Cấp: Khắc phục triệt để lỗi không xóa được lệnh in kẹt (Delete Single Print Job & Force Clear Queue), hỗ trợ tiếng Việt có dấu cho tên tài liệu in",
+  "version": "6.8.2",
+  "description": "DMH_Tools v6.8.2 - Bổ sung tính năng Gỡ Bỏ Tận Gốc (Xóa Sạch 100%) máy in & driver, dọn sạch registry tàn dư giúp máy in không còn xuất hiện trong Word/Excel/HIS sau khi gỡ",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
