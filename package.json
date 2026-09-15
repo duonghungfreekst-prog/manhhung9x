@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.8.0",
-  "description": "DMH_Tools v6.8.0 - Bác Sĩ Máy In Toàn Năng: Nâng cấp Quét & Chẩn Đoán Toàn Diện Lỗi Máy In, Bảng Điều Khiển Sức Khỏe Health Dashboard & Sửa Tự Động 1-Click",
+  "version": "6.8.1",
+  "description": "DMH_Tools v6.8.1 - Bản Vá Khẩn Cấp: Khắc phục triệt để lỗi không xóa được lệnh in kẹt (Delete Single Print Job & Force Clear Queue), hỗ trợ tiếng Việt có dấu cho tên tài liệu in",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

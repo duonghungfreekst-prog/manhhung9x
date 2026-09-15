@@ -194,35 +194,24 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Bác Sĩ Máy In Toàn Năng: Quét & Chẩn Đoán Toàn Bộ Lỗi, Bảng Sức Khỏe Health Dashboard & Sửa Tự Động 1-Click
+        body: `### 🚀 DMH Tools ${tagName} - Bản Vá Khẩn Cấp: Khắc Phục Triệt Để Lỗi Không Xóa Được Lệnh In Kẹt & Hỗ Trợ Tiếng Việt Có Dấu
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.0:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.1:
 
-- **1. Nâng cấp tính năng Quét Toàn Diện & Chẩn Đoán Tất Cả Lỗi Máy In (Full Diagnostics Scan)**:
-  + Tự động quét và chẩn đoán đồng thời 6 hạng mục kỹ thuật cốt lõi:
-    1. **Dịch vụ Print Spooler**: Kiểm tra trạng thái hoạt động (Running hay Stopped/Crash) và chế độ khởi động (Automatic).
-    2. **Cấu hình Chia Sẻ Mạng LAN (Lỗi 0x00000709 & 0x0000011b)**: Kiểm tra khóa Registry RPC Named Pipe (\`RpcUseNamedPipeProtocol\`) và mức xác thực (\`RpcAuthnLevelPrivacyEnabled\`).
-    3. **Chính sách Point and Print (Lỗi 0x00000bcb)**: Kiểm tra Group Policy có đang chặn máy con tự động nạp Driver máy in từ mạng nội bộ hay không.
-    4. **Tường lửa Windows Firewall**: Kiểm tra trạng thái mở cổng mạng cho nhóm \`File and Printer Sharing\` & \`Network Discovery\`.
-    5. **Bộ đệm in Spooler**: Quét phát hiện số lượng file rác, lệnh in hỏng đang kẹt trong thư mục \`%windir%\\System32\\spool\\PRINTERS\`.
-    6. **Cổng mạng TCP/IP SNMP (Lỗi máy in Offline ảo)**: Quét toàn bộ cổng in mạng xem có bật cờ SNMP Status Enabled gây hiểu nhầm trạng thái Offline hay không.
+- **1. Khắc phục triệt để lỗi bấm nút [Xóa] không có phản hồi**:
+  + Bổ sung hoàn chỉnh hàm xử lý xóa lệnh in đơn lẻ theo ID (\`printer:delete-job\`), kết hợp 3 tầng giải pháp:
+    1. Hủy lệnh in trực tiếp qua PowerShell (\`Remove-PrintJob -ID\`).
+    2. Hủy lệnh in cấp độ phần cứng qua WMI (\`Win32_PrintJob\`).
+    3. Tự động can thiệp cưỡng chế dọn dẹp file đệm (\`.SPL\` / \`.SHD\`) trong thư mục Spool nếu lệnh in bị kẹt cứng (Status: Deleting/Error).
+  + Bổ sung nút **[ 🗑️ Xóa Hết ]** ngay trên tiêu đề danh sách lệnh in để hủy nhanh toàn bộ lệnh in của máy in đang chọn chỉ với 1 click.
 
-- **2. Bảng Điều Khiển Sức Khỏe Máy In Trực Quan (Diagnostic Health Dashboard)**:
-  + Hiển thị trực quan trạng thái từng hạng mục bằng các chỉ số Đạt chuẩn (\`✓\`) hoặc Cảnh báo (\`⚠️\`).
-  + Badge thông báo tổng số lỗi phát hiện kèm nút khắc phục nhanh cho từng hạng mục riêng biệt.
+- **2. Sửa lỗi hiển thị font Tiếng Việt (Khắc phục lỗi "Phi?u  ng k?")**:
+  + Thiết lập chuẩn \`UTF-8 OutputEncoding\` trong tất cả các truy vấn PowerShell in ấn, giúp hiển thị tên tài liệu tiếng Việt đầy đủ dấu (*"Phiếu đăng ký khám bệnh"*, *"Bảng kê chi phí"*, v.v.) thay vì bị biến thành dấu hỏi \`?\`.
 
-- **3. ⚡ Phím Tắt Thần Thánh: SỬA TỰ ĐỘNG TẤT CẢ LỖI (1-Click Auto Fix All)**:
-  + Chỉ với 1 lần bấm, hệ thống tự động xử lý trọn gói:
-    + Cấu hình Registry sửa dứt điểm lỗi 0x709 & 0x11b.
-    + Gỡ bỏ giới hạn Point & Print sửa lỗi 0xbcb.
-    + Mở Firewall cho phép chia sẻ máy in và tệp qua mạng LAN.
-    + Dọn sạch toàn bộ file rác và lệnh in kẹt trong thư mục Spool.
-    + Phân quyền Full Control ACL cho thư mục PRINTERS và bật chế độ tự phục hồi Spooler khi crash.
-    + Tắt SNMP trên các cổng mạng và đưa toàn bộ máy in về trạng thái Online.
-    + Tự động quét lại và cập nhật hệ thống đạt chuẩn 100% Sức Khỏe Hoàn Hảo.
-
-- **4. Tiếp tục tối ưu hóa độ ổn định và giao diện**:
-  + Giao diện hiện đại, dễ sử dụng, phản hồi nhanh chóng và an toàn tuyệt đối cho người dùng.
+- **3. Nâng cấp toàn diện bộ công cụ Bác Sĩ Máy In**:
+  + Quét & Chẩn đoán Toàn Bộ Lỗi Hệ Thống (\`printer:diagnose-all\`).
+  + Bảng Điều Khiển Sức Khỏe Máy In (Diagnostic Health Dashboard).
+  + ⚡ Phím tắt **SỬA TỰ ĐỘNG TẤT CẢ LỖI (1-Click Auto Fix All)**.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

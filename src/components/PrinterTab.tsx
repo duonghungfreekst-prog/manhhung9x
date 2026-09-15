@@ -526,7 +526,28 @@ export default function PrinterTab() {
       setLoading(true);
       setSelectedPrinter(printerName);
       addLog(`Kiểm tra lệnh in kẹt cho: ${printerName}`);
-      const output = await runPS(`Get-PrintJob -PrinterName "${printerName}" | Select-Object Id, DocumentName, JobStatus, UserName | ConvertTo-Json`);
+
+      const w = window as any;
+      if (w.electronAPI?.printer?.getJobs) {
+        const res = await w.electronAPI.printer.getJobs(printerName);
+        if (res && res.ok && Array.isArray(res.jobs)) {
+          setJobs(res.jobs);
+          if (res.jobs.length > 0) {
+            addLog(`Phát hiện ${res.jobs.length} lệnh đang kẹt trên "${printerName}".`);
+          } else {
+            addLog(`Không có lệnh in nào bị kẹt trên "${printerName}".`);
+          }
+          return;
+        }
+      }
+
+      // Fallback qua runPS với UTF-8
+      const ps = `
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
+        Get-PrintJob -PrinterName "${printerName}" -ErrorAction SilentlyContinue | Select-Object Id, DocumentName, JobStatus, UserName | ConvertTo-Json
+      `;
+      const output = await runPS(ps);
       if (output && output.trim()) {
         const parsed = JSON.parse(output);
         const list = Array.isArray(parsed) ? parsed : [parsed];
@@ -549,23 +570,109 @@ export default function PrinterTab() {
     }
   };
 
+  // ── Xóa một lệnh in đơn lẻ theo ID ──────────────────────────────────────
+  const deleteSingleJob = async (printerName: string, jobId: number) => {
+    try {
+      setLoading(true);
+      addLog(`🗑️ Đang tiến hành xóa lệnh in #${jobId} của máy in "${printerName}"...`);
+      
+      const w = window as any;
+      if (w.electronAPI?.printer?.deleteJob) {
+        const res = await w.electronAPI.printer.deleteJob(printerName, jobId);
+        if (res?.ok) {
+          addLog(`✅ ` + (res.message || `Đã xóa lệnh in #${jobId} thành công!`));
+        } else {
+          addLog(`⚠️ Không thể xóa lệnh in #${jobId}: ` + (res?.error || 'Có thể file đệm đang bị khóa bởi tiến trình khác.'));
+        }
+      } else {
+        // Fallback qua runPS
+        const safePrinter = printerName.replace(/["']/g, '');
+        const ps = `
+          Remove-PrintJob -PrinterName "${safePrinter}" -ID ${jobId} -Force -ErrorAction SilentlyContinue
+          Get-WmiObject -Class Win32_PrintJob -ErrorAction SilentlyContinue | Where-Object { $_.JobId -eq ${jobId} } | ForEach-Object { $_.Delete() }
+          Resume-Printer -Name "${safePrinter}" -ErrorAction SilentlyContinue
+        `;
+        await runPS(ps);
+        addLog(`✅ Đã gửi lệnh xóa lệnh in #${jobId}.`);
+      }
+
+      await loadJobs(printerName);
+      await loadPrinters();
+    } catch (err: unknown) {
+      addLog(`❌ Lỗi khi xóa lệnh in #${jobId}: ` + String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Xóa toàn bộ lệnh in của máy in đang chọn ─────────────────────────────
+  const clearAllJobsOnPrinter = async (printerName: string) => {
+    try {
+      setLoading(true);
+      addLog(`🗑️ Đang xóa TẤT CẢ lệnh in kẹt của máy in "${printerName}"...`);
+      
+      const w = window as any;
+      if (w.electronAPI?.printer?.clearQueue) {
+        const res = await w.electronAPI.printer.clearQueue(printerName);
+        if (res?.ok) {
+          addLog(`✅ ` + (res.message || `Đã xóa toàn bộ lệnh in của "${printerName}"!`));
+        } else {
+          addLog(`⚠️ Lỗi khi xóa hàng đợi in: ` + (res?.error || 'Không rõ nguyên nhân'));
+        }
+      } else {
+        const safePrinter = printerName.replace(/["']/g, '');
+        const ps = `
+          Get-PrintJob -PrinterName "${safePrinter}" -ErrorAction SilentlyContinue | ForEach-Object {
+            Remove-PrintJob -PrinterName "${safePrinter}" -ID $_.Id -Force -ErrorAction SilentlyContinue
+          }
+          Resume-Printer -Name "${safePrinter}" -ErrorAction SilentlyContinue
+        `;
+        await runPS(ps);
+        addLog(`✅ Đã xóa toàn bộ lệnh in của "${printerName}".`);
+      }
+
+      await loadJobs(printerName);
+      await loadPrinters();
+    } catch (err: unknown) {
+      addLog(`❌ Lỗi khi xóa toàn bộ lệnh in: ` + String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Xóa sạch toàn bộ kẹt lệnh in toàn hệ thống ──────────────────────────
   const clearPrintQueue = async () => {
     try {
       setLoading(true);
       addLog('Bắt đầu quy trình gỡ kẹt lệnh in toàn hệ thống...');
-      addLog('Đang dừng dịch vụ Spooler...');
-      await runPS(`Stop-Service -Name Spooler -Force`);
-      addLog('Đang xóa các file kẹt trong C:\\Windows\\System32\\spool\\PRINTERS...');
-      await runPS(`Remove-Item -Path "$env:windir\\System32\\spool\\PRINTERS\\*.*" -Force -Recurse`);
-      addLog('Đang khởi động lại dịch vụ Spooler...');
-      await runPS(`Start-Service -Name Spooler`);
-      addLog('✅ Đã xóa kẹt lệnh in thành công! Vui lòng in lại.');
-      loadPrinters();
-      setJobs([]);
+      
+      const w = window as any;
+      if (w.electronAPI?.printer?.clearQueue) {
+        const res = await w.electronAPI.printer.clearQueue(selectedPrinter || undefined);
+        if (res?.ok) {
+          addLog('✅ ' + (res.message || 'Đã dọn sạch toàn bộ lệnh in kẹt toàn hệ thống!'));
+        } else {
+          addLog('⚠️ Lỗi xóa kẹt: ' + (res?.error || 'Có thể cần quyền Administrator.'));
+        }
+      } else {
+        addLog('Đang dừng dịch vụ Spooler & các tiến trình in...');
+        await runPS(`Stop-Service -Name Spooler -Force; Stop-Process -Name "splwow64", "spoolsv", "printfilterpipelinesvc" -Force -ErrorAction SilentlyContinue;`);
+        addLog('Đang xóa các file kẹt trong C:\\Windows\\System32\\spool\\PRINTERS...');
+        await runPS(`Remove-Item -Path "$env:windir\\System32\\spool\\PRINTERS\\*.*" -Force -Recurse -ErrorAction SilentlyContinue`);
+        addLog('Đang khởi động lại dịch vụ Spooler...');
+        await runPS(`Start-Service -Name Spooler`);
+        addLog('✅ Đã xóa kẹt lệnh in thành công! Vui lòng in lại.');
+      }
+
+      await loadPrinters();
+      if (selectedPrinter) {
+        await loadJobs(selectedPrinter);
+      } else {
+        setJobs([]);
+      }
     } catch (err: unknown) {
       const e = String(err);
       addLog('❌ Lỗi gỡ kẹt: ' + e);
-      // Restart spooler just in case it stopped
       runPS(`Start-Service -Name Spooler`).catch(()=>{});
     } finally {
       setLoading(false);
@@ -895,21 +1002,6 @@ export default function PrinterTab() {
       addLog('❌ Lỗi tự động tải: ' + e);
       addLog('Đang mở trang web dự phòng...');
       runPS(`Start-Process "${drv.url}"`).catch(()=>{});
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const deleteSingleJob = async (printerName: string, jobId: number) => {
-    try {
-      setLoading(true);
-      addLog(`Đang xóa lệnh in ID ${jobId} trên máy ${printerName}...`);
-      await runPS(`Remove-PrintJob -PrinterName "${printerName}" -ID ${jobId}`);
-      addLog(`✅ Đã xóa lệnh in ID ${jobId}.`);
-      loadJobs(printerName);
-    } catch (err: unknown) {
-      const e = String(err);
-      addLog('❌ Lỗi xóa lệnh in: ' + e);
     } finally {
       setLoading(false);
     }
@@ -1596,9 +1688,21 @@ export default function PrinterTab() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           
           <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem', flex: 1 }}>
-            <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Search size={16} color="#f59e0b" /> Lệnh in đang chờ/kẹt
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+              <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Search size={16} color="#f59e0b" /> Lệnh in đang chờ/kẹt
+              </h3>
+              {selectedPrinter && jobs.length > 0 && (
+                <button
+                  onClick={() => clearAllJobsOnPrinter(selectedPrinter)}
+                  disabled={loading}
+                  style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                  title={`Xóa toàn bộ ${jobs.length} lệnh in đang kẹt trên máy ${selectedPrinter}`}
+                >
+                  <Trash2 size={12} /> Xóa Hết ({jobs.length})
+                </button>
+              )}
+            </div>
             
             {!selectedPrinter ? (
               <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '2rem 0' }}>

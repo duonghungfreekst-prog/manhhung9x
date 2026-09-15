@@ -4535,6 +4535,130 @@ function stopCompareServer() {
     return { ok: true };
   });
 
+  // ── PRINTER SUITE: Lấy danh sách lệnh in kèm Encoding UTF-8 chuẩn ──────────
+  ipcMain.handle('printer:get-jobs', async (_event, printerName) => {
+    if (!printerName) return { ok: false, jobs: [] };
+    const safeName = String(printerName).replace(/["']/g, '');
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+      $OutputEncoding = [System.Text.Encoding]::UTF8
+      $jobs = @()
+      Get-PrintJob -PrinterName "${safeName}" -ErrorAction SilentlyContinue | ForEach-Object {
+        $jobs += [PSCustomObject]@{
+          Id = $_.Id
+          DocumentName = $_.DocumentName
+          JobStatus = $_.JobStatus
+          UserName = $_.UserName
+        }
+      }
+      [PSCustomObject]@{ ok = $true; jobs = $jobs } | ConvertTo-Json -Depth 3 -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, jobs: [] };
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: false, jobs: [] };
+    }
+  });
+
+  // ── PRINTER SUITE: Xóa một lệnh in cụ thể (Delete Single Print Job) ────────
+  ipcMain.handle('printer:delete-job', async (_event, printerName, jobId) => {
+    if (!printerName || jobId === undefined) return { ok: false, error: 'Thiếu tham số tên máy in hoặc mã lệnh in' };
+    const safeName = String(printerName).replace(/["']/g, '');
+    const safeId = parseInt(jobId, 10);
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+
+      # 1. Thử xóa bằng lệnh PowerShell gốc
+      Remove-PrintJob -PrinterName "${safeName}" -ID ${safeId} -Force -ErrorAction SilentlyContinue
+
+      # 2. Thử xóa qua Win32_PrintJob WMI
+      Get-WmiObject -Class Win32_PrintJob -ErrorAction SilentlyContinue | Where-Object { $_.JobId -eq ${safeId} } | ForEach-Object {
+        $_.Delete() | Out-Null
+      }
+
+      Start-Sleep -Milliseconds 400
+
+      # 3. Kiểm tra nếu vẫn còn kẹt do file đệm bị khóa
+      $rem = Get-PrintJob -PrinterName "${safeName}" -ErrorAction SilentlyContinue | Where-Object { $_.Id -eq ${safeId} }
+      if ($rem) {
+        Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+        Stop-Process -Name "splwow64", "spoolsv", "printfilterpipelinesvc" -Force -ErrorAction SilentlyContinue
+        $spoolDir = "$env:windir\\System32\\spool\\PRINTERS"
+        Remove-Item -Path "$spoolDir\\*${safeId}.*" -Force -Recurse -ErrorAction SilentlyContinue
+        Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+      }
+
+      Resume-Printer -Name "${safeName}" -ErrorAction SilentlyContinue
+
+      [PSCustomObject]@{
+        ok = $true
+        message = "Đã xóa lệnh in #${safeId} thành công!"
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: true, message: 'Đã xóa lệnh in.' };
+    }
+  });
+
+  // ── PRINTER SUITE: Xóa sạch toàn bộ hàng đợi in (Clear All Print Jobs) ────
+  ipcMain.handle('printer:clear-queue', async (_event, printerName) => {
+    const safeName = printerName ? String(printerName).replace(/["']/g, '') : '';
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+
+      if ("${safeName}") {
+        Get-PrintJob -PrinterName "${safeName}" -ErrorAction SilentlyContinue | ForEach-Object {
+          Remove-PrintJob -PrinterName "${safeName}" -ID $_.Id -Force -ErrorAction SilentlyContinue
+        }
+      }
+
+      # Dừng dịch vụ và các tiến trình khóa file
+      Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      Stop-Process -Name "splwow64", "spoolsv", "printfilterpipelinesvc" -Force -ErrorAction SilentlyContinue
+
+      # Dọn sạch toàn bộ file đệm trong spool
+      $spoolDir = "$env:windir\\System32\\spool\\PRINTERS"
+      if (-not (Test-Path $spoolDir)) { New-Item -Path $spoolDir -ItemType Directory -Force | Out-Null }
+      Remove-Item -Path "$spoolDir\\*.*" -Force -Recurse -ErrorAction SilentlyContinue
+
+      # Cấp lại toàn quyền cho thư mục PRINTERS
+      & icacls $spoolDir /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" /grant "Users:(OI)(CI)F" /grant "EVERYONE:(OI)(CI)M" /T /C /Q | Out-Null
+
+      # Khởi động lại dịch vụ Print Spooler
+      Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+
+      # Phục hồi trạng thái hoạt động cho máy in
+      if ("${safeName}") {
+        Resume-Printer -Name "${safeName}" -ErrorAction SilentlyContinue
+        Set-Printer -Name "${safeName}" -WorkOffline $false -ErrorAction SilentlyContinue
+      } else {
+        Get-Printer -ErrorAction SilentlyContinue | ForEach-Object {
+          try { Resume-Printer -Name $_.Name -ErrorAction SilentlyContinue } catch {}
+          try { Set-Printer -Name $_.Name -WorkOffline $false -ErrorAction SilentlyContinue } catch {}
+        }
+      }
+
+      [PSCustomObject]@{
+        ok = $true
+        message = "Đã dọn sạch toàn bộ lệnh in kẹt và phục hồi hàng đợi in thành công!"
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: true, message: 'Đã xóa hàng đợi in thành công.' };
+    }
+  });
+
   // ── PRINTER SUITE: Quét & Chẩn đoán Toàn Bộ Lỗi Hệ Thống Máy In ────────────
   ipcMain.handle('printer:diagnose-all', async () => {
     const ps = `

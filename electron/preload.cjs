@@ -202,6 +202,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openWindowsTool:   (tool) => ipcRenderer.invoke('printer:open-windows-tool', tool),
     diagnoseAll:       () => ipcRenderer.invoke('printer:diagnose-all'),
     fixAllIssues:      () => ipcRenderer.invoke('printer:fix-all-issues'),
+    getJobs:           (name) => ipcRenderer.invoke('printer:get-jobs', name),
+    deleteJob:         (name, jobId) => ipcRenderer.invoke('printer:delete-job', name, jobId),
+    clearQueue:        (name) => ipcRenderer.invoke('printer:clear-queue', name),
   },
 
   // ── Native SQLite Database Suite ──────────────────────────────────────────
