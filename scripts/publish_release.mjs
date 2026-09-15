@@ -194,21 +194,26 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Đặc Trị Lỗi Máy In LAN & Nâng Cấp Tự Động UAC Administrator Thật 100%
+        body: `### 🚀 DMH Tools ${tagName} - Đại Tu Giao Diện Bác Sĩ Máy In: Tái Cấu Trúc Bố Cục 2 Tầng & Khắc Phục Triệt Để Co Cụm Layout / Mảng Trắng
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.7:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.8:
 
-- **1. Tự Động Nâng Quyền Administrator (UAC Elevation Guard) Cho Thao Tác Registry**:
-  + **Tự Động Kích Hoạt Quyền Admin Qua UAC**: Tất cả các lệnh sửa lỗi máy in LAN (0x709, 0x11b, 0xbcb, 0x40) tác động đến nhánh hệ thống \`HKLM\` nay được bọc qua cơ chế tự động nâng quyền \`runElevatedPSToolScript\`. Windows sẽ cấp quyền tối cao để ghi trực tiếp vào Registry của máy chủ và máy con.
-  + **Chấm Dứt Hoàn Toàn Lỗi Bị Windows Chặn Ngầm**: Loại bỏ hiện tượng lệnh ghi Registry bị Windows từ chối ngầm (\`Access is denied\`), đảm bảo các khóa RPC và Point & Print được áp dụng thực tế 100% vào hệ điều hành.
+- **1. Đại Tu Hoàn Toàn Bố Cục Giao Diện Bác Sĩ Máy In (2 Tầng Độc Lập)**:
+  + **Tầng 1 (Full-Width 100% Chiều Ngang)**:
+    - *Header Bar Hiện Đại*: Căn chỉnh ngăn nắp, loại bỏ thuộc tính dính (sticky) từng gây che khuất các thẻ bên dưới.
+    - *Khối 0 (Bảng Chẩn Đoán Sức Khỏe)*: Trải đều 6 chỉ số kỹ thuật toàn màn hình, mở tab là người dùng nhìn thấy ngay tình trạng tổng thể xanh/vàng kèm nút sửa nhanh.
+    - *Khối 1 (Khắc Phục Lỗi Mạng LAN 0x709 / 0x11b / 0x40 / 0xbcb)*: Dàn đều 4 thẻ rộng rãi, hiển thị đầy đủ các nút bấm thao tác (Sửa 1-Click, Kết nối Local Port, Chép CMD, Reset PC).
+    - *Khối 2 (Khắc Phục Dịch Vụ In & Spooler)*: Dàn đều 3 thẻ cứu hộ Spooler crash, máy in Offline SNMP và treo ứng dụng Office/HIS.
+  + **Tầng 2 (Chia 2 Cột Cân Đối Với Cột Phải Sticky Đồng Hành)**:
+    - *Cột Trái*: Danh sách máy in chi tiết kèm các thao tác In test, Đặt mặc định, Tự sửa lỗi, Cài driver và Gỡ bỏ tận gốc + Bộ tải Driver tự động.
+    - *Cột Phải Sticky*: Hộp Lệnh in kẹt và Console Log thời gian thực luôn dính bám theo màn hình khi người dùng cuộn chuột, **loại bỏ 100% hiện tượng bên phải màn hình bị trắng xóa**!
 
-- **2. Đồng Bộ Chuẩn Cặp Khóa Point & Print (Lỗi 0x00000bcb)**:
-  + **Sửa Lệch Tên Registry Khóa GPO**: Ghi đồng thời và kiểm tra chuẩn cả 2 biến \`RestrictDriverInstallationToAdministrators\` và \`RestrictedDriver_InstallationAttribute\`.
-  + **Đồng Bộ Hoàn Hảo Giữa Ghi & Chẩn Đoán**: Hệ thống tự động xác nhận sau khi fix và chuyển toàn bộ chỉ số sang **MÀU XANH** chuẩn xác, phản ánh đúng tình trạng thực tế của máy.
+- **2. Khắc Phục Lỗi Co Cụm Layout Từ Thẻ Container \`display: contents\`**:
+  + Thay thế toàn bộ thẻ bao bọc Virtual Keep-Alive Tab Stack sang chuẩn \`display: block; width: 100%\`, bảo toàn trọn vẹn CSS Box Model, ngăn ngừa hiện tượng các phần tử con bên trong tab bị bóp méo hay co cụm sang lề trái.
 
-- **3. Cải Tiến Phản Hồi Trực Quan & Trạng Thái Máy In**:
-  + Khi người dùng bấm "Sửa Tự Động 1-Click" hoặc sửa từng lỗi thành phần, hệ thống tự động cập nhật ngay trạng thái xanh, thông báo rõ ràng các khóa Registry và dịch vụ đã sửa.
-  + Kế thừa toàn diện bộ đệm Virtual Keep-Alive Tab Cache tốc độ 0ms từ v6.8.6 và giải pháp chia sẻ Local Port qua mạng LAN giữa 2 bản Windows khác nhau.
+- **3. Tối Ưu Trải Nghiệm & Độ Ổn Định Toàn Diện**:
+  + Tốc độ chuyển tab vẫn giữ nguyên 0ms không độ trễ (Instant Virtual Switching).
+  + Tự động UAC Administrator Elevation cho các thao tác sửa Registry máy in mạng LAN.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

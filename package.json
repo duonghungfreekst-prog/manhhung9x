@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.8.7",
-  "description": "DMH_Tools v6.8.7 - Đặc Trị Lỗi Chia Sẻ Máy In LAN & Nâng Cấp Nâng Quyền Administrator Tự Động: Tự Động UAC Elevation Cho Khóa Registry HKLM (0x709, 0x11b, 0xbcb), Đồng Bộ Cặp Khóa Point & Print Chuẩn Xác 100%, Đảm Bảo Tác Động Thực Tế & Xác Thực Xanh Toàn Bộ Hệ Thống",
+  "version": "6.8.8",
+  "description": "DMH_Tools v6.8.8 - Đại Tu Bố Cục Giao Diện Bác Sĩ Máy In: Khắc Phục Lỗi Co Cụm Layout & Mảng Trắng, Tái Cấu Trúc 2 Tầng Độc Lập (Tầng 1 Full-Width Chẩn Đoán & Sửa Lỗi LAN/Dịch Vụ, Tầng 2 Cột Phải Sticky Đồng Hành Chống Trắng Màn Hình), Sửa Lỗi Container display:contents",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

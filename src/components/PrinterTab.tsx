@@ -1267,9 +1267,9 @@ export default function PrinterTab() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
       {/* Top Header Bar */}
-      <div className="converter-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg)', paddingBottom: '0.75rem', paddingTop: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>
+      <div className="converter-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '0.85rem 1.25rem', borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
           <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Printer size={20} color="#6366f1" /> Bác Sĩ Máy In - Chẩn Đoán Toàn Bộ Lỗi & Sửa Tự Động 1-Click
@@ -1331,12 +1331,9 @@ export default function PrinterTab() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.25rem' }}>
-        
-        {/* Left Col: Báo cáo chẩn đoán & Các công cụ sửa lỗi & Danh sách máy in */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-          
-          {/* ═════ KHỐI 0: BẢNG CHẨN ĐOÁN SỨC KHỎE MÁY IN TOÀN DIỆN ═════ */}
+      {/* ═════ TẦNG 1: CHẨN ĐOÁN TOÀN DIỆN & CÔNG CỤ SỬA LỖI MẠNG LAN / DỊCH VỤ (FULL-WIDTH 100%) ═════ */}
+
+      {/* ═════ KHỐI 0: BẢNG CHẨN ĐOÁN SỨC KHỎE MÁY IN TOÀN DIỆN ═════ */}
           <div style={{ 
             background: diagnostics ? (diagnostics.issueCount === 0 ? '#f0fdf4' : '#fffbeb') : '#f8fafc', 
             border: `1px solid ${diagnostics ? (diagnostics.issueCount === 0 ? '#86efac' : '#fde68a') : '#e2e8f0'}`, 
@@ -1394,7 +1391,7 @@ export default function PrinterTab() {
             </div>
 
             {/* Grid 6 Hạng mục chẩn đoán */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
               
               {/* Mục 1: Spooler Service */}
               <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.6rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1703,7 +1700,7 @@ export default function PrinterTab() {
               <Activity size={16} color="#f97316" /> 2. Khắc Phục Sự Cố Dịch Vụ In & Ứng Dụng (Spooler, Offline, App Treo)
             </h3>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8 }}>
               {/* Thẻ 4: Sửa lỗi Máy In Báo Offline do SNMP */}
               <div style={{ background: '#fffaf5', border: '1px solid #ffedd5', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
@@ -1763,7 +1760,13 @@ export default function PrinterTab() {
             </div>
           </div>
 
-          {/* ═════ KHỐI 3: DANH SÁCH MÁY IN VÀ THAO TÁC TRỰC TIẾP ═════ */}
+          {/* ═════ TẦNG 2: QUẢN LÝ MÁY IN CHI TIẾT & THEO DÕI HỆ THỐNG REAL-TIME ═════ */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: '1.25rem', alignItems: 'start' }}>
+            
+            {/* Cột Trái: Danh Sách Máy In (Khối 3) & Cài Driver Chuẩn (Khối 4) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
+
+              {/* ═════ KHỐI 3: DANH SÁCH MÁY IN VÀ THAO TÁC TRỰC TIẾP ═════ */}
           <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1931,10 +1934,10 @@ export default function PrinterTab() {
           </div>
         </div>
 
-        {/* Right Col: Jobs & Logs */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        {/* Cột Phải (Bám theo màn hình khi cuộn): Lệnh In Kẹt & Nhật Ký Hệ Thống Realtime */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', position: 'sticky', top: '1rem', alignSelf: 'start', minWidth: 0 }}>
           
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem', flex: 1 }}>
+          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
               <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Search size={16} color="#f59e0b" /> Lệnh in đang chờ/kẹt
@@ -1960,7 +1963,7 @@ export default function PrinterTab() {
                 Không có lệnh in nào bị kẹt trên {selectedPrinter}.
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
                 {jobs.map(j => (
                   <div key={j.Id} style={{ padding: '8px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ overflow: 'hidden', flex: 1, paddingRight: 8 }}>
@@ -1985,7 +1988,7 @@ export default function PrinterTab() {
             )}
           </div>
 
-          <div style={{ background: '#0f172a', borderRadius: 8, padding: '0.75rem', height: 200, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ background: '#0f172a', borderRadius: 8, padding: '0.75rem', height: 260, display: 'flex', flexDirection: 'column' }}>
             <h3 style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Wrench size={14} /> Nhật ký hệ thống (Console)
             </h3>
