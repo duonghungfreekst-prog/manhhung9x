@@ -194,26 +194,23 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Đại Tu Bố Cục Bác Sĩ Máy In: Loại Bỏ Hoàn Toàn Thuộc Tính Cố Định (Sticky) Gây Lỗi Giao Diện, Phân Luồng Sub-Tabs & Responsive Grid Tự Nhiên
+        body: `### 🚀 DMH Tools ${tagName} - Gỡ Bỏ Hoàn Toàn 100% SQLite Khỏi Ứng Dụng: Khắc Phục Triệt Để Tình Trạng Lag/Đơ Treo App, Tối Ưu Hóa Xử Lý In-Memory Siêu Tốc & Giải Phóng Tài Nguyên Hệ Thống
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.9:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.9.0:
 
-- **1. Loại Bỏ Triệt Để 100% Thuộc Tính "Cố Định" (Sticky / Fixed)**:
-  + Khắc phục hoàn toàn các lỗi layout điển hình khi cố định giao diện trên desktop:
-    - Loại bỏ hiện tượng các phần tử header/cột bị đè lên nhau khi cuộn trang.
-    - Loại bỏ tình trạng cột dính quá dài làm che khuất hộp Console Log ở chân màn hình (đặc biệt trên các màn hình phòng khám độ phân giải 1366x768 hoặc tỷ lệ 4:3).
-    - Loại bỏ hoàn toàn các cấu trúc 2 cột ép tỉ lệ cứng nhắc gây khoảng trắng thừa hoặc co cụm nút bấm.
+- **1. Gỡ Bỏ Triệt Để 100% SQLite & Giải Phóng Nghẽn IPC/Main Thread**:
+  + Loại bỏ hoàn toàn module SQLite đồng bộ (\`node:sqlite DatabaseSync\`) khỏi Electron Backend (\`main.cjs\`) và Preload (\`preload.cjs\`), xoá vĩnh viễn \`sqliteService.cjs\`.
+  + Khắc phục tận gốc nguyên nhân gây đơ, treo (lag) ứng dụng khi thao tác các tác vụ nặng (như kéo thả hàng trăm file XML BHYT, đối chiếu danh sách chi tiết bệnh nhân, chấm công hàng ngàn lượt quẹt thẻ).
+  + Không còn tình trạng gọi IPC đồng bộ từ React xuống Main Process làm khóa giao diện người dùng.
 
-- **2. Tích Hợp Hệ Thống Sub-Tabs Điều Hướng Chuyên Mục Trực Quan**:
-  + Thêm 4 chế độ hiển thị chuyên biệt ngay dưới thanh tiêu đề:
-    1. **⚡ Chẩn Đoán & Sửa Lỗi Tự Động (LAN & Dịch Vụ)**: Trải rộng 100% chiều ngang, hiển thị đầy đủ bảng chỉ số sức khỏe, cứu hộ lỗi mạng LAN (0x709, 0x11b, 0x40, 0xbcb) và khắc phục Spooler crash, SNMP, treo máy in. Kèm console log chân trang.
-    2. **🖨️ Quản Lý Máy In & Hàng Đợi In**: Bố cục lưới co dãn tự nhiên \`repeat(auto-fit, minmax(380px, 1fr))\` cho danh sách máy in và hộp lệnh in kẹt. Màn hình lớn tự động chia 2 cột, màn hình nhỏ tự co thành 1 cột cân đối, không đè lấn.
-    3. **📥 Nhận Diện & Cài Driver Chuẩn**: Lưới tải Driver chuẩn hãng (Canon, Epson, HP, Brother) tự động co dãn thông minh, tích hợp console log theo dõi tiến trình tải.
-    4. **📋 Xem Toàn Bộ Trang**: Hiển thị toàn bộ các khối chức năng theo luồng dọc tự nhiên cho người dùng muốn theo dõi toàn cảnh mà không lo vỡ khung.
+- **2. Chuyển Đổi Sang Kiến Trúc In-Memory State & LocalStorage Siêu Tốc**:
+  + **Tab Chấm Công Máy Vân Tay (AttendanceTab)**: Lưu trữ và cấu hình ca làm việc, ca kíp hàng tuần, danh sách máy chấm công LAN bằng \`localStorage\` của trình duyệt siêu nhẹ. Toàn bộ tính toán công, đi muộn về sớm, tăng ca đều xử lý trực tiếp trên RAM với độ trễ 0ms, xuất Excel bảng công và log chi tiết nhanh tức thì.
+  + **Tab Đối Chiếu 01BH QĐ 3176 (DcbhytTab)**: Dữ liệu hồ sơ khám chữa bệnh BHYT được phân tích trực tiếp trên bộ nhớ đệm, tối ưu giao diện nhật ký tiến trình sắc nét, xuất báo cáo Excel chỉ trong tích tắc mà không phụ thuộc vào database cục bộ.
+  + **Tab Đọc & Trích Xuất File (FileReaderTab)**: Tải và giải mã cấu trúc XML, CSV, Excel trực tiếp trên RAM. Kéo thả file hiển thị ngay lập tức, không còn độ trễ chờ ghi database.
 
-- **3. Tối Ưu Hóa Hiệu Năng & Độ Tương Thích**:
-  + Giữ vững nguyên tắc Virtual Keep-Alive Tab Stack chuyển tab tức thì 0ms.
-  + Toàn bộ logic sửa lỗi mạng LAN, Spooler, xoá lệnh in kẹt và tải driver đều là các lệnh PowerShell/Registry hệ thống thực tế 100%.
+- **3. Cải Thiện Hiệu Năng & Tối Ưu Hóa Dung Lượng**:
+  + Giảm thiểu đáng kể I/O đọc/ghi ổ cứng, giải phóng hoàn toàn rủi ro khóa file database (database is locked / busy).
+  + Tối ưu hoá bộ cài đặt Slim Installer gọn nhẹ, mở ứng dụng mượt mà trên tất cả các máy tính phòng khám cấu hình khiêm tốn.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

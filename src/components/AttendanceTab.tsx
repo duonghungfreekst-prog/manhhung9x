@@ -6,7 +6,7 @@ import {
   Settings, CheckCircle2, AlertTriangle, AlertCircle,
   Plus, Trash2, Edit2, RotateCcw, FileSpreadsheet, Filter,
   Stethoscope, Wifi, Save, Zap,
-  Volume2, Unlock, Power, Key, Wrench, Database
+  Volume2, Unlock, Power, Key, Wrench
 } from 'lucide-react';
 import type {
   ShiftPreset,
@@ -18,7 +18,6 @@ import {
   DEFAULT_SHIFTS,
   DEFAULT_WEEKLY_TEMPLATE,
   normalizeEmpId,
-  parseAnyDate,
   parseBiometricExcelOrCsv,
   parseBiometricTextOrDat,
   evaluateMonthlyAttendance,
@@ -150,66 +149,16 @@ export function AttendanceTab() {
   const [selectedBioEmp, setSelectedBioEmp] = useState<EmployeeMonthlySummary | null>(null);
   const bioFileRef = useRef<HTMLInputElement>(null);
 
-  // ── Trạng thái Cơ sở dữ liệu SQLite ──
-  const [sqliteStats, setSqliteStats] = useState<{ totalLogs: number; dbSize: string } | null>(null);
-
-  // Tự động tải dữ liệu từ SQLite khi mở tab hoặc chuyển tháng/năm
-  useEffect(() => {
-    const sqliteAPI = (window as any).electronAPI?.sqlite;
-    if (!sqliteAPI) return;
-
-    // 1. Tải thông số thống kê SQLite
-    sqliteAPI.system?.getStats?.().then((res: any) => {
-      if (res?.ok) {
-        setSqliteStats({
-          totalLogs: res.counts?.attendanceLogs || 0,
-          dbSize: res.fileSizeHuman || '0 MB'
-        });
-      }
-    }).catch(() => {});
-
-    // 2. Tải danh mục ca từ SQLite nếu có
-    sqliteAPI.attendance?.getShifts?.().then((res: any) => {
-      if (res?.ok && res.shifts?.length > 0) {
-        setShifts(normalizeShiftPresets(res.shifts));
-      }
-    }).catch(() => {});
-
-    // 3. Tải phân ca từ SQLite nếu có
-    sqliteAPI.attendance?.getSchedule?.('schedules').then((res: any) => {
-      if (res?.ok && res.data) {
-        setScheduleConfig(res.data);
-      }
-    }).catch(() => {});
-
-    // 4. Tải lượt quẹt thẻ tháng đang chọn từ SQLite
-    sqliteAPI.attendance?.getLogs?.({ month: selectedMonth, year: selectedYear }).then((res: any) => {
-      if (res?.ok && res.logs?.length > 0) {
-        const parsedLogs: RawPunchLog[] = res.logs.map((l: any) => ({
-          empId: normalizeEmpId(l.emp_id) || l.emp_id,
-          empName: l.emp_name,
-          timestamp: parseAnyDate(l.punch_time) || new Date(l.punch_time),
-          punchType: l.punch_type || 'UNKNOWN',
-          deviceId: l.device_id,
-        }));
-        setRawPunchLogs(parsedLogs);
-        setBioFileName(`Cơ sở dữ liệu SQLite (${parsedLogs.length} lượt quẹt T${selectedMonth}/${selectedYear})`);
-      }
-    }).catch(() => {});
-  }, [selectedMonth, selectedYear]);
-
-  // Lưu cấu hình khi có thay đổi (localStorage + SQLite)
+  // Lưu cấu hình ca làm việc và phân ca vào localStorage
   useEffect(() => {
     try {
       localStorage.setItem('dmh_shift_presets', JSON.stringify(shifts));
-      (window as any).electronAPI?.sqlite?.attendance?.saveShifts?.(shifts);
     } catch {}
   }, [shifts]);
 
   useEffect(() => {
     try {
       localStorage.setItem('dmh_shift_schedules', JSON.stringify(scheduleConfig));
-      (window as any).electronAPI?.sqlite?.attendance?.saveSchedule?.('schedules', scheduleConfig);
     } catch {}
   }, [scheduleConfig]);
 
@@ -320,42 +269,13 @@ export function AttendanceTab() {
           const rangeInfo = res.minDate && res.maxDate ? ` [${res.minDate} ➔ ${res.maxDate}]` : '';
           setLanStatus({
             ok: true,
-            message: `🎉 Đã kéo thành công ${punchLogs.length} lượt quẹt thẻ${rangeInfo} từ máy ${targetIp}! (Đã lưu vào SQLite)`,
+            message: `🎉 Đã kéo thành công ${punchLogs.length} lượt quẹt thẻ${rangeInfo} từ máy ${targetIp}!`,
           });
           setLanIp(targetIp);
           setLanPort(targetPort);
           localStorage.setItem('dmh_bio_last_ip', targetIp);
           localStorage.setItem('dmh_bio_last_port', String(targetPort));
           localStorage.setItem('dmh_bio_last_name', lanMachineName);
-
-          // ── Tự động lưu vĩnh viễn vào SQLite Native Database ──
-          const sqliteAPI = (window as any).electronAPI?.sqlite;
-          if (sqliteAPI?.attendance?.saveLogs) {
-            const dbLogs = punchLogs.map(p => {
-              const iso = p.timestamp instanceof Date && !isNaN(p.timestamp.getTime())
-                ? p.timestamp.toISOString()
-                : String(p.timestamp);
-              return {
-                empId: normalizeEmpId(p.empId) || p.empId,
-                empName: p.empName,
-                punchTime: iso,
-                timestamp: iso,
-                punchType: p.punchType || 'UNKNOWN',
-                deviceId: p.deviceId || `lan_${targetIp}`,
-                verifyType: 1
-              };
-            });
-            sqliteAPI.attendance.saveLogs(dbLogs).then(() => {
-              sqliteAPI.system?.getStats?.().then((st: any) => {
-                if (st?.stats) {
-                  setSqliteStats({
-                    totalLogs: st.stats.attendanceLogs || 0,
-                    dbSize: st.stats.dbSizeBytes ? `${(st.stats.dbSizeBytes / 1024).toFixed(1)} KB` : '0 KB',
-                  });
-                }
-              });
-            }).catch(console.error);
-          }
         }
       } else {
         setLanStatus({
@@ -424,15 +344,13 @@ export function AttendanceTab() {
     const updated = [newMachine, ...savedMachines.filter(m => m.ip !== newMachine.ip)];
     setSavedMachines(updated);
     localStorage.setItem('dmh_saved_biometric_machines', JSON.stringify(updated));
-    (window as any).electronAPI?.sqlite?.attendance?.saveDevices?.(updated)?.catch(console.error);
-    setLanStatus({ ok: true, message: `Đã lưu cấu hình máy "${newMachine.name}" vào danh mục & SQLite!` });
+    setLanStatus({ ok: true, message: `Đã lưu cấu hình máy "${newMachine.name}" vào danh mục!` });
   };
 
   const handleDeleteSavedMachine = (id: string) => {
     const updated = savedMachines.filter(m => m.id !== id);
     setSavedMachines(updated);
     localStorage.setItem('dmh_saved_biometric_machines', JSON.stringify(updated));
-    (window as any).electronAPI?.sqlite?.attendance?.saveDevices?.(updated)?.catch(console.error);
   };
 
   // ── Quản trị & Cài đặt máy chấm công từ xa ──
@@ -471,18 +389,6 @@ export function AttendanceTab() {
       const res = await eAPI.getUsers(lanIp.trim(), lanPort, 10000);
       if (res.ok && res.users) {
         setDeviceUsers(res.users);
-        // Lưu vĩnh viễn danh sách nhân viên vào SQLite
-        const sqliteAPI = (window as any).electronAPI?.sqlite?.attendance;
-        if (sqliteAPI?.saveEmployees) {
-          const dbUsers = res.users.map((u: any) => ({
-            empId: String(u.userId || u.uid),
-            name: u.name || `Nhân viên ${u.userId || u.uid}`,
-            cardNo: u.cardNo ? String(u.cardNo) : '',
-            role: u.role === 14 ? 'ADMIN' : 'USER',
-            deviceId: `lan_${lanIp}`
-          }));
-          sqliteAPI.saveEmployees(dbUsers).catch(console.error);
-        }
       } else {
         setDeviceActionMsg({ ok: false, message: res.error || 'Không đọc được danh sách nhân viên từ máy.' });
       }
@@ -679,36 +585,6 @@ export function AttendanceTab() {
     setBioError('');
     setBioFileName(file.name);
 
-    const persistToSqlite = (logs: RawPunchLog[]) => {
-      const sqliteAPI = (window as any).electronAPI?.sqlite;
-      if (sqliteAPI?.attendance?.saveLogs) {
-        const dbLogs = logs.map(p => {
-          const iso = p.timestamp instanceof Date && !isNaN(p.timestamp.getTime())
-            ? p.timestamp.toISOString()
-            : String(p.timestamp);
-          return {
-            empId: normalizeEmpId(p.empId) || p.empId,
-            empName: p.empName,
-            punchTime: iso,
-            timestamp: iso,
-            punchType: p.punchType || 'UNKNOWN',
-            deviceId: p.deviceId || 'usb_file',
-            verifyType: 1
-          };
-        });
-        sqliteAPI.attendance.saveLogs(dbLogs).then(() => {
-          sqliteAPI.system?.getStats?.().then((st: any) => {
-            if (st?.stats) {
-              setSqliteStats({
-                totalLogs: st.stats.attendanceLogs || 0,
-                dbSize: st.stats.dbSizeBytes ? `${(st.stats.dbSizeBytes / 1024).toFixed(1)} KB` : '0 KB',
-              });
-            }
-          });
-        }).catch(console.error);
-      }
-    };
-
     const isTextOrDat = file.name.toLowerCase().endsWith('.txt') || file.name.toLowerCase().endsWith('.dat');
 
     if (isTextOrDat) {
@@ -725,7 +601,6 @@ export function AttendanceTab() {
             const lastLog = result.punchLogs[result.punchLogs.length - 1];
             setSelectedMonth(lastLog.timestamp.getMonth() + 1);
             setSelectedYear(lastLog.timestamp.getFullYear());
-            persistToSqlite(result.punchLogs);
           }
         } catch {
           setBioError('Lỗi phân tích file văn bản/DAT từ máy chấm công.');
@@ -746,7 +621,6 @@ export function AttendanceTab() {
             const firstLog = result.punchLogs[0];
             setSelectedMonth(firstLog.timestamp.getMonth() + 1);
             setSelectedYear(firstLog.timestamp.getFullYear());
-            persistToSqlite(result.punchLogs);
           }
         } catch {
           setBioError('Không đọc được file. Vui lòng kiểm tra định dạng (.xlsx, .xls, .csv, .txt, .dat).');
@@ -1120,26 +994,6 @@ export function AttendanceTab() {
             </button>
           </div>
         )}
-
-        {/* Badge thống kê lưu trữ SQLite Native */}
-        {sqliteStats && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '4px 10px',
-            background: '#ecfdf5',
-            border: '1px solid #a7f3d0',
-            borderRadius: 6,
-            fontSize: '0.75rem',
-            color: '#065f46',
-            fontWeight: 600,
-            marginLeft: 'auto'
-          }} title="Dữ liệu chấm công được lưu trữ tự động vĩnh viễn trong SQLite Database cục bộ">
-            <Database size={13} color="#10b981" />
-            <span>SQLite: {sqliteStats.totalLogs.toLocaleString('vi-VN')} lượt quẹt ({sqliteStats.dbSize})</span>
-          </div>
-        )}
       </div>
 
       {/* ── NỘI DUNG TỪNG PHÂN HỆ ── */}
@@ -1511,37 +1365,6 @@ export function AttendanceTab() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Calendar size={14} color="#3b82f6" /> Chọn Tháng Chấm Công
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const sqliteAPI = (window as any).electronAPI?.sqlite;
-                      if (sqliteAPI?.attendance?.getLogs) {
-                        sqliteAPI.attendance.getLogs({ month: selectedMonth, year: selectedYear }).then((res: any) => {
-                          if (res?.ok && res.logs?.length > 0) {
-                            const parsedLogs: RawPunchLog[] = res.logs.map((l: any) => ({
-                              empId: normalizeEmpId(l.emp_id) || l.emp_id,
-                              empName: l.emp_name,
-                              timestamp: new Date(l.punch_time),
-                              punchType: l.punch_type || 'UNKNOWN',
-                              deviceId: l.device_id,
-                            }));
-                            setRawPunchLogs(parsedLogs);
-                            setBioFileName(`SQLite: ${parsedLogs.length} lượt quẹt (T${selectedMonth}/${selectedYear})`);
-                            setLanStatus({ ok: true, message: `Đã nạp ${parsedLogs.length} lượt quẹt thẻ tháng ${selectedMonth}/${selectedYear} từ SQLite.` });
-                          } else {
-                            setLanStatus({ ok: false, message: `Tháng ${selectedMonth}/${selectedYear} chưa có bản ghi nào trong SQLite.` });
-                          }
-                        }).catch(console.error);
-                      }
-                    }}
-                    style={{
-                      background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer',
-                      fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 600
-                    }}
-                    title="Nạp dữ liệu tháng này từ cơ sở dữ liệu SQLite"
-                  >
-                    <Database size={12} /> Nạp SQLite
-                  </button>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <select

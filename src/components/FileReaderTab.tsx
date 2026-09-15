@@ -1,10 +1,9 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   UploadCloud, FileCode2, FileText, FileSpreadsheet,
   Table2, Eye, Download, Trash2, Search, ChevronDown,
   ChevronUp, Info, Copy, CheckCheck, AlertCircle,
   RefreshCw, Wand2, X, ArrowRight, CheckCircle2,
-  Database, History,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -715,64 +714,18 @@ export function FileReaderTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ── SQLite Lịch sử Đọc XML & Files ──
-  const [dbHistory, setDbHistory] = useState<any[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
-  const [sqliteStats, setSqliteStats] = useState<{ totalRecords: number; dbSize: string } | null>(null);
-
-  const loadDbHistory = useCallback(async () => {
-    try {
-      const sqliteAPI = (window as any).electronAPI?.sqlite;
-      if (!sqliteAPI) return;
-      const res = await sqliteAPI.xml?.getHistory?.();
-      if (res?.ok && res.records) {
-        setDbHistory(res.records);
-      }
-      const st = await sqliteAPI.system?.getStats?.();
-      if (st?.stats) {
-        setSqliteStats({
-          totalRecords: st.stats.xmlRecords || 0,
-          dbSize: st.stats.dbSizeBytes ? `${(st.stats.dbSizeBytes / 1024).toFixed(1)} KB` : '0 KB',
-        });
-      }
-    } catch (e) {
-      console.error('Lỗi tải lịch sử XML từ SQLite:', e);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadDbHistory();
-  }, [loadDbHistory]);
-
   const handleFiles = useCallback(async (rawFiles: File[]) => {
     setLoading(true);
     setError(null);
     try {
       const parsed = await Promise.all(rawFiles.map(parseFile));
       setFiles(prev => [...parsed, ...prev]);
-
-      // ── Tự động lưu vào SQLite ──
-      const sqliteAPI = (window as any).electronAPI?.sqlite?.xml;
-      if (sqliteAPI?.saveRecord) {
-        for (const f of parsed) {
-          sqliteAPI.saveRecord({
-            fileName: f.name,
-            fileSize: f.size,
-            format: f.format,
-            rowCount: f.rowCount,
-            columnsJson: JSON.stringify(f.columns),
-            previewJson: JSON.stringify(f.rows.slice(0, 100)),
-            rawContent: f.rawText ? f.rawText.slice(0, 100000) : ''
-          }).catch(console.error);
-        }
-        setTimeout(loadDbHistory, 500);
-      }
     } catch (err) {
       setError(`Không thể đọc file: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }
-  }, [loadDbHistory]);
+  }, []);
 
   const removeFile = useCallback((id: string) => {
     setFiles(prev => prev.filter(f => f.id !== id));
@@ -782,180 +735,9 @@ export function FileReaderTab() {
     setFiles(prev => prev.map(f => f.id === updated.id ? updated : f));
   }, []);
 
-  // Mở lại file đã lưu trong SQLite
-  const handleRestoreFromDb = (rec: any) => {
-    try {
-      let rows: Record<string, unknown>[] = [];
-      let cols: string[] = [];
-      try { rows = JSON.parse(rec.preview_json || '[]'); } catch {}
-      try { cols = JSON.parse(rec.columns_json || '[]'); } catch {}
-      if (cols.length === 0 && rows.length > 0) cols = Object.keys(rows[0]);
-
-      const restored: ParsedFile = {
-        id: `db_${rec.id}_${Date.now()}`,
-        name: rec.file_name,
-        format: (rec.format as any) || 'xml',
-        size: rec.file_size || '0 B',
-        rowCount: rec.row_count || rows.length,
-        columns: cols,
-        rows: rows,
-        rawText: rec.raw_content || undefined,
-        parsedAt: `${new Date(rec.parsed_at || rec.created_at).toLocaleString('vi-VN')} (SQLite)`,
-      };
-
-      setFiles(prev => [restored, ...prev.filter(f => f.name !== restored.name)]);
-    } catch (e: any) {
-      setError(`Không thể khôi phục file từ SQLite: ${e.message}`);
-    }
-  };
-
-  // Xóa bản ghi lịch sử khỏi SQLite
-  const handleDeleteHistoryItem = async (e: React.MouseEvent, id: number) => {
-    e.stopPropagation();
-    try {
-      const sqliteAPI = (window as any).electronAPI?.sqlite?.xml;
-      if (!sqliteAPI) return;
-      await sqliteAPI.deleteRecord(id);
-      loadDbHistory();
-    } catch (err) {
-      console.error('Lỗi xóa lịch sử XML:', err);
-    }
-  };
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       
-      {/* SQLite Header Bar */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0.6rem 1rem',
-        background: 'white',
-        borderRadius: 8,
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '4px 10px',
-            background: '#ecfdf5',
-            color: '#065f46',
-            borderRadius: 6,
-            border: '1px solid #a7f3d0',
-            fontSize: '0.8rem',
-            fontWeight: 600
-          }}>
-            <Database size={15} color="#10b981" />
-            <span>SQLite: {dbHistory.length} file đã lưu {sqliteStats?.dbSize ? `(${sqliteStats.dbSize})` : ''}</span>
-          </div>
-          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-            Tất cả file XML/CSV/Excel khi kéo thả đều được tự động lưu vĩnh viễn vào SQLite.
-          </span>
-        </div>
-
-        <button
-          onClick={() => setShowHistory(v => !v)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '5px 12px',
-            borderRadius: 6,
-            border: '1px solid #cbd5e1',
-            background: showHistory ? '#eff6ff' : 'white',
-            color: showHistory ? '#1d4ed8' : '#334155',
-            fontWeight: 600,
-            fontSize: '0.8rem',
-            cursor: 'pointer'
-          }}
-        >
-          <History size={14} color={showHistory ? '#2563eb' : '#64748b'} />
-          {showHistory ? 'Ẩn Lịch Sử File' : `Xem Lịch Sử SQLite (${dbHistory.length})`}
-        </button>
-      </div>
-
-      {/* Panel Lịch sử SQLite khi bật */}
-      {showHistory && (
-        <div style={{
-          background: 'white',
-          borderRadius: 8,
-          border: '1px solid #cbd5e1',
-          padding: '0.85rem 1rem',
-          boxShadow: '0 2px 6px rgba(0,0,0,0.06)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <strong style={{ fontSize: '0.85rem', color: '#1e293b' }}>
-              Danh Sách File Đã Phân Tích Trong SQLite:
-            </strong>
-            <button
-              onClick={loadDbHistory}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.75rem' }}
-            >
-              <RefreshCw size={12} /> Làm mới
-            </button>
-          </div>
-
-          {dbHistory.length === 0 ? (
-            <p style={{ margin: 0, fontSize: '0.82rem', color: '#94a3b8' }}>Chưa có file nào được lưu vào SQLite.</p>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8, maxHeight: 220, overflowY: 'auto' }}>
-              {dbHistory.map(rec => (
-                <div
-                  key={rec.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 10px',
-                    borderRadius: 6,
-                    border: '1px solid #e2e8f0',
-                    background: '#f8fafc',
-                    fontSize: '0.8rem'
-                  }}
-                >
-                  <div style={{ overflow: 'hidden', minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, color: '#0f172a', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={rec.file_name}>
-                      {rec.file_name}
-                    </div>
-                    <div style={{ color: '#64748b', fontSize: '0.73rem', marginTop: 2 }}>
-                      {rec.format?.toUpperCase()} · {rec.row_count} dòng · {new Date(rec.parsed_at || rec.created_at).toLocaleDateString('vi-VN')}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 8, flexShrink: 0 }}>
-                    <button
-                      onClick={() => handleRestoreFromDb(rec)}
-                      style={{
-                        padding: '4px 8px',
-                        background: '#3b82f6',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: 4,
-                        fontSize: '0.72rem',
-                        fontWeight: 600,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Mở lại
-                    </button>
-                    <button
-                      onClick={(e) => handleDeleteHistoryItem(e, rec.id)}
-                      title="Xóa khỏi SQLite"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2 }}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Drop Zone */}
       <DropZone onFiles={handleFiles} />
 
@@ -963,7 +745,7 @@ export function FileReaderTab() {
       {loading && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '1rem', background: '#eff6ff', borderRadius: 8, border: '1px solid #bfdbfe' }}>
           <div className="spinner" style={{ borderTopColor: '#3b82f6', borderColor: '#bfdbfe' }} />
-          <span style={{ color: '#1d4ed8', fontSize: '0.875rem' }}>Đang phân tích file &amp; lưu vào SQLite...</span>
+          <span style={{ color: '#1d4ed8', fontSize: '0.875rem' }}>Đang phân tích file...</span>
         </div>
       )}
 

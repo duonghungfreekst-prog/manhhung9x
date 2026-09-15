@@ -313,6 +313,8 @@ export default function PrinterTab() {
   const [shareRpcStatus, setShareRpcStatus] = useState<{ isFixed: boolean; rpcUseNamedPipe?: number; rpcAuthnLevelPrivacy?: number; spoolerStatus?: string } | null>(null);
   const [fixingShare, setFixingShare] = useState(false);
   const [fixing0x40, setFixing0x40] = useState(false);
+  const [fixingPointAndPrint, setFixingPointAndPrint] = useState(false);
+  const [enablingSharing, setEnablingSharing] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [showCmdDetails, setShowCmdDetails] = useState(false);
 
@@ -889,6 +891,7 @@ export default function PrinterTab() {
   // ── Sửa lỗi 0x00000bcb & Gỡ bỏ hạn chế Point and Print ──────────────────
   const fixPointAndPrint = async () => {
     try {
+      setFixingPointAndPrint(true);
       setLoading(true);
       addLog('🚀 Bắt đầu gỡ bỏ hạn chế Point and Print & sửa lỗi 0x00000bcb...');
       const w = window as any;
@@ -899,7 +902,7 @@ export default function PrinterTab() {
           await checkShareRpcStatus();
           await diagnoseAllPrinters(true);
           await loadPrinters();
-          alert('🎉 ĐÃ GỠ BỎ CHÍNH SÁCH CHẶN DRIVER LAN 0xbcb THÀNH CÔNG!\n\n• Đã bật RestrictDriverInstallationToAdministrators = 0\n• Đã tắt cảnh báo NoWarningNoElevationOnInstall = 1\n• Máy con nay có thể tải nạp Driver từ máy in mạng LAN thoải mái.');
+          alert('🎉 ĐÃ GỠ BỎ CHÍNH SÁCH CHẶN DRIVER LAN 0xbcb THÀNH CÔNG!\n\n• Đã bật RestrictDriverInstallationToAdministrators = 0\n• Đã tắt cảnh báo NoWarningNoElevationOnInstall = 1\n• Máy con nay có thể tự nạp Driver từ máy in chia sẻ qua mạng LAN mà không bị Windows chặn.');
         } else {
           addLog('⚠️ ' + (res?.error || 'Có thể cần quyền Administrator.'));
           alert('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.error || 'Không thể cấu hình Point and Print. Vui lòng mở app bằng Run as administrator.'));
@@ -925,6 +928,7 @@ export default function PrinterTab() {
     } catch (err: unknown) {
       addLog('❌ Lỗi xử lý: ' + String(err));
     } finally {
+      setFixingPointAndPrint(false);
       setLoading(false);
     }
   };
@@ -967,6 +971,7 @@ export default function PrinterTab() {
   // ── Bật Chia Sẻ Mạng LAN & Tắt Đòi Mật Khẩu ────────────────────────────
   const enableLanSharing = async () => {
     try {
+      setEnablingSharing(true);
       setLoading(true);
       addLog('🌐 Đang mở tường lửa File and Printer Sharing, bật Network Discovery và bật dịch vụ chia sẻ...');
       const w = window as any;
@@ -974,8 +979,10 @@ export default function PrinterTab() {
         const res = await w.electronAPI.printer.enableLanSharing();
         if (res?.ok) {
           addLog('✅ ' + (res.message || 'Đã bật chia sẻ mạng LAN thành công!'));
+          alert('🎉 ĐÃ BẬT CHIA SẺ MẠNG LAN THÀNH CÔNG!\n\n• Đã mở Tường lửa Firewall cho File and Printer Sharing & Network Discovery.\n• Đã khởi động các dịch vụ mạng nền tảng (FDResPub, fdPHost, LanmanServer).\n• Đã mở tài khoản Guest và cấu hình chia sẻ không cần mật khẩu.');
         } else {
           addLog('⚠️ ' + (res?.error || 'Cần quyền Administrator để thay đổi cấu hình mạng.'));
+          alert('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.error || 'Vui lòng chạy phần mềm bằng Run as administrator để có quyền mở cổng Tường lửa Firewall.'));
         }
       } else {
         await runPS(`
@@ -995,6 +1002,7 @@ export default function PrinterTab() {
     } catch (err: unknown) {
       addLog('❌ Lỗi bật chia sẻ mạng: ' + String(err));
     } finally {
+      setEnablingSharing(false);
       setLoading(false);
     }
   };
@@ -1993,10 +2001,11 @@ export default function PrinterTab() {
                 </div>
                 <button
                   onClick={fixPointAndPrint}
-                  disabled={loading}
-                  style={{ background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                  disabled={loading || fixingPointAndPrint}
+                  style={{ background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, opacity: fixingPointAndPrint ? 0.8 : 1 }}
                 >
-                  <CheckCircle2 size={12} /> Gỡ Chặn Driver LAN
+                  <CheckCircle2 size={12} className={fixingPointAndPrint ? 'spin' : ''} />
+                  {fixingPointAndPrint ? 'Đang gỡ chặn...' : 'Gỡ Chặn Driver LAN'}
                 </button>
               </div>
 
@@ -2012,10 +2021,11 @@ export default function PrinterTab() {
                 </div>
                 <button
                   onClick={enableLanSharing}
-                  disabled={loading}
-                  style={{ background: '#0284c7', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                  disabled={loading || enablingSharing}
+                  style={{ background: '#0284c7', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, opacity: enablingSharing ? 0.8 : 1 }}
                 >
-                  <Wifi size={12} /> Bật Chia Sẻ Mạng LAN
+                  <Wifi size={12} className={enablingSharing ? 'spin' : ''} />
+                  {enablingSharing ? 'Đang bật chia sẻ...' : 'Bật Chia Sẻ Mạng LAN'}
                 </button>
               </div>
             </div>

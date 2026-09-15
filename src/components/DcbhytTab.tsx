@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ShieldCheck, UploadCloud, FileSpreadsheet, Activity, Server, AlertCircle, Database, History, Trash2, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ShieldCheck, UploadCloud, FileSpreadsheet, Activity, Server, AlertCircle } from 'lucide-react';
 
 export function DcbhytTab() {
   const [xmlFile, setXmlFile] = useState<File | null>(null);
@@ -13,38 +13,11 @@ export function DcbhytTab() {
   const [patients, setPatients] = useState<any[]>([]);
   const [metaInfo, setMetaInfo] = useState<{macskcb: string, ngaylap: string, sheet_count: number}>({macskcb: '', ngaylap: '', sheet_count: 0});
 
-  // ── Lịch sử Đối Chiếu SQLite ──
-  const [savedSessions, setSavedSessions] = useState<any[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
-  const [sqliteStats, setSqliteStats] = useState<{ totalSessions: number; dbSize: string } | null>(null);
-
   const pk = '#10b981'; // Green theme
 
   const log = (msg: string) => setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
 
-  // Tải danh sách phiên đối chiếu đã lưu từ SQLite
-  const loadSavedSessions = useCallback(async () => {
-    try {
-      const sqliteAPI = (window as any).electronAPI?.sqlite;
-      if (!sqliteAPI) return;
-      const res = await sqliteAPI.dcbhyt?.getSessions?.();
-      if (res?.ok && res.sessions) {
-        setSavedSessions(res.sessions);
-      }
-      const st = await sqliteAPI.system?.getStats?.();
-      if (st?.stats) {
-        setSqliteStats({
-          totalSessions: st.stats.dcbhytSessions || 0,
-          dbSize: st.stats.dbSizeBytes ? `${(st.stats.dbSizeBytes / 1024).toFixed(1)} KB` : '0 KB',
-        });
-      }
-    } catch (e) {
-      console.error('Lỗi tải lịch sử SQLite dcbhyt:', e);
-    }
-  }, []);
-
   useEffect(() => {
-    loadSavedSessions();
     const initServer = async () => {
       setServerStatus('starting');
       log('Đang khởi động server XML3176...');
@@ -64,59 +37,7 @@ export function DcbhytTab() {
       }
     };
     initServer();
-  }, [loadSavedSessions]);
-
-  // Xem lại một phiên đã lưu trong SQLite
-  const handleViewSavedSession = async (s: any) => {
-    try {
-      log(`Đang tải phiên đối chiếu "${s.file_name}" từ SQLite...`);
-      const sqliteAPI = (window as any).electronAPI?.sqlite?.dcbhyt;
-      if (!sqliteAPI) return;
-      const res = await sqliteAPI.getSessionItems(s.id);
-      if (res?.ok && res.items) {
-        setActiveSessionId(s.id);
-        setMetaInfo({
-          macskcb: s.macskcb || '',
-          ngaylap: s.ngaylap || '',
-          sheet_count: 1
-        });
-        const mappedPatients = res.items.map((it: any) => ({
-          MA_LK: it.ma_lk,
-          MA_HOSO: it.ma_lk,
-          HO_TEN: it.ho_ten,
-          MA_THE_BHYT: it.ma_the,
-          NGAY_VAO: it.ngay_vao,
-          NGAY_RA: it.ngay_ra,
-          T_TONGCHI: it.tien_tong,
-          T_BHTT: it.tien_bhyt,
-        }));
-        setPatients(mappedPatients);
-        log(`✅ Đã tải ${mappedPatients.length} hồ sơ từ SQLite (Tạo lúc ${new Date(s.created_at).toLocaleString('vi-VN')})`);
-      }
-    } catch (e: any) {
-      log(`Lỗi tải phiên từ SQLite: ${e.message}`);
-    }
-  };
-
-  // Xóa một phiên đối chiếu khỏi SQLite
-  const handleDeleteSavedSession = async (e: React.MouseEvent, id: number) => {
-    e.stopPropagation();
-    if (!confirm('Bạn có chắc muốn xóa phiên đối chiếu này khỏi SQLite?')) return;
-    try {
-      const sqliteAPI = (window as any).electronAPI?.sqlite?.dcbhyt;
-      if (!sqliteAPI) return;
-      await sqliteAPI.deleteSession(id);
-      if (activeSessionId === id) {
-        setActiveSessionId(null);
-        setPatients([]);
-        setMetaInfo({ macskcb: '', ngaylap: '', sheet_count: 0 });
-      }
-      loadSavedSessions();
-      log('🗑 Đã xóa phiên đối chiếu khỏi SQLite');
-    } catch (err: any) {
-      log(`Lỗi xóa phiên: ${err.message}`);
-    }
-  };
+  }, []);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -168,42 +89,6 @@ export function DcbhytTab() {
           sheet_count: data.sheet_count
         });
         log(`Đã phân tích thành công ${pts.length} hồ sơ.`);
-
-        // ── Lưu phiên đối chiếu vào SQLite Native ──
-        const sqliteAPI = (window as any).electronAPI?.sqlite?.dcbhyt;
-        if (sqliteAPI?.saveSession) {
-          const sessionData = {
-            fileName: file.name,
-            fileSize: file.size,
-            macskcb: data.macskcb || '',
-            ngaylap: data.ngaylap || '',
-            patientCount: pts.length,
-            totalAmount: pts.reduce((acc: number, p: any) => acc + (parseFloat(p.T_TONGCHI || p.tongchi || 0)), 0),
-            bhytAmount: pts.reduce((acc: number, p: any) => acc + (parseFloat(p.T_BHTT || p.bhtt || 0)), 0),
-            status: 'COMPLETED'
-          };
-          const items = pts.map((p: any) => ({
-            maLk: p.MA_LK || p.MA_HOSO || '',
-            maBn: p.MA_BN || '',
-            hoTen: p.HO_TEN || '',
-            ngaySinh: p.NGAY_SINH || '',
-            gioiTinh: p.GIOI_TINH || '',
-            maThe: p.MA_THE_BHYT || '',
-            ngayVao: p.NGAY_VAO || '',
-            ngayRa: p.NGAY_RA || '',
-            maBenh: p.MA_BENH || '',
-            tienTong: parseFloat(p.T_TONGCHI || 0),
-            tienBhyt: parseFloat(p.T_BHTT || 0),
-            status: 'MATCHED',
-            diffDetails: ''
-          }));
-          sqliteAPI.saveSession(sessionData, items).then(() => {
-            log('💾 Đã tự động lưu kết quả đối chiếu vào SQLite an toàn!');
-            loadSavedSessions();
-          }).catch((err: any) => {
-            console.error('Lỗi lưu SQLite dcbhyt:', err);
-          });
-        }
       } else {
         log(`Lỗi phân tích: ${data.error}`);
       }
@@ -265,14 +150,8 @@ export function DcbhytTab() {
           </div>
         </div>
         
-        {/* Server Status & SQLite Badge */}
+        {/* Server Status */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {sqliteStats && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', padding: '6px 12px', background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', borderRadius: 20, fontWeight: 600 }} title="Cơ sở dữ liệu SQLite lưu trữ vĩnh viễn đợt đối chiếu">
-              <Database size={15} color="#10b981" />
-              <span>SQLite: {savedSessions.length} đợt ({sqliteStats.dbSize})</span>
-            </div>
-          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', padding: '6px 12px', background: serverStatus === 'running' ? '#dcfce7' : '#fee2e2', color: serverStatus === 'running' ? '#166534' : '#991b1b', borderRadius: 20 }}>
             {serverStatus === 'running' ? <Server size={16} /> : <AlertCircle size={16} />}
             <b>Server: {serverStatus === 'running' ? `Online (Port ${serverPort})` : serverStatus === 'starting' ? 'Đang khởi động...' : 'Offline'}</b>
@@ -280,7 +159,7 @@ export function DcbhytTab() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: '1rem', flex: 1, minHeight: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1rem', flex: 1, minHeight: 0 }}>
         {/* Main Content */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflow: 'hidden' }}>
           
@@ -303,7 +182,7 @@ export function DcbhytTab() {
             <UploadCloud size={36} color={dragActive ? pk : '#94a3b8'} />
             <div>
               <strong style={{ color: '#334155' }}>Kéo thả file XML 3176 vào đây</strong>
-              <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '3px 0 0 0' }}>hoặc click để chọn file từ máy tính (Tự động lưu vào SQLite)</p>
+              <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '3px 0 0 0' }}>hoặc click để chọn file từ máy tính (Xử lý siêu tốc trên RAM)</p>
             </div>
             {xmlFile && <div style={{ marginTop: 6, padding: '3px 10px', background: '#e0f2fe', color: '#0369a1', borderRadius: 12, fontSize: '0.82rem', fontWeight: 600 }}>{xmlFile.name}</div>}
           </div>
@@ -362,73 +241,11 @@ export function DcbhytTab() {
           </div>
         </div>
 
-        {/* Sidebar: Lịch sử SQLite + Nhật ký */}
+        {/* Sidebar: Nhật ký hệ thống */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', overflow: 'hidden' }}>
-          
-          {/* Lịch sử Đợt Đối Chiếu SQLite */}
-          <div style={{ background: 'white', padding: '0.75rem 1rem', borderRadius: 10, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 180, maxHeight: '50%', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <h3 style={{ fontSize: '0.85rem', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: 6, color: '#166534' }}>
-                <History size={15} /> Lịch sử đối chiếu (SQLite)
-              </h3>
-              <button
-                onClick={loadSavedSessions}
-                title="Làm mới"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
-              >
-                <RefreshCw size={13} />
-              </button>
-            </div>
-            
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {savedSessions.length === 0 ? (
-                <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', padding: '1rem' }}>
-                  Chưa có đợt đối chiếu nào lưu trong SQLite.
-                </div>
-              ) : (
-                savedSessions.map((s: any) => (
-                  <div
-                    key={s.id}
-                    onClick={() => handleViewSavedSession(s)}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: 6,
-                      border: activeSessionId === s.id ? '1px solid #10b981' : '1px solid #e2e8f0',
-                      background: activeSessionId === s.id ? '#f0fdf4' : '#fafafa',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 3,
-                      fontSize: '0.78rem',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontWeight: 600, color: '#1e293b' }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 190 }} title={s.file_name}>
-                        {s.file_name}
-                      </span>
-                      <button
-                        onClick={(e) => handleDeleteSavedSession(e, s.id)}
-                        title="Xóa phiên này"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2 }}
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: '0.73rem' }}>
-                      <span>{s.patient_count} hồ sơ · {new Date(s.created_at).toLocaleDateString('vi-VN')}</span>
-                      <span style={{ color: '#16a34a', fontWeight: 600 }}>{parseFloat(s.total_amount || 0).toLocaleString('vi-VN')} đ</span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Sidebar Log */}
-          <div style={{ background: 'white', padding: '0.75rem 1rem', borderRadius: 10, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 140, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <h3 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Activity size={15} /> Nhật ký hệ thống
+          <div style={{ background: 'white', padding: '0.75rem 1rem', borderRadius: 10, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 200, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <h3 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, color: '#166534' }}>
+              <Activity size={15} /> Nhật ký hệ thống & Tiến trình
             </h3>
             <div style={{ flex: 1, background: '#1e293b', color: '#f8fafc', padding: '0.75rem', borderRadius: 6, fontSize: '0.75rem', fontFamily: 'monospace', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
               {logs.length === 0 ? 'Chưa có nhật ký...' : logs.map((l, i) => <div key={i}>{l}</div>)}
