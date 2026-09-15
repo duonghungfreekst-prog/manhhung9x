@@ -24,6 +24,7 @@ import {
   exportMonthlyTimesheetExcel,
   exportDetailedPunchLogsExcel,
 } from '../utils/biometricAttendance';
+import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 
 // ── Định nghĩa kiểu dữ liệu cũ của Chấm Công Lượt Khám (HIS) ────────────────
 interface RawDoctorRow { doctor: string; datetime: Date | null; }
@@ -237,6 +238,7 @@ export function AttendanceTab() {
     const targetIp = (overrideIp || lanIp).trim();
     const targetPort = overridePort || lanPort;
     setLanLoading(true);
+    startGlobalLoading('attendance-pull', `Đang kết nối tới máy vân tay ${targetIp}:${targetPort} qua mạng LAN...`);
     setLanStatus({ ok: true, message: `Đang kết nối tới ${targetIp}:${targetPort} và tải dữ liệu chấm công...` });
     setBioError('');
     try {
@@ -287,11 +289,13 @@ export function AttendanceTab() {
       setLanStatus({ ok: false, message: e.message || 'Lỗi trong quá trình kéo dữ liệu.' });
     } finally {
       setLanLoading(false);
+      stopGlobalLoading('attendance-pull');
     }
   };
 
   const handleScanLan = async () => {
     setLanScanning(true);
+    startGlobalLoading('attendance-scan', 'Đang quét toàn bộ dải mạng LAN để tìm máy chấm công...');
     setScanResults([]);
     setLanStatus({ ok: true, message: 'Đang quét toàn bộ dải mạng LAN để tìm máy chấm công...' });
     try {
@@ -330,6 +334,7 @@ export function AttendanceTab() {
       setLanStatus({ ok: false, message: e.message || 'Lỗi khi quét mạng LAN.' });
     } finally {
       setLanScanning(false);
+      stopGlobalLoading('attendance-scan');
     }
   };
 

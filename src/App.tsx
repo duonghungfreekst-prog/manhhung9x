@@ -25,6 +25,8 @@ import { ModuleHubModal } from './components/ModuleHubModal';
 import { UpdateNotificationModal } from './components/UpdateNotificationModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { TabLoadingSkeleton } from './components/TabLoadingSkeleton';
+import { GlobalTopProgressBar, HeaderProcessingIndicator } from './components/GlobalLoadingIndicator';
+import { startGlobalLoading, stopGlobalLoading } from './utils/globalLoading';
 
 // ─── Code-Splitting Lazy Loaded Tabs (Tối ưu khởi động siêu tốc & tiết kiệm RAM) ───
 const FileReaderTab     = lazy(() => import('./components/FileReaderTab').then(m => ({ default: m.FileReaderTab })));
@@ -115,6 +117,7 @@ function App() {
 
   const handleManualCheckUpdate = async () => {
     setIsCheckingUpdate(true);
+    startGlobalLoading('app-update-check', 'Đang kiểm tra bản cập nhật mới từ GitHub...');
     try {
       const res = await checkForUpdates(CURRENT_APP_VERSION);
       setUpdateResult(res);
@@ -141,6 +144,7 @@ function App() {
       });
     } finally {
       setIsCheckingUpdate(false);
+      stopGlobalLoading('app-update-check');
     }
   };
 
@@ -325,6 +329,7 @@ function App() {
   const handleProcess = async () => {
     if (!file1 || !file2) return;
     setIsProcessing(true);
+    startGlobalLoading('app-compare', 'Đang đối chiếu dữ liệu 2 tệp tin...');
     try {
       // Chuyển File → base64
       const toB64 = async (f: File) => {
@@ -351,6 +356,7 @@ function App() {
         if (r1.data.length === 0 || r2.data.length === 0) {
           addToast({ type: 'warning', title: 'Cảnh báo', message: 'Một trong hai tệp không có dữ liệu.' });
           setIsProcessing(false);
+          stopGlobalLoading('app-compare');
           return;
         }
         setPortalCount(r1.data.length);
@@ -421,6 +427,7 @@ function App() {
       addToast({ type: 'error', title: 'Lỗi xử lý', message: String(err) || 'Không thể xử lý dữ liệu.' });
     } finally {
       setIsProcessing(false);
+      stopGlobalLoading('app-compare');
     }
   };
 
@@ -466,6 +473,9 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* ── Global Top Progress Line (Hiệu ứng lướt trên đỉnh toàn màn hình khi đang xử lý) ── */}
+      <GlobalTopProgressBar />
+
       {/* ── Menu Bar ── */}
       <nav className="menu-bar">
         <div className="menu-bar-brand" style={{ userSelect: 'none', cursor: 'pointer' }} onClick={() => setShowOemModal(true)} title="Bấm để tùy chỉnh thương hiệu phòng khám (OEM)">
@@ -610,6 +620,9 @@ function App() {
             </div>
           )}
         </div>
+
+        {/* ── Dòng Biểu Tượng & Trạng Thái Đang Xử Lý Toàn Bộ Ứng Dụng ── */}
+        <HeaderProcessingIndicator />
 
         {/* ── Cụm Bên Phải Siêu Gọn Gàng: Chỉ License Badge + Nút Menu Tiện Ích [⋮] ── */}
         <div style={{

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ShieldCheck, UploadCloud, FileSpreadsheet, Activity, Server, AlertCircle } from 'lucide-react';
+import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 
 export function DcbhytTab() {
   const [xmlFile, setXmlFile] = useState<File | null>(null);
@@ -62,6 +63,7 @@ export function DcbhytTab() {
 
   const processXml = async (file: File) => {
     setIsProcessing(true);
+    startGlobalLoading('dcbhyt-parse', `Đang phân tích dữ liệu hồ sơ XML 3176 (${file.name})...`);
     setPatients([]);
     setMetaInfo({macskcb: '', ngaylap: '', sheet_count: 0});
     log(`Bắt đầu xử lý: ${file.name}`);
@@ -96,12 +98,14 @@ export function DcbhytTab() {
       log(`Lỗi kết nối API: ${e}`);
     } finally {
       setIsProcessing(false);
+      stopGlobalLoading('dcbhyt-parse');
     }
   };
 
   const handleExportExcel = async () => {
     if (!xmlFile) return;
     setIsProcessing(true);
+    startGlobalLoading('dcbhyt-export', 'Đang tạo và kết xuất file Excel 01BH...');
     log('Đang tạo file Excel...');
     try {
       const b64 = await new Promise<string>((resolve) => {
@@ -133,6 +137,7 @@ export function DcbhytTab() {
       log(`Lỗi kết nối API: ${e}`);
     } finally {
       setIsProcessing(false);
+      stopGlobalLoading('dcbhyt-export');
     }
   };
 

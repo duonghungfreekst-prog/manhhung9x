@@ -6,6 +6,7 @@ import {
   RefreshCw, Wand2, X, ArrowRight, CheckCircle2,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -717,6 +718,7 @@ export function FileReaderTab() {
   const handleFiles = useCallback(async (rawFiles: File[]) => {
     setLoading(true);
     setError(null);
+    startGlobalLoading('file-reader', `Đang giải mã và phân tích cấu trúc ${rawFiles.length} tệp tin...`);
     try {
       const parsed = await Promise.all(rawFiles.map(parseFile));
       setFiles(prev => [...parsed, ...prev]);
@@ -724,6 +726,7 @@ export function FileReaderTab() {
       setError(`Không thể đọc file: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
+      stopGlobalLoading('file-reader');
     }
   }, []);
 

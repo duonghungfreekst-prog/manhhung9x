@@ -9,6 +9,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { Document, Packer, Paragraph, TextRun, ImageRun } from 'docx';
 import Tesseract from 'tesseract.js';
 import PdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?worker&inline';
+import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 
 // Use inline worker to bypass Electron file:// protocol CORS issues
 pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
@@ -485,29 +486,34 @@ export function ConverterTab() {
     setJobs(prev => [...newJobs, ...prev]);
 
     // Convert immediately
-    for (const job of newJobs) {
-      setJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'converting' } : j));
-      try {
-        const { blob, filename, rowCount, colCount } = await convertFile(
-          job.file,
-          job.targetFormat,
-          xmlRootTag,
-          xmlRowTag,
-          excelSheetIndex,
-          csvDelimiter
-        );
-        // Revoke old URL if exists
-        if (blobUrls.current[job.id]) URL.revokeObjectURL(blobUrls.current[job.id]);
-        const url = URL.createObjectURL(blob);
-        blobUrls.current[job.id] = url;
-        setJobs(prev => prev.map(j =>
-          j.id === job.id ? { ...j, status: 'done', downloadUrl: url, downloadName: filename, rowCount, colCount } : j
-        ));
-      } catch (err) {
-        setJobs(prev => prev.map(j =>
-          j.id === job.id ? { ...j, status: 'error', errorMsg: err instanceof Error ? err.message : String(err) } : j
-        ));
+    startGlobalLoading('converter', `Đang chuyển đổi ${newJobs.length} tệp tin sang định dạng ${targetFormat.toUpperCase()}...`);
+    try {
+      for (const job of newJobs) {
+        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'converting' } : j));
+        try {
+          const { blob, filename, rowCount, colCount } = await convertFile(
+            job.file,
+            job.targetFormat,
+            xmlRootTag,
+            xmlRowTag,
+            excelSheetIndex,
+            csvDelimiter
+          );
+          // Revoke old URL if exists
+          if (blobUrls.current[job.id]) URL.revokeObjectURL(blobUrls.current[job.id]);
+          const url = URL.createObjectURL(blob);
+          blobUrls.current[job.id] = url;
+          setJobs(prev => prev.map(j =>
+            j.id === job.id ? { ...j, status: 'done', downloadUrl: url, downloadName: filename, rowCount, colCount } : j
+          ));
+        } catch (err) {
+          setJobs(prev => prev.map(j =>
+            j.id === job.id ? { ...j, status: 'error', errorMsg: err instanceof Error ? err.message : String(err) } : j
+          ));
+        }
       }
+    } finally {
+      stopGlobalLoading('converter');
     }
   }, [targetFormat, xmlRootTag, xmlRowTag]);
 

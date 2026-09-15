@@ -194,23 +194,29 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Gỡ Bỏ Hoàn Toàn 100% SQLite Khỏi Ứng Dụng: Khắc Phục Triệt Để Tình Trạng Lag/Đơ Treo App, Tối Ưu Hóa Xử Lý In-Memory Siêu Tốc & Giải Phóng Tài Nguyên Hệ Thống
+        body: `### 🚀 DMH Tools ${tagName} - Tích Hợp Dòng Biểu Tượng & Thanh Trạng Thái Đang Xử Lý Toàn Bộ Ứng Dụng (Global Processing Indicator)
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.9.0:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.9.1:
 
-- **1. Gỡ Bỏ Triệt Để 100% SQLite & Giải Phóng Nghẽn IPC/Main Thread**:
-  + Loại bỏ hoàn toàn module SQLite đồng bộ (\`node:sqlite DatabaseSync\`) khỏi Electron Backend (\`main.cjs\`) và Preload (\`preload.cjs\`), xoá vĩnh viễn \`sqliteService.cjs\`.
-  + Khắc phục tận gốc nguyên nhân gây đơ, treo (lag) ứng dụng khi thao tác các tác vụ nặng (như kéo thả hàng trăm file XML BHYT, đối chiếu danh sách chi tiết bệnh nhân, chấm công hàng ngàn lượt quẹt thẻ).
-  + Không còn tình trạng gọi IPC đồng bộ từ React xuống Main Process làm khóa giao diện người dùng.
+- **1. Tích Hợp Dòng Biểu Tượng & Thông Báo Xử Lý Nổi Bật Tại Header (Header Processing Indicator)**:
+  + Nằm ngay tại khoảng trống trung tâm trên thanh Header chính (giữa nút "Tất cả (15)" và cụm License/Enterprise).
+  + Biểu tượng xoay tròn liên tục (\`Loader2\` animated spin) kết hợp chấm xung điện phát sáng màu xanh ngọc (Live pulse dot) báo hiệu hệ thống đang thực thi nhiệm vụ thực tế.
+  + Hiển thị trực quan thông điệp mô tả chi tiết tác vụ đang chạy trên toàn hệ thống:
+    - ⚡ *Đang quét & chẩn đoán toàn bộ lỗi máy in & mạng LAN...*
+    - 🛠️ *Đang tự động sửa tất cả lỗi máy in, Spooler & chia sẻ LAN...*
+    - 🖨️ *Đang dừng Spooler & dọn sạch toàn bộ lệnh in kẹt...*
+    - 🌐 *Đang thiết lập Cổng Local Port máy in LAN...*
+    - 🕒 *Đang kết nối tới máy vân tay & tải dữ liệu chấm công qua mạng LAN...*
+    - 📑 *Đang phân tích dữ liệu hồ sơ XML 3176...*
+    - 📊 *Đang tạo và kết xuất file Excel 01BH...*
+    - 🔄 *Đang chuyển đổi định dạng tệp tin...*
+  + Hỗ trợ quản lý đa tác vụ đồng thời: Tự động hiển thị huy hiệu đếm số lượng tác vụ và cho phép xem chi tiết từng tác vụ đang chạy ngầm.
 
-- **2. Chuyển Đổi Sang Kiến Trúc In-Memory State & LocalStorage Siêu Tốc**:
-  + **Tab Chấm Công Máy Vân Tay (AttendanceTab)**: Lưu trữ và cấu hình ca làm việc, ca kíp hàng tuần, danh sách máy chấm công LAN bằng \`localStorage\` của trình duyệt siêu nhẹ. Toàn bộ tính toán công, đi muộn về sớm, tăng ca đều xử lý trực tiếp trên RAM với độ trễ 0ms, xuất Excel bảng công và log chi tiết nhanh tức thì.
-  + **Tab Đối Chiếu 01BH QĐ 3176 (DcbhytTab)**: Dữ liệu hồ sơ khám chữa bệnh BHYT được phân tích trực tiếp trên bộ nhớ đệm, tối ưu giao diện nhật ký tiến trình sắc nét, xuất báo cáo Excel chỉ trong tích tắc mà không phụ thuộc vào database cục bộ.
-  + **Tab Đọc & Trích Xuất File (FileReaderTab)**: Tải và giải mã cấu trúc XML, CSV, Excel trực tiếp trên RAM. Kéo thả file hiển thị ngay lập tức, không còn độ trễ chờ ghi database.
+- **2. Vạch Tiến Trình Đỉnh Toàn Màn Hình (Top Indeterminate Progress Line)**:
+  + Dải gradient sóng động (\`cyan ➔ blue ➔ emerald\`) chạy lướt liên tục trên mép đỉnh cao nhất của ứng dụng khi có tác vụ bận, đảm bảo người dùng cuộn ở bất kỳ đâu cũng luôn nhận biết được trạng thái hoạt động của phần mềm, hoàn toàn triệt tiêu cảm giác app bị treo.
 
-- **3. Cải Thiện Hiệu Năng & Tối Ưu Hóa Dung Lượng**:
-  + Giảm thiểu đáng kể I/O đọc/ghi ổ cứng, giải phóng hoàn toàn rủi ro khóa file database (database is locked / busy).
-  + Tối ưu hoá bộ cài đặt Slim Installer gọn nhẹ, mở ứng dụng mượt mà trên tất cả các máy tính phòng khám cấu hình khiêm tốn.
+- **3. Kiến Trúc Quản Lý Trạng Thái Tập Trung Toàn Cầu (\`globalLoading.ts\`)**:
+  + Tự động liên kết mượt mà với toàn bộ các phân hệ chức năng: Bác Sĩ Máy In, Chấm Công Vân Tay, Đọc & Trích Xuất File, Chuyển Đổi Tài Liệu, Đối Chiếu Hồ Sơ BHYT.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

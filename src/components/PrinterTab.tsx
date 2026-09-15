@@ -5,6 +5,7 @@ import {
   ShieldAlert, Wifi, FileText, Settings, ExternalLink, Play, Star,
   AlertTriangle, CheckCircle, ShieldCheck, Zap, Network, X, Layers
 } from 'lucide-react';
+import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 
 interface PrinterInfo {
   Name: string;
@@ -361,6 +362,7 @@ export default function PrinterTab() {
     }
 
     setConnectingLocalPort(true);
+    startGlobalLoading('printer-local-port', `Đang thiết lập Cổng Local Port máy in LAN: \\\\${localPortHost.trim()}\\${localPortShare.trim()}...`);
     const targetPort = `\\\\${localPortHost.trim()}\\${localPortShare.trim()}`;
     addLog(`🚀 Đang thiết lập Cổng Local Port: ${targetPort}...`);
 
@@ -390,6 +392,7 @@ export default function PrinterTab() {
       alert(`❌ Lỗi: ${String(err)}`);
     } finally {
       setConnectingLocalPort(false);
+      stopGlobalLoading('printer-local-port');
     }
   };
   
@@ -409,6 +412,7 @@ export default function PrinterTab() {
   const loadPrinters = useCallback(async () => {
     try {
       setLoading(true);
+      startGlobalLoading('printer-scan', 'Đang quét danh sách máy in hệ thống...');
       addLog('Đang quét danh sách máy in hệ thống...');
       const output = await runPS(`Get-Printer | Select-Object Name, PrinterStatus, JobCount, DriverName, PortName | ConvertTo-Json`);
       if (output) {
@@ -424,6 +428,7 @@ export default function PrinterTab() {
       addLog('Lỗi quét máy in: ' + e);
     } finally {
       setLoading(false);
+      stopGlobalLoading('printer-scan');
     }
   }, []);
 
@@ -432,6 +437,10 @@ export default function PrinterTab() {
     try {
       setLoading(true);
       const postFix = isPostFix === true;
+      const diagMsg = postFix
+        ? 'Đang quét kiểm tra lại toàn bộ hệ thống sau sửa lỗi...'
+        : 'Đang quét & chẩn đoán toàn diện lỗi máy in, mạng LAN & dịch vụ...';
+      startGlobalLoading('printer-diag', diagMsg);
       if (postFix) {
         addLog('🔄 [TỰ ĐỘNG BÁO LẠI] Đang quét kiểm tra lại toàn bộ hệ thống sau sửa lỗi...');
       } else {
@@ -467,6 +476,7 @@ export default function PrinterTab() {
       addLog('❌ Lỗi trong quá trình chẩn đoán: ' + String(err));
     } finally {
       setLoading(false);
+      stopGlobalLoading('printer-diag');
     }
   }, [loadPrinters]);
 
@@ -492,6 +502,7 @@ export default function PrinterTab() {
     try {
       setFixingShare(true);
       setLoading(true);
+      startGlobalLoading('printer-fix-share', 'Đang khắc phục lỗi chia sẻ máy in LAN (0x00000709 / 0x0000011b)...');
       addLog('🚀 Bắt đầu khắc phục lỗi chia sẻ máy in LAN (0x00000709 / 0x0000011b)...');
       addLog('① Đang cấu hình Registry: RpcUseNamedPipeProtocol = 1...');
       addLog('② Đang cấu hình Registry: RpcAuthnLevelPrivacyEnabled = 0 & RpcAuthnLevelExemption = 1...');
@@ -530,6 +541,7 @@ export default function PrinterTab() {
     } finally {
       setFixingShare(false);
       setLoading(false);
+      stopGlobalLoading('printer-fix-share');
     }
   };
 
@@ -538,6 +550,7 @@ export default function PrinterTab() {
     try {
       setFixing0x40(true);
       setLoading(true);
+      startGlobalLoading('printer-fix-0x40', 'Đang sửa lỗi tên mạng 0x00000040 (SMB Signing & Private Network)...');
       addLog('🛠️ Đang đặc trị lỗi 0x00000040 (The specified network name is no longer available)...');
       addLog('• Tắt SMB Signing (RequireSecuritySignature) để Win 11 kết nối mượt với Win 10/7...');
       addLog('• Chuyển đổi Network Profile sang Private (Riêng tư) để tránh bị Firewall ngắt phiên...');
@@ -571,6 +584,7 @@ export default function PrinterTab() {
     } finally {
       setFixing0x40(false);
       setLoading(false);
+      stopGlobalLoading('printer-fix-0x40');
     }
   };
 
@@ -623,6 +637,7 @@ export default function PrinterTab() {
     try {
       setFixingAll(true);
       setLoading(true);
+      startGlobalLoading('printer-fix-all', 'Đang tự động sửa toàn bộ lỗi máy in, Spooler & chia sẻ LAN...');
       addLog('🚀 Bắt đầu Sửa Tự Động Toàn Bộ Lỗi Máy In...');
       const w = window as any;
       if (w.electronAPI?.printer?.fixAllIssues) {
@@ -652,6 +667,7 @@ export default function PrinterTab() {
     } finally {
       setFixingAll(false);
       setLoading(false);
+      stopGlobalLoading('printer-fix-all');
     }
   };
 
@@ -829,6 +845,7 @@ export default function PrinterTab() {
   const clearPrintQueue = async () => {
     try {
       setLoading(true);
+      startGlobalLoading('printer-clear-queue', 'Đang dừng Spooler & dọn sạch toàn bộ lệnh in kẹt...');
       addLog('Bắt đầu quy trình gỡ kẹt lệnh in toàn hệ thống...');
       
       const w = window as any;
@@ -862,6 +879,7 @@ export default function PrinterTab() {
       runPS(`Start-Service -Name Spooler`).catch(()=>{});
     } finally {
       setLoading(false);
+      stopGlobalLoading('printer-clear-queue');
     }
   };
 
