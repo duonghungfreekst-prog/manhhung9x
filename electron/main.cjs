@@ -4284,6 +4284,71 @@ function stopCompareServer() {
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
   });
 
+  // ── PRINTER SUITE: Đặc trị lỗi 0x00000040 (The specified network name is no longer available / Đứt phiên SMB) ──
+  ipcMain.handle('printer:fix-error-0x40', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+
+      # 1. Chuyển đổi toàn bộ Network Connection Profile sang Private (Riêng tư)
+      Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
+
+      # 2. Tắt SMB Signing (RequireSecuritySignature) để Win 11 kết nối mượt với Win 10/7
+      Set-SmbClientConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+      Set-SmbServerConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+
+      # 3. Chống ngắt kết nối session SMB rảnh (LanmanServer AutoDisconnect)
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "Size" /t REG_DWORD /d 3 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "IRPStackSize" /t REG_DWORD /d 30 /f | Out-Null
+
+      # 4. Cho phép Guest Authentication không mật khẩu & SPN Strict Name Checking
+      $lanman = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation"
+      if (!(Test-Path $lanman)) { New-Item -Path $lanman -Force | Out-Null }
+      Set-ItemProperty -Path $lanman -Name "AllowInsecureGuestAuth" -Value 1 -Type DWord -Force
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "DisableStrictNameChecking" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "DisableLoopbackCheck" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "LimitBlankPasswordUse" /t REG_DWORD /d 0 /f | Out-Null
+
+      # 5. Kích hoạt NetBIOS over TCP/IP trên tất cả card mạng
+      Get-WmiObject Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPEnabled } | ForEach-Object { $_.SetTcpipNetbios(1) } | Out-Null
+
+      # 6. Mở và khởi động toàn bộ dịch vụ mạng nền tảng của Windows
+      $services = @("lmhosts", "LanmanServer", "LanmanWorkstation", "FDResPub", "fdPHost", "SSDPSRV", "upnphost", "Dnscache")
+      foreach ($s in $services) {
+        Set-Service -Name $s -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service -Name $s -ErrorAction SilentlyContinue
+      }
+
+      # 7. Mở toàn diện Tường lửa cho File and Printer Sharing & Network Discovery
+      netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes | Out-Null
+      netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes | Out-Null
+
+      # 8. Làm mới bộ đệm NetBIOS và DNS
+      nbtstat -R 2>&1 | Out-Null
+      nbtstat -RR 2>&1 | Out-Null
+      ipconfig /flushdns | Out-Null
+
+      # 9. Khởi động lại Spooler
+      Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Milliseconds 600
+      Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+
+      [PSCustomObject]@{
+        ok = $true
+        success = $true
+        message = "Đã đặc trị thành công lỗi 0x00000040! Đã chuyển mạng Private, tắt SMB Signing, bật NetBIOS và phục hồi toàn bộ dịch vụ mạng LAN."
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+  });
+
   // ── PRINTER SUITE: Khắc phục lỗi chia sẻ máy in qua mạng LAN (0x00000709 / 0x0000011b) ──
   ipcMain.handle('printer:fix-share-error', async () => {
     const ps = `
@@ -4316,8 +4381,30 @@ function stopCompareServer() {
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "DisableLoopbackCheck" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
 
-      # Bước 5: Mở Tường lửa cho File and Printer Sharing
+      # Bước 4.1: Đặc trị lỗi 0x00000040 (The specified network name is no longer available / Đứt phiên SMB)
+      Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
+      Set-SmbClientConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+      Set-SmbServerConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "Size" /t REG_DWORD /d 3 /f | Out-Null
+      Get-WmiObject Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPEnabled } | ForEach-Object { $_.SetTcpipNetbios(1) } | Out-Null
+      Set-Service -Name "lmhosts" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "lmhosts" -ErrorAction SilentlyContinue
+      Set-Service -Name "LanmanWorkstation" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "LanmanWorkstation" -ErrorAction SilentlyContinue
+      Set-Service -Name "LanmanServer" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "LanmanServer" -ErrorAction SilentlyContinue
+
+      # Bước 5: Mở Tường lửa cho File and Printer Sharing & Network Discovery
       netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes | Out-Null
+      netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes | Out-Null
+      nbtstat -R 2>&1 | Out-Null
+      nbtstat -RR 2>&1 | Out-Null
+      ipconfig /flushdns | Out-Null
 
       # Bước 6: Khởi động lại dịch vụ Print Spooler
       Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
@@ -4391,18 +4478,38 @@ function stopCompareServer() {
       $portName = "${portName.replace(/\\/g, '\\\\')}"
       $pName = "${cleanPName.replace(/"/g, '`"')}"
       $dName = "${cleanDName.replace(/"/g, '`"')}"
+      $hostTarget = "${cleanHost.replace(/"/g, '`"')}"
+      $shareTarget = "${cleanShare.replace(/"/g, '`"')}"
 
-      # 1. Đăng ký Cổng Local Port trong Registry
+      # 1. Khắc phục môi trường mạng chống lỗi 0x00000040 (The specified network name is no longer available)
+      Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
+      Set-SmbClientConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "LimitBlankPasswordUse" /t REG_DWORD /d 0 /f | Out-Null
+      Set-Service -Name "lmhosts" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "lmhosts" -ErrorAction SilentlyContinue
+      Set-Service -Name "LanmanWorkstation" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "LanmanWorkstation" -ErrorAction SilentlyContinue
+
+      # 2. Lưu Credential và Mở Phiên Kết Nối SMB Vĩnh Viễn (Persistent Session) tới Máy Chủ
+      cmdkey /add:$hostTarget /user:Guest /pass:"" 2>&1 | Out-Null
+      net use "\\\\$hostTarget\\IPC$" /user:Guest "" /persistent:yes 2>&1 | Out-Null
+      net use "\\\\$hostTarget\\$shareTarget" /user:Guest "" /persistent:yes 2>&1 | Out-Null
+
+      # 3. Đăng ký Cổng Local Port trong Registry
       $portsKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Ports"
       Set-ItemProperty -Path $portsKey -Name $portName -Value "" -Type String -Force
 
-      # 2. Khởi động lại dịch vụ Print Spooler để nạp Port
+      # 4. Khởi động lại dịch vụ Print Spooler để nạp Port
       Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
       Start-Sleep -Milliseconds 600
       Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
       Start-Sleep -Milliseconds 500
 
-      # 3. Kiểm tra xem máy in đã tồn tại chưa, nếu chưa thì thêm mới, nếu có thì gán port
+      # 5. Kiểm tra xem máy in đã tồn tại chưa, nếu chưa thì thêm mới, nếu có thì gán port
       $existing = Get-Printer -Name $pName -ErrorAction SilentlyContinue
       if ($existing) {
         Set-Printer -Name $pName -PortName $portName -ErrorAction Stop
@@ -4412,12 +4519,24 @@ function stopCompareServer() {
         Set-Printer -Name $pName -WorkOffline $false -ErrorAction SilentlyContinue
       }
 
+      # 6. Kiểm tra kết nối TCP cổng 445 của máy chủ
+      $tcp445 = $false
+      try {
+        $test = Test-NetConnection -ComputerName $hostTarget -Port 445 -WarningAction SilentlyContinue
+        if ($test -and $test.TcpTestSucceeded) { $tcp445 = $true }
+      } catch {}
+
       [PSCustomObject]@{
         ok = $true
         success = $true
         portName = $portName
         printerName = $pName
-        message = "Kết nối máy in qua Local Port thành công! Máy in đã sẵn sàng để in."
+        tcp445 = $tcp445
+        message = if ($tcp445) {
+          "Kết nối máy in qua Local Port thành công! Máy chủ phản hồi tốt qua cổng 445. Máy in đã sẵn sàng để in."
+        } else {
+          "Đã cấu hình máy in [$pName] qua cổng [$portName]. Lưu ý: Cổng mạng 445 của máy chủ $hostTarget chưa phản hồi. Hãy đảm bảo máy chủ đang bật, cắm chung mạng LAN và đã bật 'Share this printer'!"
+        }
       } | ConvertTo-Json -Compress
     `;
 
@@ -5020,9 +5139,26 @@ function stopCompareServer() {
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "DisableLoopbackCheck" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
 
-      # 6. Mở Firewall File & Printer Sharing, Network Discovery
+      # 5.2 Đặc trị lỗi 0x00000040 (The specified network name is no longer available / Đứt phiên SMB giữa 2 Win)
+      Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
+      Set-SmbClientConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+      Set-SmbServerConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "Size" /t REG_DWORD /d 3 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "LimitBlankPasswordUse" /t REG_DWORD /d 0 /f | Out-Null
+      Get-WmiObject Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPEnabled } | ForEach-Object { $_.SetTcpipNetbios(1) } | Out-Null
+
+      # 6. Mở Firewall File & Printer Sharing, Network Discovery & Dịch vụ mạng
       netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes | Out-Null
       netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes | Out-Null
+      Set-Service -Name "lmhosts" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "lmhosts" -ErrorAction SilentlyContinue
+      Set-Service -Name "LanmanWorkstation" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "LanmanWorkstation" -ErrorAction SilentlyContinue
       Set-Service -Name "FDResPub" -StartupType Automatic -ErrorAction SilentlyContinue
       Start-Service -Name "FDResPub" -ErrorAction SilentlyContinue
       Set-Service -Name "fdPHost" -StartupType Automatic -ErrorAction SilentlyContinue
@@ -5033,6 +5169,9 @@ function stopCompareServer() {
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "everyoneincludesanonymous" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "RestrictAnonymous" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "RestrictAnonymousSAM" /t REG_DWORD /d 0 /f | Out-Null
+      nbtstat -R 2>&1 | Out-Null
+      nbtstat -RR 2>&1 | Out-Null
+      ipconfig /flushdns | Out-Null
 
       # 7. Tắt SNMP trên các cổng TCP/IP để hết báo Offline ảo
       Get-WmiObject -Class Win32_TCPIPPrinterPort -ErrorAction SilentlyContinue | ForEach-Object {

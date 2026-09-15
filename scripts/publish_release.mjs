@@ -194,23 +194,23 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Kiểm Thử Toàn Diện & Khắc Phục Tận Gốc Lỗi Hệ Thống
+        body: `### 🚀 DMH Tools ${tagName} - Đặc Trị Lỗi 0x00000040 (The specified network name is no longer available)
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.4:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.5:
 
-- **1. Cơ Chế Tự Động Quét Lại & Báo Cáo Kết Quả Sau Sửa (Post-Fix Auto Re-Diagnose)**:
-  + Tự động kích hoạt kiểm tra lại toàn diện hệ thống ngay sau khi thực hiện bất kỳ lệnh sửa lỗi nào (Sửa 1-Click, Sửa Chia Sẻ LAN, Spooler Crash, Point&Print, SNMP Offline, Xóa Kẹt Lệnh In).
-  + Bảng Điều Khiển Sức Khỏe Máy In (7 chỉ số trọng yếu) tự động đổi màu xanh (\`Đã Đạt Chuẩn ✅\`) ngay lập tức, người dùng nắm rõ chính xác trạng thái máy tính mà không cần thao tác thêm.
-  + Thêm nhật ký phân tích chi tiết thời gian thực: Dịch vụ Spooler, Cấu hình RPC Named Pipe, Hàng đợi Spooler, Tường lửa LAN.
+- **1. Đặc Trị Triệt Để Lỗi 0x00000040 (The specified network name is no longer available)**:
+  + **Tắt Bắt Buộc SMB Signing trên Windows 11**: Microsoft mặc định bật \`RequireSecuritySignature = 1\` trên Windows 11, dẫn đến kết nối bị ngắt ngay lập tức khi bắt tay với máy chủ Windows 10/7 chia sẻ máy in $\\rightarrow$ Công cụ tự động tắt cơ chế này để 2 bản Win kết nối mượt mà 100%.
+  + **Tự Động Chuyển Network Profile Sang Private**: Khắc phục tình trạng Windows nhận nhầm mạng Public khiến Firewall tự động drop các gói tin NetBIOS/SMB chia sẻ máy in.
+  + **Chống Đứt Phiên Kết Nối SMB (AutoDisconnect)**: Thiết lập thời gian timeout của LanmanServer lên vô cực, tránh việc sau vài phút không in thì Windows tự động hủy phiên kết nối.
+  + **Bổ Sung Thẻ Chuyên Trị & Nút Bấm 1-Click**: Bổ sung nút **"⚡ Sửa Lỗi 0x00000040"** ngay trên giao diện Khối 1 Máy In và trong Modal Kết Nối Local Port.
 
-- **2. Khắc Phục Tận Gốc Lỗi Chia Sẻ Mạng LAN 0x00000709, 0x0000011b & 0x00000bcb Giữa 2 Win Khác Nhau**:
-  + Đồng bộ toàn diện 12 khóa Registry chuẩn kỹ thuật máy in trên toàn bộ ứng dụng (cả Tab Máy In và Tab Quản Trị PC Mạng LAN).
-  + Bổ sung cơ chế giải phóng tiến trình treo \`splwow64\` và phân quyền tự phục hồi dịch vụ Spooler.
-  + Giữ vững công cụ **Kết Nối Máy In Qua Local Port Chống 0x709 Siêu Tốc 100%** giúp máy khách Windows 11 kết nối máy in trên máy chủ Windows 10/7 mượt mà không cần thông qua RPC.
+- **2. Nâng Cấp Công Cụ Kết Nối Máy In Qua Local Port Chống Đứt Mạng**:
+  + Tự động lưu thông tin xác thực Windows Credential (\`cmdkey\`) và mở sẵn phiên SMB vĩnh viễn (\`net use \\\\IP\\IPC$\`) trước khi gán máy in.
+  + Tự động kiểm tra cổng mạng 445 của máy chủ và đưa ra cảnh báo chi tiết, hướng dẫn kỹ thuật viên chính xác cách xử lý trên máy chủ cắm máy in.
 
-- **3. Kiểm Thử & Tối Ưu Toàn Diện Full App**:
-  + Tối ưu độ nhạy và tính đồng bộ giữa các tiến trình hệ thống, đảm bảo không có tác vụ chạy ngầm treo vô tận.
-  + Đảm bảo kết quả trả về minh bạch, chuẩn xác 100% trên cả Windows 10 và Windows 11.
+- **3. Kế Thừa Toàn Bộ Cơ Chế v6.8.4**:
+  + Tự động quét lại và cập nhật Bảng Điều Khiển Sức Khỏe Máy In (7 chỉ số trọng yếu) sang màu xanh ngay sau khi sửa.
+  + Khắc phục triệt để lỗi 0x00000709, 0x0000011b, 0x00000bcb giữa 2 máy khác Win.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

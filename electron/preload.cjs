@@ -187,6 +187,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Printer Repair & LAN Share Suite ──────────────────────────────────────
   printer: {
     fixShareError:     () => ipcRenderer.invoke('printer:fix-share-error'),
+    fixError0x40:      () => ipcRenderer.invoke('printer:fix-error-0x40'),
     getShareRpcStatus: () => ipcRenderer.invoke('printer:get-share-rpc-status'),
     restartSpooler:    () => ipcRenderer.invoke('printer:restart-spooler'),
     restartPc:         () => ipcRenderer.invoke('printer:restart-pc'),

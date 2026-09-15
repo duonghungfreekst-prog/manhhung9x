@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.8.4",
-  "description": "DMH_Tools v6.8.4 - Kiểm Thử & Khắc Phục Tận Gốc Lỗi Toàn Ứng Dụng: Tự Động Quét Lại & Báo Cáo Kết Quả Sau Sửa (Post-Fix Verification), Đồng Bộ Toàn Diện Bộ Sửa Lỗi Máy In & Mạng LAN 0x709/0x11b/0xbcb",
+  "version": "6.8.5",
+  "description": "DMH_Tools v6.8.5 - Đặc Trị Lỗi 0x00000040 (The specified network name is no longer available): Tắt Bắt Buộc SMB Signing Windows 11, Chuyển Mạng Private, Duy Trì Phiên SMB Vĩnh Viễn & Chống Đứt Chia Sẻ Mạng Giữa 2 Bản Win Khác Nhau",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

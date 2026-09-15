@@ -83,7 +83,7 @@ export function setDismissedVersion(version: string): void {
 }
 
 declare const __APP_VERSION__: string | undefined;
-export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '6.8.4';
+export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '6.8.5';
 
 /**
  * Gọi GitHub Releases API để kiểm tra phiên bản mới nhất

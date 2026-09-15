@@ -309,6 +309,7 @@ export default function PrinterTab() {
   // State quản lý sửa lỗi chia sẻ máy in qua mạng LAN (RPC Named Pipe 0x00000709 / 0x0000011b)
   const [shareRpcStatus, setShareRpcStatus] = useState<{ isFixed: boolean; rpcUseNamedPipe?: number; rpcAuthnLevelPrivacy?: number; spoolerStatus?: string } | null>(null);
   const [fixingShare, setFixingShare] = useState(false);
+  const [fixing0x40, setFixing0x40] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [showCmdDetails, setShowCmdDetails] = useState(false);
 
@@ -519,6 +520,47 @@ export default function PrinterTab() {
       addLog('❌ Lỗi xử lý: ' + String(err));
     } finally {
       setFixingShare(false);
+      setLoading(false);
+    }
+  };
+
+  // ── Đặc trị lỗi 0x00000040: The specified network name is no longer available ────────
+  const fixError0x40 = async () => {
+    try {
+      setFixing0x40(true);
+      setLoading(true);
+      addLog('🛠️ Đang đặc trị lỗi 0x00000040 (The specified network name is no longer available)...');
+      addLog('• Tắt SMB Signing (RequireSecuritySignature) để Win 11 kết nối mượt với Win 10/7...');
+      addLog('• Chuyển đổi Network Profile sang Private (Riêng tư) để tránh bị Firewall ngắt phiên...');
+      addLog('• Tắt timeout ngắt kết nối session SMB (AutoDisconnect)...');
+      addLog('• Kích hoạt NetBIOS over TCP/IP và khởi động toàn bộ dịch vụ mạng LAN...');
+      const w = window as any;
+      if (w.electronAPI?.printer?.fixError0x40) {
+        const res = await w.electronAPI.printer.fixError0x40();
+        if (res?.ok && res?.success) {
+          addLog('✅ ' + (res.message || 'Đã khắc phục lỗi 0x00000040 thành công!'));
+          alert('🎉 ĐÃ KHẮC PHỤC THÀNH CÔNG LỖI 0x00000040!\n\n• Đã tắt SMB Signing bắt buộc của Windows 11.\n• Đã chuyển mạng sang Private Network.\n• Đã bật NetBIOS và phục hồi toàn bộ dịch vụ chia sẻ LAN.\n\n👉 Bạn hãy thử in lại trang thử (Print Test Page) hoặc kết nối lại máy in!');
+        } else {
+          addLog('⚠️ ' + (res?.message || res?.error || 'Không thể áp dụng cấu hình'));
+        }
+      } else {
+        await runPS(`
+          Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
+          Set-SmbClientConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+          reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f
+          reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f
+          reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f
+          Restart-Service -Name Spooler -Force
+        `);
+        addLog('✅ Đã thực thi lệnh cấu hình sửa lỗi 0x00000040 qua PowerShell.');
+      }
+      await checkShareRpcStatus();
+      await diagnoseAllPrinters(true);
+      await loadPrinters();
+    } catch (err: unknown) {
+      addLog('❌ Lỗi xử lý: ' + String(err));
+    } finally {
+      setFixing0x40(false);
       setLoading(false);
     }
   };
@@ -1494,7 +1536,7 @@ export default function PrinterTab() {
               )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 8 }}>
               {/* Thẻ 1: Lỗi 0x00000709 / 0x0000011b */}
               <div style={{ background: '#f8faff', border: '1px solid #e0e7ff', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
@@ -1542,7 +1584,28 @@ export default function PrinterTab() {
                 </div>
               </div>
 
-              {/* Thẻ 2: Lỗi 0x00000bcb / Point & Print */}
+              {/* Thẻ 2: Lỗi 0x00000040 / Network Name No Longer Available */}
+              <div style={{ background: '#fffbeb', border: '1px solid #fed7aa', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#9a3412', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <AlertTriangle size={14} color="#ea580c" /> Lỗi 0x00000040 (Tên Mạng)
+                  </div>
+                  <p style={{ fontSize: '0.7rem', color: '#7c2d12', margin: '4px 0 8px 0', lineHeight: 1.4 }}>
+                    Đặc trị lỗi <em>"The specified network name is no longer available"</em> do SMB Signing Win 11 hoặc mạng Public.
+                  </p>
+                </div>
+                <button
+                  onClick={fixError0x40}
+                  disabled={loading || fixing0x40}
+                  style={{ background: '#ea580c', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                  title="Tắt SMB Signing, chuyển mạng Private, bật NetBIOS và phục hồi các dịch vụ mạng LAN"
+                >
+                  <Zap size={12} className={fixing0x40 ? 'spin' : ''} />
+                  {fixing0x40 ? 'Đang sửa...' : '⚡ Sửa Lỗi 0x00000040'}
+                </button>
+              </div>
+
+              {/* Thẻ 3: Lỗi 0x00000bcb / Point & Print */}
               <div style={{ background: '#f8faff', border: '1px solid #e0e7ff', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#1e1b4b', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1561,7 +1624,7 @@ export default function PrinterTab() {
                 </button>
               </div>
 
-              {/* Thẻ 3: Mở Tường Lửa & Tắt Đòi Pass */}
+              {/* Thẻ 4: Mở Tường Lửa & Tắt Đòi Pass */}
               <div style={{ background: '#f8faff', border: '1px solid #e0e7ff', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#1e1b4b', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1584,12 +1647,13 @@ export default function PrinterTab() {
             {/* Banner hướng dẫn sống còn khi 2 Win khác nhau */}
             <div style={{ marginTop: '0.65rem', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '0.6rem 0.8rem', fontSize: '0.72rem', color: '#92400e', lineHeight: 1.45 }}>
               <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, color: '#b45309', marginBottom: 3 }}>
-                <AlertTriangle size={13} /> Lưu ý quan trọng khi bị lỗi 0x00000709 giữa 2 máy khác Win (Win 11 & Win 10):
+                <AlertTriangle size={13} /> Lưu ý quan trọng khi bị lỗi 0x00000709 hoặc 0x00000040 giữa 2 máy khác Win (Win 11 & Win 10/7):
               </div>
               <div style={{ paddingLeft: '0.5rem' }}>
-                • <strong>Bước 1:</strong> Bấm <strong>⚡ Sửa Tự Động 1-Click</strong> trên <u>CẢ 2 MÁY</u> (Cả Máy Chủ cắm máy in và Máy Khách cần in), sau đó Restart máy.<br />
-                • <strong>Bước 2:</strong> Trên máy chủ, đổi tên chia sẻ (Share Name) thành tên <strong>viết liền không dấu cách</strong> (ví dụ đặt <code>LQ310</code> thay vì <code>epson lq-310 escp2</code>).<br />
-                • <strong>Bước 3 (Đặc trị 100%):</strong> Nếu Windows 11 vẫn chặn kéo driver, bấm nút <strong>[ 🌐 Kết Nối Bằng Local Port ]</strong> để in thông suốt vĩnh viễn không bao giờ bị 0x709!
+                • <strong>Khi bị lỗi 0x00000040 ("The specified network name is no longer available"):</strong> Bấm ngay nút <strong>⚡ Sửa Lỗi 0x00000040</strong> để tắt SMB Signing bắt buộc của Windows 11 và chuyển sang Private Network.<br />
+                • <strong>Khi bị lỗi 0x00000709 / 0x11b:</strong> Bấm <strong>⚡ Sửa Tự Động 1-Click</strong> trên <u>CẢ 2 MÁY</u> (Cả Máy Chủ cắm máy in và Máy Khách cần in), sau đó Restart máy.<br />
+                • <strong>Trên máy chủ cắm máy in:</strong> Đổi tên chia sẻ (Share Name) thành tên <strong>viết liền không dấu cách</strong> (ví dụ đặt <code>LQ310</code> hoặc <code>Canon2900</code>).<br />
+                • <strong>Vũ khí tối thượng:</strong> Bấm nút <strong>[ 🌐 Kết Nối Bằng Local Port ]</strong> để tạo cổng in nội bộ qua mạng, in mượt mà 100% không qua RPC Spooler từ xa!
               </div>
             </div>
 
@@ -2023,25 +2087,43 @@ export default function PrinterTab() {
                 />
               </div>
 
+              <div style={{ background: '#fffbeb', border: '1px solid #fed7aa', borderRadius: 6, padding: '0.65rem 0.8rem', fontSize: '0.71rem', color: '#9a3412', lineHeight: 1.45 }}>
+                <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+                  <AlertTriangle size={13} color="#ea580c" /> Tránh lỗi 0x00000040 ("The specified network name is no longer available"):
+                </div>
+                • Tên chia sẻ trên máy chủ phải chính xác 100% (nên viết liền không dấu, ví dụ: <code>LQ310</code> thay vì tên dài).<br />
+                • Hệ thống tự động cấu hình Private Network và mở phiên SMB vĩnh viễn để chống đứt kết nối mạng giữa Win 11 và Win 10/7.
+              </div>
+
             </div>
 
             {/* Footer */}
-            <div style={{ padding: '0.85rem 1.25rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <div style={{ padding: '0.85rem 1.25rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <button
-                onClick={() => setShowLocalPortModal(false)}
-                disabled={connectingLocalPort}
-                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+                onClick={fixError0x40}
+                disabled={loading || fixing0x40}
+                style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #fed7aa', background: '#fff7ed', color: '#ea580c', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                title="Bấm nút này nếu gặp lỗi 0x00000040 (The specified network name is no longer available)"
               >
-                Hủy Bỏ
+                <Zap size={11} className={fixing0x40 ? 'spin' : ''} /> Sửa Lỗi 0x00000040
               </button>
-              <button
-                onClick={handleConnectLocalPort}
-                disabled={connectingLocalPort}
-                style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: '#059669', color: '#fff', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <Network size={14} className={connectingLocalPort ? 'spin' : ''} />
-                {connectingLocalPort ? 'Đang tạo cổng...' : '⚡ Tạo Cổng & Kết Nối Ngay'}
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => setShowLocalPortModal(false)}
+                  disabled={connectingLocalPort}
+                  style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  onClick={handleConnectLocalPort}
+                  disabled={connectingLocalPort}
+                  style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: '#059669', color: '#fff', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Network size={14} className={connectingLocalPort ? 'spin' : ''} />
+                  {connectingLocalPort ? 'Đang tạo cổng...' : '⚡ Tạo Cổng & Kết Nối Ngay'}
+                </button>
+              </div>
             </div>
 
           </div>
