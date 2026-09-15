@@ -83,7 +83,7 @@ export function setDismissedVersion(version: string): void {
 }
 
 declare const __APP_VERSION__: string | undefined;
-export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '6.6.9';
+export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '6.8.0';
 
 /**
  * Gọi GitHub Releases API để kiểm tra phiên bản mới nhất
@@ -94,7 +94,17 @@ export async function checkForUpdates(
 ): Promise<UpdateCheckResult> {
   const repo = (customRepo || getSavedGithubRepo()).trim().replace(/^https?:\/\/github\.com\//, '');
 
+  let latestVer = '';
+  let latestTag = '';
+  let releaseName = '';
+  let releaseNotes = '';
+  let publishedAt = '';
+  let releaseHtmlUrl = `https://github.com/${repo}/releases/latest`;
+  let assets: ReleaseAsset[] = [];
+  let installerAsset: ReleaseAsset | undefined = undefined;
+
   try {
+    // Tầng 1: Thử truy vấn qua GitHub REST API
     const apiUrl = `https://api.github.com/repos/${repo}/releases/latest`;
     const response = await fetch(apiUrl, {
       headers: {
@@ -115,54 +125,87 @@ export async function checkForUpdates(
       };
     }
 
-    if (!response.ok) {
-      throw new Error(`GitHub API phản hồi mã lỗi: ${response.status} ${response.statusText}`);
-    }
+    if (response.ok) {
+      const data = await response.json();
+      latestTag = (data.tag_name || '').trim();
+      latestVer = latestTag.replace(/^v/i, '');
+      releaseName = data.name || `Phiên bản v${latestVer}`;
+      releaseNotes = data.body || 'Bản cập nhật nâng cao hiệu năng và tối ưu nghiệp vụ.';
+      publishedAt = data.published_at ? new Date(data.published_at).toLocaleDateString('vi-VN') : '';
+      releaseHtmlUrl = data.html_url || `https://github.com/${repo}/releases/latest`;
 
-    const data = await response.json();
-    const latestTag = (data.tag_name || '').trim();
-    const latestVer = latestTag.replace(/^v/i, '');
-
-    const hasUpdate = compareVersions(latestVer, currentVersion) > 0;
-
-    const assets: ReleaseAsset[] = Array.isArray(data.assets)
-      ? data.assets.map((a: any) => ({
+      if (Array.isArray(data.assets)) {
+        assets = data.assets.map((a: any) => ({
           id: a.id,
           name: a.name,
           size: a.size || 0,
           downloadUrl: a.browser_download_url,
           contentType: a.content_type,
-        }))
-      : [];
+        }));
+        installerAsset = assets.find(
+          a => a.name.toLowerCase().endsWith('.exe') || a.name.toLowerCase().includes('setup')
+        );
+      }
+    } else {
+      throw new Error(`GitHub API trả về mã: ${response.status}`);
+    }
+  } catch (apiErr: any) {
+    console.warn('[UPDATE_CHECK_API_WARN] Chuyển sang kênh dự phòng trực tiếp:', apiErr.message);
 
-    // Tìm tệp bộ cài đặt (exe hoặc setup)
-    const installerAsset = assets.find(
-      a => a.name.toLowerCase().endsWith('.exe') || a.name.toLowerCase().includes('setup')
-    );
+    // Tầng 2: Dự phòng chống lỗi 403 Rate Limit hoặc lỗi API bằng cách lấy redirect URL trực tiếp
+    try {
+      const checkUrl = `https://github.com/${repo}/releases/latest`;
+      const redRes = await fetch(checkUrl, { method: 'HEAD', redirect: 'follow' });
+      const finalUrl = redRes.url || '';
+      const match = finalUrl.match(/releases\/tag\/(v?[\d.]+)/i);
 
-    return {
-      hasUpdate,
-      currentVersion,
-      latestVersion: latestVer || currentVersion,
-      releaseName: data.name || `Phiên bản v${latestVer}`,
-      releaseNotes: data.body || 'Bản cập nhật nâng cao hiệu năng và tối ưu nghiệp vụ y tế.',
-      publishedAt: data.published_at ? new Date(data.published_at).toLocaleDateString('vi-VN') : '',
-      releaseHtmlUrl: data.html_url || `https://github.com/${repo}/releases/latest`,
-      installerAsset,
-      assets,
-    };
-  } catch (error: any) {
-    console.warn('[UPDATE_CHECK_ERR]', error);
-    return {
-      hasUpdate: false,
-      currentVersion,
-      latestVersion: currentVersion,
-      releaseName: '',
-      releaseNotes: '',
-      publishedAt: '',
-      releaseHtmlUrl: `https://github.com/${repo}`,
-      assets: [],
-      error: error.message || 'Không thể kết nối đến máy chủ GitHub để kiểm tra bản mới',
-    };
+      if (match) {
+        latestTag = match[1];
+        latestVer = latestTag.replace(/^v/i, '');
+        releaseName = `DMH Tools v${latestVer} Commercial Suite`;
+        releaseNotes = 'Bản cập nhật mới nhất từ nhà phát triển. Sửa lỗi và bổ sung tính năng.';
+        releaseHtmlUrl = finalUrl;
+
+        const defaultExeName = `DMH_Tools_Setup_${latestVer}_Slim.exe`;
+        const directDownloadUrl = `https://github.com/${repo}/releases/download/${latestTag.startsWith('v') ? latestTag : 'v' + latestTag}/${defaultExeName}`;
+        installerAsset = {
+          id: 1,
+          name: defaultExeName,
+          size: 140 * 1024 * 1024,
+          downloadUrl: directDownloadUrl,
+          contentType: 'application/vnd.microsoft.portable-executable',
+        };
+        assets = [installerAsset];
+      } else {
+        throw new Error('Không thể phân giải phiên bản từ GitHub');
+      }
+    } catch (fallbackErr: any) {
+      console.error('[UPDATE_CHECK_ERR]', fallbackErr);
+      return {
+        hasUpdate: false,
+        currentVersion,
+        latestVersion: currentVersion,
+        releaseName: '',
+        releaseNotes: '',
+        publishedAt: '',
+        releaseHtmlUrl: `https://github.com/${repo}`,
+        assets: [],
+        error: `Lỗi kết nối GitHub: ${apiErr.message || fallbackErr.message}`,
+      };
+    }
   }
+
+  const hasUpdate = compareVersions(latestVer, currentVersion) > 0;
+
+  return {
+    hasUpdate,
+    currentVersion,
+    latestVersion: latestVer || currentVersion,
+    releaseName: releaseName || `Phiên bản v${latestVer}`,
+    releaseNotes: releaseNotes || 'Bản cập nhật nâng cao hiệu năng và tối ưu nghiệp vụ.',
+    publishedAt,
+    releaseHtmlUrl,
+    installerAsset,
+    assets,
+  };
 }

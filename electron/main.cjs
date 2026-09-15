@@ -12,6 +12,14 @@ const sqliteService = require('./sqliteService.cjs');
 
 const isDev = !app.isPackaged;
 
+// ── Global Crash Guard: Chống văng tiến trình khi có lỗi mạng/stream ─────────
+process.on('uncaughtException', (err) => {
+  console.error('[CRASH_GUARD] Đã bắt uncaughtException:', err?.message || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[CRASH_GUARD] Đã bắt unhandledRejection:', reason);
+});
+
 // ── Single Instance Lock: Tránh chạy đè nhiều tiến trình ────────────────────
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -69,11 +77,22 @@ function resolveAssetPath(relPath) {
 
 function downloadFileWithRedirect(targetUrl, destPath, onProgress) {
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destPath);
     let handled = false;
+    let file = null;
+
+    const cleanup = () => {
+      if (file) {
+        try { file.destroy(); } catch {}
+        file = null;
+      }
+      try {
+        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+      } catch {}
+    };
 
     const makeReq = (curUrl, redirects = 0) => {
       if (redirects > 10) {
+        cleanup();
         if (!handled) { handled = true; reject(new Error('Chuyển hướng (Redirect) quá 10 lần')); }
         return;
       }
@@ -82,6 +101,7 @@ function downloadFileWithRedirect(targetUrl, destPath, onProgress) {
       try {
         parsed = new URL(curUrl);
       } catch (e) {
+        cleanup();
         if (!handled) { handled = true; reject(new Error('URL không hợp lệ: ' + curUrl)); }
         return;
       }
@@ -99,25 +119,49 @@ function downloadFileWithRedirect(targetUrl, destPath, onProgress) {
           if (!nextUrl.startsWith('http://') && !nextUrl.startsWith('https://')) {
             nextUrl = new URL(nextUrl, curUrl).toString();
           }
+          res.resume(); // Giải phóng socket cũ
           return makeReq(nextUrl, redirects + 1);
         }
 
         if (res.statusCode !== 200) {
-          file.close();
-          try { fs.unlinkSync(destPath); } catch {}
+          cleanup();
+          res.resume();
           if (!handled) { handled = true; reject(new Error(`Tải tệp thất bại. Mã HTTP: ${res.statusCode}`)); }
           return;
         }
 
         const totalBytes = parseInt(res.headers['content-length'] || '0', 10);
         let downloadedBytes = 0;
+        let lastEmitTime = 0;
+        let lastPercent = -1;
+
+        // Chỉ tạo WriteStream khi nhận phản hồi 200 OK thành công
+        file = fs.createWriteStream(destPath);
 
         res.on('data', (chunk) => {
+          // Reset lại inactivity timeout mỗi khi có chunk dữ liệu tải về
+          req.setTimeout(120000);
           downloadedBytes += chunk.length;
-          if (onProgress) {
-            const percent = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
-            onProgress({ downloadedBytes, totalBytes, percent });
+          const percent = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
+          const now = Date.now();
+
+          // Chống nghẽn IPC: Chỉ phát progress tối đa 4 lần/giây hoặc khi đổi số % hoặc khi xong
+          if (onProgress && (now - lastEmitTime >= 250 || percent !== lastPercent || downloadedBytes >= totalBytes)) {
+            lastEmitTime = now;
+            lastPercent = percent;
+            try {
+              onProgress({ downloadedBytes, totalBytes, percent });
+            } catch (pErr) {
+              console.warn('[DOWNLOAD_PROGRESS_CB_WARN]', pErr);
+            }
           }
+        });
+
+        // BẮT BUỘC: Lắng nghe lỗi trên res stream để ngăn unhandled error làm sập Node/Electron
+        res.on('error', (err) => {
+          console.error('[DOWNLOAD_RES_STREAM_ERR]', err);
+          cleanup();
+          if (!handled) { handled = true; reject(err); }
         });
 
         res.pipe(file);
@@ -129,15 +173,21 @@ function downloadFileWithRedirect(targetUrl, destPath, onProgress) {
         });
 
         file.on('error', (err) => {
-          file.close();
-          try { fs.unlinkSync(destPath); } catch {}
+          console.error('[DOWNLOAD_FILE_WRITE_ERR]', err);
+          cleanup();
           if (!handled) { handled = true; reject(err); }
         });
       });
 
+      // Socket timeout 120s cho file dung lượng lớn
+      req.setTimeout(120000, () => {
+        console.warn('[DOWNLOAD_TIMEOUT] Quá thời gian chờ truyền dữ liệu (120s)');
+        req.destroy(new Error('Quá thời gian kết nối (Timeout 120s)'));
+      });
+
       req.on('error', (err) => {
-        file.close();
-        try { fs.unlinkSync(destPath); } catch {}
+        console.error('[DOWNLOAD_REQ_ERR]', err);
+        cleanup();
         if (!handled) { handled = true; reject(err); }
       });
     };
@@ -524,9 +574,9 @@ function createWindow() {
     title: 'DMH_Tools',
     icon: isDev ? path.join(__dirname, '../public/icon.png') : path.join(__dirname, '../dist/icon.png'),
     webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
+      contextIsolation: true,   // Bảo vệ context renderer vs preload
+      nodeIntegration: false,   // Bảo mật: không cho renderer dùng Node API trực tiếp
+      sandbox: false,           // PHẢI false để preload.cjs có thể dùng require('electron')
       preload: path.join(__dirname, 'preload.cjs'),
     },
     backgroundColor: '#f0fdf4',
@@ -630,6 +680,8 @@ function createWindow() {
 // ── App ready ─────────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  // Tạo cửa sổ chính ngay lập tức để người dùng thấy giao diện mượt mà
+  createWindow();
 
   // ── IPC: PDF convert ───────────────────────────────────────────────────────
   ipcMain.handle('convert-pdf', async (_event, inputPath) => {
@@ -915,8 +967,20 @@ function stopCompareServer() {
   let _cachedHwid = null;
   async function getSystemHwid() {
     if (_cachedHwid) return _cachedHwid;
+
+    // Thử đọc từ Registry trước nếu đã từng lưu
     try {
-      const { execFile } = require('child_process');
+      const { execSync } = require('child_process');
+      const regOut = execSync('reg query "HKCU\\Software\\DMH_Tools\\License" /v "HardwareID"', { stdio: ['pipe', 'pipe', 'ignore'], timeout: 2000 }).toString();
+      const m = regOut.match(/HardwareID\s+REG_SZ\s+(.*)/i);
+      if (m && m[1] && m[1].trim().length >= 16) {
+        _cachedHwid = m[1].trim().toUpperCase();
+        return _cachedHwid;
+      }
+    } catch {}
+
+    try {
+      const { execFile, execSync } = require('child_process');
       const script = `
         $board = (Get-CimInstance Win32_BaseBoard).SerialNumber
         $cpu = (Get-CimInstance Win32_Processor).ProcessorId
@@ -925,7 +989,7 @@ function stopCompareServer() {
       `;
       const result = await new Promise((resolve, reject) => {
         execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
-          { timeout: 5000, encoding: 'utf8' },
+          { timeout: 12000, encoding: 'utf8' },
           (err, stdout) => {
             if (err) return reject(err);
             resolve(stdout.trim());
@@ -933,10 +997,19 @@ function stopCompareServer() {
         );
       });
       _cachedHwid = crypto.createHash('sha256').update(result).digest('hex').substring(0, 32).toUpperCase();
+
+      // Lưu đệm vào Registry để máy lag lúc khởi động sau này không bao giờ bị timeout
+      try {
+        execSync(`reg add "HKCU\\Software\\DMH_Tools\\License" /v "HardwareID" /t REG_SZ /d "${_cachedHwid}" /f`, { stdio: 'ignore' });
+      } catch {}
+
       return _cachedHwid;
     } catch (e) {
-      console.error('[HWID] Lỗi đọc phần cứng:', e);
-      return 'UNKNOWN-HWID-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+      console.error('[HWID] Lỗi đọc phần cứng qua PowerShell:', e.message);
+      // Nếu có lỗi, thử dùng fallback cố định theo username + hostname thay vì random để không mất key
+      const fallbackSeed = `${os.hostname()}-${os.userInfo().username}-${os.arch()}`;
+      _cachedHwid = crypto.createHash('sha256').update(fallbackSeed).digest('hex').substring(0, 32).toUpperCase();
+      return _cachedHwid;
     }
   }
 
@@ -968,6 +1041,42 @@ function stopCompareServer() {
       return licenseVault.getAppInstanceId(app.getPath('userData'));
     } catch (e) {
       return 'UNKNOWN-INSTANCE';
+    }
+  });
+
+  ipcMain.handle('license:save-backup-key', async (_event, rawKey) => {
+    try {
+      licenseVault.saveBackupKey(rawKey);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('license:get-backup-key', async () => {
+    try {
+      const key = licenseVault.getBackupKey();
+      return { ok: true, key };
+    } catch (e) {
+      return { ok: false, error: e.message, key: null };
+    }
+  });
+
+  ipcMain.handle('license:clear-backup-key', async () => {
+    try {
+      licenseVault.clearBackupKey();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('license:clean-revoked-key', async (_event, rawKey) => {
+    try {
+      licenseVault.cleanRevokedKey(rawKey);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
     }
   });
 
@@ -2304,88 +2413,343 @@ function stopCompareServer() {
     }
   });
 
-  // 5. Áp dụng tinh chỉnh hệ thống (Tweaks)
-  ipcMain.handle('pctools:apply-tweak', async (_event, tweakId) => {
-    let script = '';
-    if (tweakId === 'disable-telemetry') {
-      script = `
+  // ── Từ điển Tinh Chỉnh Hệ Thống Windows (DMH Windows 1-Click Optimizer) ──
+  const TWEAK_SCRIPTS = {
+    'thispc-desktop': {
+      name: 'Hiện biểu tượng This PC ra Desktop',
+      needRestartExplorer: true,
+      script: `
+        $k1 = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel"
+        if (-not (Test-Path $k1)) { New-Item -Path $k1 -Force | Out-Null }
+        Set-ItemProperty -Path $k1 -Name "{20D04FE0-3AEA-1069-A2D8-08002B30309D}" -Value 0 -Type DWord -Force
+        $k2 = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\ClassicStartMenu"
+        if (-not (Test-Path $k2)) { New-Item -Path $k2 -Force | Out-Null }
+        Set-ItemProperty -Path $k2 -Name "{20D04FE0-3AEA-1069-A2D8-08002B30309D}" -Value 0 -Type DWord -Force
+      `
+    },
+    'show-file-ext': {
+      name: 'Hiện phần mở rộng file (đuôi .exe, .docx...)',
+      needRestartExplorer: true,
+      script: `
+        $adv = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced"
+        Set-ItemProperty -Path $adv -Name "HideFileExt" -Value 0 -Type DWord -Force
+      `
+    },
+    'show-hidden-files': {
+      name: 'Hiện tệp và thư mục ẩn',
+      needRestartExplorer: true,
+      script: `
+        $adv = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced"
+        Set-ItemProperty -Path $adv -Name "Hidden" -Value 1 -Type DWord -Force
+      `
+    },
+    'numlock-startup': {
+      name: 'Tự động bật NumLock khi khởi động',
+      script: `
+        Set-ItemProperty -Path "HKU:\\.DEFAULT\\Control Panel\\Keyboard" -Name "InitialKeyboardIndicators" -Value "2" -Force
+        Set-ItemProperty -Path "HKCU:\\Control Panel\\Keyboard" -Name "InitialKeyboardIndicators" -Value "2" -Force
+      `
+    },
+    'classic-context-win11': {
+      name: 'Khôi phục menu chuột phải cổ điển Win 10 trên Windows 11',
+      needRestartExplorer: true,
+      script: `
+        $clsid = "HKCU:\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32"
+        if (-not (Test-Path $clsid)) { New-Item -Path $clsid -Force | Out-Null }
+        Set-ItemProperty -Path $clsid -Name "(default)" -Value "" -Force
+      `
+    },
+    'add-take-ownership': {
+      name: 'Thêm Take Ownership (Chiếm quyền Admin) vào menu chuột phải',
+      script: `
+        $cmdF = 'cmd.exe /c takeown /f "%1" && icacls "%1" /grant administrators:F'
+        $cmdD = 'cmd.exe /c takeown /f "%1" /r /d y && icacls "%1" /grant administrators:F /t'
+        New-Item -Path "HKCR:\\*\\shell\\TakeOwnership" -Value "Take Ownership" -Force | Out-Null
+        Set-ItemProperty -Path "HKCR:\\*\\shell\\TakeOwnership" -Name "NoWorkingDirectory" -Value "" -Force
+        New-Item -Path "HKCR:\\*\\shell\\TakeOwnership\\command" -Value $cmdF -Force | Out-Null
+        New-Item -Path "HKCR:\\Directory\\shell\\TakeOwnership" -Value "Take Ownership" -Force | Out-Null
+        Set-ItemProperty -Path "HKCR:\\Directory\\shell\\TakeOwnership" -Name "NoWorkingDirectory" -Value "" -Force
+        New-Item -Path "HKCR:\\Directory\\shell\\TakeOwnership\\command" -Value $cmdD -Force | Out-Null
+      `
+    },
+    'disable-stickykeys': {
+      name: 'Tắt phím dính Sticky Keys (Shift 5 lần)',
+      script: `
+        Set-ItemProperty -Path "HKCU:\\Control Panel\\Accessibility\\StickyKeys" -Name "Flags" -Value "506" -Force
+        Set-ItemProperty -Path "HKCU:\\Control Panel\\Accessibility\\Keyboard Response" -Name "Flags" -Value "122" -Force
+        Set-ItemProperty -Path "HKCU:\\Control Panel\\Accessibility\\ToggleKeys" -Name "Flags" -Value "58" -Force
+      `
+    },
+    'disable-copilot-bing': {
+      name: 'Tắt Copilot AI và tìm kiếm Bing trên Taskbar',
+      needRestartExplorer: true,
+      script: `
+        $cp = "HKCU:\\Software\\Policies\\Microsoft\\Windows\\WindowsCopilot"
+        if (-not (Test-Path $cp)) { New-Item -Path $cp -Force | Out-Null }
+        Set-ItemProperty -Path $cp -Name "TurnOffWindowsCopilot" -Value 1 -Type DWord -Force
+        $sch = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Search"
+        Set-ItemProperty -Path $sch -Name "BingSearchEnabled" -Value 0 -Type DWord -Force
+        Set-ItemProperty -Path $sch -Name "DisableSearchBoxSuggestions" -Value 1 -Type DWord -Force
+      `
+    },
+    'disable-widgets-news': {
+      name: 'Tắt Widgets và bảng tin tức thời tiết trên Taskbar',
+      needRestartExplorer: true,
+      script: `
+        $adv = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced"
+        Set-ItemProperty -Path $adv -Name "TaskbarDa" -Value 0 -Type DWord -Force
+        $feeds = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Feeds"
+        if (-not (Test-Path $feeds)) { New-Item -Path $feeds -Force | Out-Null }
+        Set-ItemProperty -Path $feeds -Name "ShellFeedsTaskbarViewMode" -Value 2 -Type DWord -Force
+      `
+    },
+    'disable-start-recommendations': {
+      name: 'Tắt quảng cáo và gợi ý ứng dụng trong Start Menu',
+      script: `
+        $cdm = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager"
+        if (Test-Path $cdm) {
+          Set-ItemProperty -Path $cdm -Name "SubscribedContent-338388Enabled" -Value 0 -Type DWord -Force
+          Set-ItemProperty -Path $cdm -Name "SubscribedContent-338389Enabled" -Value 0 -Type DWord -Force
+          Set-ItemProperty -Path $cdm -Name "SystemPaneSuggestionsEnabled" -Value 0 -Type DWord -Force
+        }
+      `
+    },
+    'disable-edge-firstrun': {
+      name: 'Tắt màn hình chào mừng First Run của Microsoft Edge',
+      script: `
+        $edgeKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Edge"
+        if (-not (Test-Path $edgeKey)) { New-Item -Path $edgeKey -Force | Out-Null }
+        Set-ItemProperty -Path $edgeKey -Name "PreventFirstRunPage" -Value 1 -Type DWord -Force
+        Set-ItemProperty -Path $edgeKey -Name "HideFirstRunExperience" -Value 1 -Type DWord -Force
+      `
+    },
+    'disable-bitlocker-auto': {
+      name: 'Tắt tự động mã hóa ổ đĩa BitLocker (Chống khóa ổ mất dữ liệu)',
+      script: `
+        $blKey = "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\BitLocker"
+        if (-not (Test-Path $blKey)) { New-Item -Path $blKey -Force | Out-Null }
+        Set-ItemProperty -Path $blKey -Name "PreventDeviceEncryption" -Value 1 -Type DWord -Force
+      `
+    },
+    'disable-telemetry': {
+      name: 'Tắt Windows Telemetry & Diagnostic ngầm',
+      script: `
         Stop-Service -Name "DiagTrack" -Force -ErrorAction SilentlyContinue
         Set-Service -Name "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
         Stop-Service -Name "dmwappushservice" -Force -ErrorAction SilentlyContinue
         Set-Service -Name "dmwappushservice" -StartupType Disabled -ErrorAction SilentlyContinue
-        "Đã tắt Windows Telemetry & Diagnostic tracking thành công."
-      `;
-    } else if (tweakId === 'disable-gamebar') {
-      script = `
+      `
+    },
+    'disable-gamebar': {
+      name: 'Tắt Game Bar & DVR',
+      script: `
         Set-ItemProperty -Path "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\GameDVR" -Name "AppCaptureEnabled" -Value 0 -Force -ErrorAction SilentlyContinue
         Set-ItemProperty -Path "HKCU:\\System\\GameConfigStore" -Name "GameDVR_Enabled" -Value 0 -Force -ErrorAction SilentlyContinue
-        "Đã tắt Windows Game Bar & DVR thành công."
-      `;
-    } else if (tweakId === 'high-performance') {
-      script = `
-        powercfg /s 8c5e7fda-e8bf-4a96-9a14-5ab26546f148
-        "Đã kích hoạt chế độ nguồn High Performance (Hiệu năng cao) thành công."
-      `;
-    } else if (tweakId === 'ultimate-performance') {
-      script = `
+      `
+    },
+    'enable-dotnet35': {
+      name: 'Kích hoạt .NET Framework 3.5 (Hỗ trợ phần mềm cũ/phòng khám)',
+      script: `
+        dism.exe /online /enable-feature /featurename:NetFx3 /all /norestart
+      `
+    },
+    'enable-smb1': {
+      name: 'Kích hoạt SMB 1.0 / CIFS Client (Chia sẻ máy in Win 7/XP)',
+      script: `
+        Enable-WindowsOptionalFeature -Online -FeatureName "SMB1Protocol-Client" -NoRestart -ErrorAction SilentlyContinue
+      `
+    },
+    'enable-lan-sharing': {
+      name: 'Mở khóa Ping & Chia sẻ Mạng LAN',
+      script: `
+        netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes
+        netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes
+        Set-Service -Name "FDResPub" -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service -Name "FDResPub" -ErrorAction SilentlyContinue
+      `
+    },
+    'disable-uac': {
+      name: 'Hạ thông báo User Account Control (Tắt làm tối màn hình)',
+      script: `
+        Set-ItemProperty -Path "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" -Name "ConsentPromptBehaviorAdmin" -Value 0 -Type DWord -Force
+        Set-ItemProperty -Path "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" -Name "PromptOnSecureDesktop" -Value 0 -Type DWord -Force
+      `
+    },
+    'ultimate-performance': {
+      name: 'Kích hoạt gói nguồn Ultimate Performance',
+      script: `
         $guid = "e9a42b02-d5df-448d-aa00-03f14749eb61"
         powercfg -duplicatescheme $guid 2>$null
         powercfg /s $guid
-        "Đã kích hoạt chế độ nguồn Tối Đa (Ultimate Performance Power Plan) thành công."
-      `;
-    } else if (tweakId === 'disable-hibernate') {
-      script = `
+      `
+    },
+    'high-performance': {
+      name: 'Kích hoạt gói nguồn High Performance',
+      script: `
+        powercfg /s 8c5e7fda-e8bf-4a96-9a14-5ab26546f148
+      `
+    },
+    'disable-hibernate': {
+      name: 'Tắt Hibernate (Ngủ đông) giải phóng ổ C',
+      script: `
         powercfg -h off
-        "Đã tắt tính năng Hibernate (Ngủ đông) và giải phóng dung lượng hiberfil.sys trên ổ C thành công."
-      `;
-    } else if (tweakId === 'enable-hibernate') {
-      script = `
+      `
+    },
+    'enable-hibernate': {
+      name: 'Bật lại Hibernate',
+      script: `
         powercfg -h on
-        "Đã bật lại chế độ Hibernate (Ngủ đông) thành công."
-      `;
-    } else if (tweakId === 'disable-defender') {
-      script = `
-        Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
-        "Đã tạm tắt Windows Defender Real-time Protection."
-      `;
-    } else if (tweakId === 'enable-defender') {
-      script = `
-        Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue
-        "Đã bật lại Windows Defender Real-time Protection."
-      `;
-    } else if (tweakId === 'reset-spooler') {
-      script = `
+      `
+    },
+    'reset-spooler': {
+      name: 'Dọn sạch hàng đợi in và khởi động lại Print Spooler',
+      script: `
         net stop spooler 2>$null
         Remove-Item -Path "$env:SystemRoot\\System32\\spool\\PRINTERS\\*" -Force -Recurse -ErrorAction SilentlyContinue
         net start spooler 2>$null
-        "Đã dọn dẹp hàng đợi in và khởi động lại dịch vụ Print Spooler thành công."
-      `;
-    } else if (tweakId === 'rebuild-iconcache') {
-      script = `
-        taskkill /f /im explorer.exe 2>$null
+      `
+    },
+    'rebuild-iconcache': {
+      name: 'Làm mới Icon Cache Windows Explorer',
+      needRestartExplorer: true,
+      script: `
         Remove-Item -Path "$env:LOCALAPPDATA\\IconCache.db" -Force -ErrorAction SilentlyContinue
         Remove-Item -Path "$env:LOCALAPPDATA\\Microsoft\\Windows\\Explorer\\iconcache*" -Force -ErrorAction SilentlyContinue
-        Start-Process explorer.exe
-        "Đã làm mới lại Icon Cache và khởi động lại Windows Explorer thành công."
-      `;
-    } else if (tweakId === 'disable-windows-update') {
-      script = `
+      `
+    },
+    'flush-dns': {
+      name: 'Xóa bộ đệm DNS (Flush DNS)',
+      script: `
+        ipconfig /flushdns
+      `
+    },
+    'disable-windows-update': {
+      name: 'Tạm dừng dịch vụ Windows Update',
+      script: `
         Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
         Set-Service -Name wuauserv -StartupType Disabled -ErrorAction SilentlyContinue
-        "Đã tạm dừng và vô hiệu hóa dịch vụ Windows Update."
-      `;
-    } else if (tweakId === 'enable-windows-update') {
-      script = `
+      `
+    },
+    'enable-windows-update': {
+      name: 'Bật lại dịch vụ Windows Update',
+      script: `
         Set-Service -Name wuauserv -StartupType Manual -ErrorAction SilentlyContinue
         Start-Service -Name wuauserv -ErrorAction SilentlyContinue
-        "Đã bật lại dịch vụ Windows Update."
-      `;
-    } else {
-      return { ok: false, error: 'Tweak không hợp lệ' };
+      `
+    },
+    'disable-defender': {
+      name: 'Tạm tắt Windows Defender Real-time',
+      script: `
+        Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+      `
+    },
+    'enable-defender': {
+      name: 'Bật lại Windows Defender Real-time',
+      script: `
+        Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue
+      `
+    }
+  };
+
+  // 5. Áp dụng tinh chỉnh hệ thống đơn lẻ (Tweaks)
+  ipcMain.handle('pctools:apply-tweak', async (_event, tweakId) => {
+    const twk = TWEAK_SCRIPTS[tweakId];
+    if (!twk) {
+      return { ok: false, error: 'Tweak không hợp lệ hoặc chưa được hỗ trợ' };
     }
 
-    const res = await runPSToolScript(script);
+    let ps = `$ErrorActionPreference = 'SilentlyContinue'\n${twk.script}\n`;
+    if (twk.needRestartExplorer) {
+      ps += `
+        Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+        Start-Process explorer.exe
+      `;
+    }
+    ps += `"Đã áp dụng tinh chỉnh [${twk.name}] thành công."`;
+
+    const res = await runPSToolScript(ps);
     return { ok: res.ok, message: res.output || res.error };
+  });
+
+  // 5.1 Áp dụng hàng loạt tinh chỉnh (DMH 1-Click Batch Optimizer)
+  ipcMain.handle('pctools:apply-batch-tweaks', async (_event, tweakIds = []) => {
+    if (!Array.isArray(tweakIds) || tweakIds.length === 0) {
+      return { ok: false, error: 'Vui lòng tích chọn ít nhất 1 tinh chỉnh để áp dụng.' };
+    }
+
+    let combinedScript = `$ErrorActionPreference = 'SilentlyContinue'\n`;
+    let shouldRestartExplorer = false;
+    const appliedList = [];
+
+    for (const id of tweakIds) {
+      const twk = TWEAK_SCRIPTS[id];
+      if (twk) {
+        combinedScript += `\n# === ${twk.name} ===\n${twk.script}\n`;
+        appliedList.push(twk.name);
+        if (twk.needRestartExplorer) shouldRestartExplorer = true;
+      }
+    }
+
+    if (shouldRestartExplorer) {
+      combinedScript += `
+        Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+        Start-Process explorer.exe
+      `;
+    }
+
+    combinedScript += `\n"Hoàn tất: Đã thực thi thành công ${appliedList.length} tinh chỉnh hệ thống."\n`;
+    const res = await runPSToolScript(combinedScript);
+    return {
+      ok: res.ok,
+      message: res.output || res.error,
+      count: appliedList.length,
+      appliedList
+    };
+  });
+
+  // 5.2 Cài đặt phần mềm Silent hàng loạt (Batch Silent Apps)
+  ipcMain.handle('pctools:install-batch-apps', async (event, apps = []) => {
+    if (!Array.isArray(apps) || apps.length === 0) {
+      return { ok: false, error: 'Chưa chọn ứng dụng nào để cài đặt.' };
+    }
+
+    const results = [];
+    for (let i = 0; i < apps.length; i++) {
+      const app = apps[i];
+      try {
+        event.sender.send('pctools:batch-install-progress', {
+          index: i + 1,
+          total: apps.length,
+          currentApp: app.name,
+          percent: Math.round((i / apps.length) * 100)
+        });
+      } catch (_) {}
+
+      let success = false;
+      let msg = '';
+      if (app.winget) {
+        const ps = `winget install --id "${app.winget.replace(/"/g, '`"')}" --silent --accept-package-agreements --accept-source-agreements --disable-interactivity`;
+        const res = await runPSToolScript(ps);
+        success = res.ok;
+        msg = res.ok ? 'Cài đặt thành công' : (res.error || 'Lỗi cài đặt');
+      } else {
+        msg = 'Chưa có winget id, vui lòng tải thủ công';
+      }
+      results.push({ name: app.name, ok: success, message: msg });
+    }
+
+    try {
+      event.sender.send('pctools:batch-install-progress', {
+        index: apps.length,
+        total: apps.length,
+        currentApp: 'Hoàn tất tất cả',
+        percent: 100
+      });
+    } catch (_) {}
+
+    return { ok: true, results };
   });
 
   // 6. Cài đặt thông tin OEM (OEM Information Changer)
@@ -3881,6 +4245,491 @@ function stopCompareServer() {
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
   });
 
+  // ── PRINTER SUITE: Khắc phục lỗi chia sẻ máy in qua mạng LAN (0x00000709 / 0x0000011b) ──
+  ipcMain.handle('printer:fix-share-error', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      
+      # Bước 1: Tạo khóa Registry RPC và kích hoạt RpcUseNamedPipeProtocol = 1
+      $rpcKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC"
+      if (-not (Test-Path $rpcKey)) {
+        New-Item -Path $rpcKey -Force | Out-Null
+      }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcProtocols" /t REG_DWORD /d 7 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcOverNamedPipes" /t REG_DWORD /d 1 /f | Out-Null
+
+      # Bước 2: Tắt RpcAuthnLevelPrivacyEnabled = 0 trong Control\\Print
+      reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f | Out-Null
+
+      # Bước 3: Khởi động lại dịch vụ Print Spooler
+      Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Milliseconds 600
+      Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+
+      # Bước 4: Kiểm tra lại các giá trị Registry vừa thiết lập
+      $val1 = (Get-ItemProperty -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" -Name "RpcUseNamedPipeProtocol" -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
+      $val2 = (Get-ItemProperty -Path "HKLM:\\System\\CurrentControlSet\\Control\\Print" -Name "RpcAuthnLevelPrivacyEnabled" -ErrorAction SilentlyContinue).RpcAuthnLevelPrivacyEnabled
+      $spooler = (Get-Service -Name Spooler -ErrorAction SilentlyContinue).Status.ToString()
+
+      $success = ($val1 -eq 1 -and $val2 -eq 0)
+
+      [PSCustomObject]@{
+        ok = $true
+        success = $success
+        rpcUseNamedPipe = $val1
+        rpcAuthnLevelPrivacy = $val2
+        spoolerStatus = $spooler
+        message = if ($success) {
+          "Đã cấu hình Registry sửa lỗi 0x00000709 / 0x0000011b và khởi động lại dịch vụ Spooler thành công!"
+        } else {
+          "Chưa thể ghi khóa Registry do cần quyền Administrator. Vui lòng chạy phần mềm bằng Run as Administrator."
+        }
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: true, success: true, message: 'Đã hoàn tất cấu hình sửa lỗi máy in LAN.' };
+    }
+  });
+
+  ipcMain.handle('printer:get-share-rpc-status', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      $val1 = (Get-ItemProperty -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" -Name "RpcUseNamedPipeProtocol" -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
+      $val2 = (Get-ItemProperty -Path "HKLM:\\System\\CurrentControlSet\\Control\\Print" -Name "RpcAuthnLevelPrivacyEnabled" -ErrorAction SilentlyContinue).RpcAuthnLevelPrivacyEnabled
+      $spooler = (Get-Service -Name Spooler -ErrorAction SilentlyContinue).Status.ToString()
+      $isFixed = ($val1 -eq 1 -and $val2 -eq 0)
+
+      [PSCustomObject]@{
+        ok = $true
+        isFixed = $isFixed
+        rpcUseNamedPipe = $val1
+        rpcAuthnLevelPrivacy = $val2
+        spoolerStatus = $spooler
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, isFixed: false };
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: false, isFixed: false };
+    }
+  });
+
+  ipcMain.handle('printer:restart-spooler', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      Restart-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      [PSCustomObject]@{
+        ok = $true
+        status = (Get-Service -Name Spooler -ErrorAction SilentlyContinue).Status.ToString()
+        message = "Đã khởi động lại dịch vụ Print Spooler thành công."
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+  });
+
+  ipcMain.handle('printer:restart-pc', async () => {
+    const ps = `
+      shutdown /r /t 10 /c "DMH_Tools: Khoi dong lai may tinh de ap dung cau hinh sua loi may in..."
+      [PSCustomObject]@{
+        ok = $true
+        message = "Hệ thống sẽ khởi động lại sau 10 giây. Hãy lưu các tài liệu đang mở!"
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+  });
+
+  // Khắc phục lỗi 0x00000bcb & Gỡ bỏ chính sách chặn Driver Point and Print
+  ipcMain.handle('printer:fix-point-and-print', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      $pnpKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint"
+      if (-not (Test-Path $pnpKey)) { New-Item -Path $pnpKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictedDriver_InstallationAttribute" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PackagePointAndPrintServerList" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "InForest" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "NoWarningNoElevationOnInstall" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "UpdatePromptSettings" /t REG_DWORD /d 2 /f | Out-Null
+      Restart-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      [PSCustomObject]@{
+        ok = $true
+        success = $true
+        message = "Đã gỡ bỏ giới hạn Point and Print & sửa lỗi 0x00000bcb thành công!"
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+  });
+
+  // Khắc phục lỗi máy in mạng bị báo "Offline" do SNMP
+  ipcMain.handle('printer:fix-offline-snmp', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      $portsFixed = 0
+      Get-WmiObject -Class Win32_TCPIPPrinterPort -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.SNMPEnabled -eq $true) {
+          $_.SNMPEnabled = $false
+          $_.Put() | Out-Null
+          $portsFixed++
+        }
+      }
+      $printersOnline = 0
+      Get-Printer -ErrorAction SilentlyContinue | ForEach-Object {
+        try { Set-Printer -Name $_.Name -WorkOffline $false -ErrorAction SilentlyContinue; $printersOnline++ } catch {}
+        try { Resume-Printer -Name $_.Name -ErrorAction SilentlyContinue } catch {}
+      }
+      [PSCustomObject]@{
+        ok = $true
+        success = $true
+        portsFixed = $portsFixed
+        printersOnline = $printersOnline
+        message = "Đã tắt SNMP trên $portsFixed cổng mạng TCP/IP và kích hoạt trạng thái Online cho máy in!"
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+  });
+
+  // Bật Network Discovery, File & Printer Sharing trên Firewall và dịch vụ mạng
+  ipcMain.handle('printer:enable-lan-sharing', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes | Out-Null
+      netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes | Out-Null
+      Set-Service -Name "FDResPub" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "FDResPub" -ErrorAction SilentlyContinue
+      Set-Service -Name "fdPHost" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "fdPHost" -ErrorAction SilentlyContinue
+      Set-Service -Name "LanmanServer" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "LanmanServer" -ErrorAction SilentlyContinue
+      net user Guest /active:yes | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "everyoneincludesanonymous" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "RestrictAnonymous" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "RestrictAnonymousSAM" /t REG_DWORD /d 0 /f | Out-Null
+      [PSCustomObject]@{
+        ok = $true
+        success = $true
+        message = "Đã bật Network Discovery, File/Printer Sharing và cấu hình chia sẻ không cần mật khẩu!"
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+  });
+
+  // Khắc phục Print Spooler tự tắt / crash & Phân quyền lại thư mục PRINTERS
+  ipcMain.handle('printer:fix-spooler-crash', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      Stop-Process -Name "splwow64", "spoolsv", "printfilterpipelinesvc" -Force -ErrorAction SilentlyContinue
+      Remove-Item -Path "$env:windir\\System32\\spool\\PRINTERS\\*.*" -Force -Recurse -ErrorAction SilentlyContinue
+      $spoolDir = "$env:windir\\System32\\spool\\PRINTERS"
+      & icacls $spoolDir /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" /grant "Users:(OI)(CI)F" /grant "EVERYONE:(OI)(CI)M" /T /C /Q | Out-Null
+      sc.exe failure Spooler reset= 86400 actions= restart/5000/restart/10000/restart/20000 | Out-Null
+      Set-Service -Name "Spooler" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+      $st = (Get-Service -Name Spooler -ErrorAction SilentlyContinue).Status.ToString()
+      [PSCustomObject]@{
+        ok = $true
+        success = ($st -eq "Running")
+        spoolerStatus = $st
+        message = "Đã cấp lại quyền thư mục Spooler, dọn sạch kẹt và thiết lập tự phục hồi Spooler khi crash!"
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+  });
+
+  // Thao tác trực tiếp trên một máy in cụ thể
+  ipcMain.handle('printer:print-test-page', async (_event, printerName) => {
+    if (!printerName) return { ok: false, error: 'Thiếu tên máy in' };
+    const safeName = String(printerName).replace(/["']/g, '');
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      rundll32.exe printui.dll,PrintUIEntry /k /n "${safeName}"
+      [PSCustomObject]@{ ok = $true; message = "Đã gửi lệnh in trang thử nghiệm đến máy in ${safeName}" } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+  });
+
+  ipcMain.handle('printer:set-default', async (_event, printerName) => {
+    if (!printerName) return { ok: false, error: 'Thiếu tên máy in' };
+    const safeName = String(printerName).replace(/["']/g, '');
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      (New-Object -ComObject WScript.Network).SetDefaultPrinter("${safeName}")
+      [PSCustomObject]@{ ok = $true; message = "Đã đặt máy in ${safeName} làm máy in mặc định!" } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+  });
+
+  ipcMain.handle('printer:resume-printer', async (_event, printerName) => {
+    if (!printerName) return { ok: false, error: 'Thiếu tên máy in' };
+    const safeName = String(printerName).replace(/["']/g, '');
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      Resume-Printer -Name "${safeName}" -ErrorAction SilentlyContinue
+      Set-Printer -Name "${safeName}" -WorkOffline $false -ErrorAction SilentlyContinue
+      [PSCustomObject]@{ ok = $true; message = "Đã hủy trạng thái tạm dừng/offline cho máy in ${safeName}!" } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+  });
+
+  ipcMain.handle('printer:open-queue', async (_event, printerName) => {
+    if (!printerName) return { ok: false, error: 'Thiếu tên máy in' };
+    const safeName = String(printerName).replace(/["']/g, '');
+    const ps = `
+      Start-Process rundll32.exe -ArgumentList 'printui.dll,PrintUIEntry /o /n "${safeName}"'
+      [PSCustomObject]@{ ok = $true } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    return { ok: true };
+  });
+
+  ipcMain.handle('printer:open-properties', async (_event, printerName) => {
+    if (!printerName) return { ok: false, error: 'Thiếu tên máy in' };
+    const safeName = String(printerName).replace(/["']/g, '');
+    const ps = `
+      Start-Process rundll32.exe -ArgumentList 'printui.dll,PrintUIEntry /p /n "${safeName}"'
+      [PSCustomObject]@{ ok = $true } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    return { ok: true };
+  });
+
+  ipcMain.handle('printer:open-windows-tool', async (_event, toolName) => {
+    let cmd = 'control printers';
+    if (toolName === 'printmanagement') cmd = 'printmanagement.msc';
+    else if (toolName === 'services') cmd = 'services.msc';
+    else if (toolName === 'devmgmt') cmd = 'devmgmt.msc';
+    
+    const ps = `
+      Start-Process "${cmd}"
+      [PSCustomObject]@{ ok = $true } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    return { ok: true };
+  });
+
+  // ── PRINTER SUITE: Quét & Chẩn đoán Toàn Bộ Lỗi Hệ Thống Máy In ────────────
+  ipcMain.handle('printer:diagnose-all', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+
+      # 1. Dịch vụ Spooler
+      $spooler = Get-Service -Name Spooler -ErrorAction SilentlyContinue
+      $spoolerStatus = if ($spooler) { $spooler.Status.ToString() } else { 'Stopped' }
+      $spoolerStartType = if ($spooler) { $spooler.StartType.ToString() } else { 'Unknown' }
+      $spoolerOk = ($spoolerStatus -eq 'Running')
+
+      # 2. Kiểm tra Registry RPC LAN (Lỗi 0x00000709 & 0x0000011b)
+      $rpcKey = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC'
+      $val1 = (Get-ItemProperty -Path $rpcKey -Name 'RpcUseNamedPipeProtocol' -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
+      $val2 = (Get-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Print' -Name 'RpcAuthnLevelPrivacyEnabled' -ErrorAction SilentlyContinue).RpcAuthnLevelPrivacyEnabled
+      $lanRpcOk = ($val1 -eq 1 -and $val2 -eq 0)
+
+      # 3. Kiểm tra Chính sách Point and Print (Lỗi 0x00000bcb)
+      $pnpKey = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint'
+      $valPnpRestricted = (Get-ItemProperty -Path $pnpKey -Name 'RestrictedDriver_InstallationAttribute' -ErrorAction SilentlyContinue).RestrictedDriver_InstallationAttribute
+      $valPnpNoWarn = (Get-ItemProperty -Path $pnpKey -Name 'NoWarningNoElevationOnInstall' -ErrorAction SilentlyContinue).NoWarningNoElevationOnInstall
+      $pnpOk = ($valPnpRestricted -eq 0 -and $valPnpNoWarn -eq 1)
+
+      # 4. Kiểm tra Tường lửa Windows Firewall cho File and Printer Sharing
+      $fwOk = $false
+      try {
+        $fwRules = Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' -Enabled True -ErrorAction SilentlyContinue
+        if ($fwRules -and $fwRules.Count -gt 0) { $fwOk = $true }
+      } catch {}
+
+      # 5. Kiểm tra file rác/kẹt trong thư mục Spooler
+      $spoolDir = "$env:windir\\System32\\spool\\PRINTERS"
+      $stuckFiles = 0
+      if (Test-Path $spoolDir) {
+        $stuckFiles = (Get-ChildItem -Path $spoolDir -File -ErrorAction SilentlyContinue).Count
+      }
+
+      # 6. Kiểm tra SNMP Status trên các cổng mạng TCP/IP
+      $snmpBadPorts = 0
+      Get-WmiObject -Class Win32_TCPIPPrinterPort -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.SNMPEnabled -eq $true) { $snmpBadPorts++ }
+      }
+
+      # 7. Danh sách máy in và thống kê
+      $printers = @()
+      $offlinePrinters = 0
+      $printersWithErrors = 0
+      Get-Printer -ErrorAction SilentlyContinue | ForEach-Object {
+        $isOff = ($_.PrinterStatus -eq 7 -or $_.WorkOffline -eq $true)
+        if ($isOff) { $offlinePrinters++ }
+        if ($_.JobCount -gt 0) { $printersWithErrors++ }
+        $printers += [PSCustomObject]@{
+          Name = $_.Name
+          PrinterStatus = $_.PrinterStatus
+          JobCount = $_.JobCount
+          DriverName = $_.DriverName
+          PortName = $_.PortName
+          WorkOffline = [bool]$_.WorkOffline
+        }
+      }
+
+      # Tổng hợp số lượng lỗi phát hiện
+      $issuesFound = 0
+      if (-not $spoolerOk) { $issuesFound++ }
+      if (-not $lanRpcOk) { $issuesFound++ }
+      if (-not $pnpOk) { $issuesFound++ }
+      if (-not $fwOk) { $issuesFound++ }
+      if ($stuckFiles -gt 0) { $issuesFound++ }
+      if ($snmpBadPorts -gt 0) { $issuesFound++ }
+      if ($offlinePrinters -gt 0) { $issuesFound++ }
+
+      [PSCustomObject]@{
+        ok = $true
+        issueCount = $issuesFound
+        spooler = [PSCustomObject]@{
+          status = $spoolerStatus
+          startType = $spoolerStartType
+          isOk = $spoolerOk
+        }
+        lanRpc = [PSCustomObject]@{
+          rpcUseNamedPipe = $val1
+          rpcAuthnLevelPrivacy = $val2
+          isOk = $lanRpcOk
+        }
+        pointAndPrint = [PSCustomObject]@{
+          restrictedDriver = $valPnpRestricted
+          noWarningElevation = $valPnpNoWarn
+          isOk = $pnpOk
+        }
+        firewall = [PSCustomObject]@{
+          isOk = $fwOk
+        }
+        spoolFiles = [PSCustomObject]@{
+          count = $stuckFiles
+          isOk = ($stuckFiles -eq 0)
+        }
+        snmpPorts = [PSCustomObject]@{
+          badCount = $snmpBadPorts
+          isOk = ($snmpBadPorts -eq 0)
+        }
+        offlinePrintersCount = $offlinePrinters
+        printers = $printers
+      } | ConvertTo-Json -Depth 4 -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error, printers: [], issueCount: 0 };
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: false, printers: [], issueCount: 0 };
+    }
+  });
+
+  // ── PRINTER SUITE: Sửa Tự Động Toàn Bộ Lỗi Máy In 1-Click ─────────────────
+  ipcMain.handle('printer:fix-all-issues', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+
+      # 1. Dừng Spooler và tiến trình in phụ trợ
+      Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      Stop-Process -Name "splwow64", "spoolsv", "printfilterpipelinesvc" -Force -ErrorAction SilentlyContinue
+
+      # 2. Dọn sạch file rác/kẹt trong spool/PRINTERS
+      $spoolDir = "$env:windir\\System32\\spool\\PRINTERS"
+      if (-not (Test-Path $spoolDir)) { New-Item -Path $spoolDir -ItemType Directory -Force | Out-Null }
+      Remove-Item -Path "$spoolDir\\*.*" -Force -Recurse -ErrorAction SilentlyContinue
+
+      # 3. Cấp Full Quyền icacls cho thư mục PRINTERS
+      & icacls $spoolDir /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" /grant "Users:(OI)(CI)F" /grant "EVERYONE:(OI)(CI)M" /T /C /Q | Out-Null
+
+      # 4. Sửa lỗi LAN 0x00000709 & 0x0000011b (Registry RPC)
+      $rpcKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC"
+      if (-not (Test-Path $rpcKey)) { New-Item -Path $rpcKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcProtocols" /t REG_DWORD /d 7 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcOverNamedPipes" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f | Out-Null
+
+      # 5. Sửa lỗi Point and Print 0x00000bcb
+      $pnpKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint"
+      if (-not (Test-Path $pnpKey)) { New-Item -Path $pnpKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictedDriver_InstallationAttribute" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PackagePointAndPrintServerList" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "InForest" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "NoWarningNoElevationOnInstall" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "UpdatePromptSettings" /t REG_DWORD /d 2 /f | Out-Null
+
+      # 6. Mở Firewall File & Printer Sharing, Network Discovery
+      netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes | Out-Null
+      netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes | Out-Null
+      Set-Service -Name "FDResPub" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "FDResPub" -ErrorAction SilentlyContinue
+      Set-Service -Name "fdPHost" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "fdPHost" -ErrorAction SilentlyContinue
+      Set-Service -Name "LanmanServer" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "LanmanServer" -ErrorAction SilentlyContinue
+      net user Guest /active:yes | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "everyoneincludesanonymous" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "RestrictAnonymous" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "RestrictAnonymousSAM" /t REG_DWORD /d 0 /f | Out-Null
+
+      # 7. Tắt SNMP trên các cổng TCP/IP để hết báo Offline ảo
+      Get-WmiObject -Class Win32_TCPIPPrinterPort -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.SNMPEnabled -eq $true) {
+          $_.SNMPEnabled = $false
+          $_.Put() | Out-Null
+        }
+      }
+
+      # 8. Cấu hình tự phục hồi Spooler & Khởi động lại Spooler
+      sc.exe failure Spooler reset= 86400 actions= restart/5000/restart/10000/restart/20000 | Out-Null
+      Set-Service -Name "Spooler" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+
+      # 9. Đưa tất cả máy in về Online & Resume
+      Get-Printer -ErrorAction SilentlyContinue | ForEach-Object {
+        try { Set-Printer -Name $_.Name -WorkOffline $false -ErrorAction SilentlyContinue } catch {}
+        try { Resume-Printer -Name $_.Name -ErrorAction SilentlyContinue } catch {}
+      }
+
+      [PSCustomObject]@{
+        ok = $true
+        success = $true
+        message = "Đã sửa chữa tự động toàn bộ lỗi máy in và dịch vụ hệ thống thành công!"
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: true, success: true, message: 'Đã hoàn tất sửa tự động toàn bộ lỗi.' };
+    }
+  });
 
   // ── DMH MODULAR ON-DEMAND SUITE: Giao tiếp quản lý Module từ GitHub ──────
   // 1. Lấy trạng thái tất cả module
@@ -3957,12 +4806,14 @@ function stopCompareServer() {
 
         await downloadFileWithRedirect(downloadUrl, destExe, (progress) => {
           try {
-            event.sender.send('module:download-progress', {
-              moduleId,
-              percent: progress.percent,
-              downloadedBytes: progress.downloadedBytes,
-              totalBytes: progress.totalBytes
-            });
+            if (event.sender && !event.sender.isDestroyed()) {
+              event.sender.send('module:download-progress', {
+                moduleId,
+                percent: progress.percent,
+                downloadedBytes: progress.downloadedBytes,
+                totalBytes: progress.totalBytes
+              });
+            }
           } catch {}
         });
 
@@ -3977,12 +4828,14 @@ function stopCompareServer() {
       // Tải tệp với tiến trình
       await downloadFileWithRedirect(downloadUrl, tempZip, (progress) => {
         try {
-          event.sender.send('module:download-progress', {
-            moduleId,
-            percent: progress.percent,
-            downloadedBytes: progress.downloadedBytes,
-            totalBytes: progress.totalBytes
-          });
+          if (event.sender && !event.sender.isDestroyed()) {
+            event.sender.send('module:download-progress', {
+              moduleId,
+              percent: progress.percent,
+              downloadedBytes: progress.downloadedBytes,
+              totalBytes: progress.totalBytes
+            });
+          }
         } catch {}
       });
 
@@ -4029,7 +4882,7 @@ function stopCompareServer() {
   ipcMain.handle('system:run-installer', async (_event, installerName) => {
     try {
       const baseDir = getModulesBaseDir();
-      let installerPath = path.join(baseDir, installerName);
+      let installerPath = path.isAbsolute(installerName) ? installerName : path.join(baseDir, installerName);
 
       if (!fs.existsSync(installerPath) && fs.existsSync(installerName)) {
         installerPath = installerName;
@@ -4040,7 +4893,7 @@ function stopCompareServer() {
         const entries = fs.readdirSync(baseDir, { withFileTypes: true });
         for (const entry of entries) {
           if (entry.isDirectory()) {
-            const p = path.join(baseDir, entry.name, installerName);
+            const p = path.join(baseDir, entry.name, path.basename(installerName));
             if (fs.existsSync(p)) {
               installerPath = p;
               break;
@@ -4057,27 +4910,50 @@ function stopCompareServer() {
       }
 
       if (!fs.existsSync(installerPath)) {
-        return { ok: false, error: 'Không tìm thấy tệp bộ cài đặt vừa tải về' };
+        return { ok: false, error: 'Không tìm thấy tệp bộ cài đặt vừa tải về: ' + installerName };
       }
 
       console.log('[UPDATE] Khởi chạy bộ cài đặt cập nhật:', installerPath);
-      const openErr = await shell.openPath(installerPath);
-      if (openErr) {
-        console.warn('[UPDATE] shell.openPath lỗi, thử lại bằng PowerShell Start-Process:', openErr);
-        const child = spawn('powershell.exe', ['-NoProfile', '-Command', `Start-Process -FilePath '${installerPath}'`], {
-          detached: true,
-          stdio: 'ignore'
-        });
-        child.unref();
-      }
 
+      // Khởi chạy bộ cài đặt bằng PowerShell Start-Process để kích hoạt UAC Administrator chuẩn
+      const psCmd = `Start-Process -FilePath "${installerPath}"`;
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psCmd], (psErr) => {
+        if (psErr) {
+          console.warn('[UPDATE] PowerShell Start-Process lỗi, thử lại bằng shell.openPath:', psErr);
+          shell.openPath(installerPath);
+        }
+      });
+
+      // Ẩn cửa sổ app chính sau 1.5s
       setTimeout(() => {
-        app.quit();
+        try {
+          if (_mainWin && !_mainWin.isDestroyed()) {
+            _mainWin.hide();
+          }
+        } catch {}
       }, 1500);
 
-      return { ok: true };
+      // Đóng ứng dụng sau 4s để bộ cài đặt tiến hành ghi đè file
+      setTimeout(() => {
+        app.quit();
+      }, 4000);
+
+      return { ok: true, message: 'Bộ cài đặt đang được khởi chạy...' };
     } catch (err) {
       console.error('[UPDATE_INSTALL_ERR]', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // 6. Mở URL trong trình duyệt mặc định (dùng cho tải trực tiếp qua Chrome/Edge/Cốc Cốc)
+  ipcMain.handle('system:open-external', async (_event, url) => {
+    try {
+      const safeUrl = typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://')) ? url : null;
+      if (!safeUrl) return { ok: false, error: 'URL không hợp lệ hoặc không an toàn' };
+      await shell.openExternal(safeUrl);
+      return { ok: true };
+    } catch (err) {
+      console.error('[OPEN_EXTERNAL_ERR]', err);
       return { ok: false, error: err.message };
     }
   });
@@ -4168,17 +5044,6 @@ function stopCompareServer() {
     try { return sqliteService.endoscopy.deleteTemplate(id); }
     catch (err) { return { ok: false, error: err.message }; }
   });
-
-  // IPC chuẩn cho EndoscopyTab UI (tương thích endoscopyApi.ts)
-  ipcMain.handle('endoscopy:get-db-stats', async () => sqliteService.endoscopy.getDbStats());
-  ipcMain.handle('endoscopy:get-patients', async (_e, q) => sqliteService.endoscopy.getPatients(q));
-  ipcMain.handle('endoscopy:add-patient', async (_e, d) => sqliteService.endoscopy.addPatient(d));
-  ipcMain.handle('endoscopy:get-sessions', async (_e, patient_id) => sqliteService.endoscopy.getSessions(patient_id));
-  ipcMain.handle('endoscopy:create-session', async (_e, d) => sqliteService.endoscopy.createSession(d));
-  ipcMain.handle('endoscopy:get-images', async (_e, session_id) => sqliteService.endoscopy.getImages(session_id));
-  ipcMain.handle('endoscopy:toggle-fav', async (_e, image_id) => sqliteService.endoscopy.toggleFav(image_id));
-  ipcMain.handle('endoscopy:save-capture', async (_e, session_id, b64, res) => sqliteService.endoscopy.saveCapture(session_id, b64, res));
-
   // Phân hệ 3: Đối Chiếu BHYT (Dcbhyt)
   ipcMain.handle('sqlite:dcbhyt:save-session', async (_e, sessionData, items) => {
     try { return sqliteService.dcbhyt.saveSession(sessionData, items); }
@@ -4221,7 +5086,9 @@ function stopCompareServer() {
     catch (err) { return { ok: false, error: err.message }; }
   });
 
-  createWindow();
+  if (!_mainWin || _mainWin.isDestroyed()) {
+    createWindow();
+  }
 
 
   app.on('activate', () => {

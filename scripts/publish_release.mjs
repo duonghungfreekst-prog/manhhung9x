@@ -127,11 +127,11 @@ if (fs.existsSync(setupExe)) {
   assetsToUpload.push(setupExe);
 }
 
-// const portableZip = path.join(rootDir, 'release', `DMH_Tools-${version}-win.zip`);
-// if (fs.existsSync(portableZip)) {
-//   console.log(`📦 Tìm thấy bản Portable ZIP: ${path.basename(portableZip)}`);
-//   assetsToUpload.push(portableZip);
-// }
+const latestYml = path.join(rootDir, 'release', 'latest.yml');
+if (fs.existsSync(latestYml)) {
+  console.log(`📦 Tìm thấy file cấu hình cập nhật: ${path.basename(latestYml)}`);
+  assetsToUpload.push(latestYml);
+}
 
 // 6. Gọi GitHub REST API
 function githubRequest(endpoint, method = 'GET', body = null, isUpload = false, contentType = 'application/json') {
@@ -194,7 +194,37 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🎉 DMH Tools ${tagName} Commercial Release\n\n- **Nhúng Cơ sở dữ liệu Native SQLite tốc độ cao (Chuẩn C++ WAL Mode)**:\n  + Lưu trữ vĩnh viễn, truy xuất tức thì cho cả 4 phân hệ: Chấm Công, Nội Soi 4K, Đối Chiếu BHYT, Đọc XML.\n  + Không lo mất dữ liệu khi đóng app hay xóa cache trình duyệt.\n- **Tích hợp Phân hệ Máy Chấm Công & Bảng Công**:\n  + Hỗ trợ kết nối trực tiếp máy chấm công ZKTeco, Ronald Jack qua IP mạng LAN (Cổng 4370 TCP/UDP).\n  + Tự động quét dò tìm máy chấm công trong toàn bộ dải mạng LAN nội bộ.\n  + Tự động kéo dữ liệu quẹt thẻ và lưu trực tiếp vào cơ sở dữ liệu SQLite.\n  + Đồng bộ hồ sơ 43 nhân viên từ máy chấm công về phần mềm.\n  + Hỗ trợ nạp file USB (.dat, .txt) hoặc file Excel / CSV.\n- **Cài đặt Ca làm việc & Phân ca Lịch biểu**:\n  + Thiết lập ca làm việc, ân hạn đi muộn / về sớm, tính công ngày và giờ tăng ca (OT).\n  + Phân ca cố định theo tuần hoặc xếp ca linh hoạt theo nhân viên.\n  + Xuất báo cáo bảng công tháng và bảng kê chi tiết lượt quẹt thẻ chuẩn HR.\n- **Đối Chiếu 01BH & Đọc XML/Excel**:\n  + Tự động lưu lịch sử đợt đối chiếu XML 3176 và danh sách file đã phân tích vào SQLite để xem lại bất cứ lúc nào mà không cần nạp lại file.\n\n*Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
+        body: `### 🚀 DMH Tools ${tagName} - Bác Sĩ Máy In Toàn Năng: Quét & Chẩn Đoán Toàn Bộ Lỗi, Bảng Sức Khỏe Health Dashboard & Sửa Tự Động 1-Click
+
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.0:
+
+- **1. Nâng cấp tính năng Quét Toàn Diện & Chẩn Đoán Tất Cả Lỗi Máy In (Full Diagnostics Scan)**:
+  + Tự động quét và chẩn đoán đồng thời 6 hạng mục kỹ thuật cốt lõi:
+    1. **Dịch vụ Print Spooler**: Kiểm tra trạng thái hoạt động (Running hay Stopped/Crash) và chế độ khởi động (Automatic).
+    2. **Cấu hình Chia Sẻ Mạng LAN (Lỗi 0x00000709 & 0x0000011b)**: Kiểm tra khóa Registry RPC Named Pipe (\`RpcUseNamedPipeProtocol\`) và mức xác thực (\`RpcAuthnLevelPrivacyEnabled\`).
+    3. **Chính sách Point and Print (Lỗi 0x00000bcb)**: Kiểm tra Group Policy có đang chặn máy con tự động nạp Driver máy in từ mạng nội bộ hay không.
+    4. **Tường lửa Windows Firewall**: Kiểm tra trạng thái mở cổng mạng cho nhóm \`File and Printer Sharing\` & \`Network Discovery\`.
+    5. **Bộ đệm in Spooler**: Quét phát hiện số lượng file rác, lệnh in hỏng đang kẹt trong thư mục \`%windir%\\System32\\spool\\PRINTERS\`.
+    6. **Cổng mạng TCP/IP SNMP (Lỗi máy in Offline ảo)**: Quét toàn bộ cổng in mạng xem có bật cờ SNMP Status Enabled gây hiểu nhầm trạng thái Offline hay không.
+
+- **2. Bảng Điều Khiển Sức Khỏe Máy In Trực Quan (Diagnostic Health Dashboard)**:
+  + Hiển thị trực quan trạng thái từng hạng mục bằng các chỉ số Đạt chuẩn (\`✓\`) hoặc Cảnh báo (\`⚠️\`).
+  + Badge thông báo tổng số lỗi phát hiện kèm nút khắc phục nhanh cho từng hạng mục riêng biệt.
+
+- **3. ⚡ Phím Tắt Thần Thánh: SỬA TỰ ĐỘNG TẤT CẢ LỖI (1-Click Auto Fix All)**:
+  + Chỉ với 1 lần bấm, hệ thống tự động xử lý trọn gói:
+    + Cấu hình Registry sửa dứt điểm lỗi 0x709 & 0x11b.
+    + Gỡ bỏ giới hạn Point & Print sửa lỗi 0xbcb.
+    + Mở Firewall cho phép chia sẻ máy in và tệp qua mạng LAN.
+    + Dọn sạch toàn bộ file rác và lệnh in kẹt trong thư mục Spool.
+    + Phân quyền Full Control ACL cho thư mục PRINTERS và bật chế độ tự phục hồi Spooler khi crash.
+    + Tắt SNMP trên các cổng mạng và đưa toàn bộ máy in về trạng thái Online.
+    + Tự động quét lại và cập nhật hệ thống đạt chuẩn 100% Sức Khỏe Hoàn Hảo.
+
+- **4. Tiếp tục tối ưu hóa độ ổn định và giao diện**:
+  + Giao diện hiện đại, dễ sử dụng, phản hồi nhanh chóng và an toàn tuyệt đối cho người dùng.
+
+*Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,
         prerelease: false,
       });
@@ -215,7 +245,7 @@ function uploadAssetFile(uploadUrl, filePath) {
         'User-Agent': 'DMH-Tools-AutoPublisher/6.6.0',
         'Authorization': `token ${token}`,
         'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': fileName.endsWith('.exe') ? 'application/vnd.microsoft.portable-executable' : 'application/zip',
+        'Content-Type': fileName.endsWith('.exe') ? 'application/vnd.microsoft.portable-executable' : (fileName.endsWith('.yml') ? 'text/yaml' : 'application/zip'),
         'Content-Length': fileSize,
       },
     };

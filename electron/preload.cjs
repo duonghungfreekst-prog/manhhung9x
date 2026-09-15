@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getTrialInitSec:        (hwid)   => ipcRenderer.invoke('license:get-trial-init', hwid),
   saveTrialInitSec:       (sec, hwid) => ipcRenderer.invoke('license:save-trial-init', sec, hwid),
   getHwidTrial:           (hwid)   => ipcRenderer.invoke('license:get-hwid-trial', hwid),
+  saveBackupKey:          (rawKey) => ipcRenderer.invoke('license:save-backup-key', rawKey),
+  getBackupKey:           ()       => ipcRenderer.invoke('license:get-backup-key'),
+  clearBackupKey:         ()       => ipcRenderer.invoke('license:clear-backup-key'),
+  cleanRevokedKey:        (rawKey) => ipcRenderer.invoke('license:clean-revoked-key', rawKey),
 
   // ── Nội Soi AI 4K (Local Database & IPC) ──────────────────────────────────
   getDbStats:   ()           => ipcRenderer.invoke('endoscopy:db-stats'),
@@ -112,6 +116,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cleanJunk:            () => ipcRenderer.invoke('pctools:clean-junk'),
     optimizeRam:          () => ipcRenderer.invoke('pctools:optimize-ram'),
     applyTweak:           (tweakId) => ipcRenderer.invoke('pctools:apply-tweak', tweakId),
+    applyBatchTweaks:      (tweakIds) => ipcRenderer.invoke('pctools:apply-batch-tweaks', tweakIds),
+    installBatchApps:      (apps) => ipcRenderer.invoke('pctools:install-batch-apps', apps),
+    onBatchInstallProgress: (cb) => {
+      const handler = (_e, data) => cb(data);
+      ipcRenderer.on('pctools:batch-install-progress', handler);
+      return () => ipcRenderer.removeListener('pctools:batch-install-progress', handler);
+    },
     setOemInfo:           (info) => ipcRenderer.invoke('pctools:set-oem-info', info),
     launchExternal:       (toolKey) => ipcRenderer.invoke('pctools:launch-external', toolKey),
     openFolder:           (folderKey) => ipcRenderer.invoke('pctools:open-folder', folderKey),
@@ -169,6 +180,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Auto-Update Installer Runner ──────────────────────────────────────────
   runInstaller: (name) => ipcRenderer.invoke('system:run-installer', name),
+
+  // ── Open URL in default browser (dùng cho tải trực tiếp qua Chrome/Edge) ──
+  openExternal: (url) => ipcRenderer.invoke('system:open-external', url),
+
+  // ── Printer Repair & LAN Share Suite ──────────────────────────────────────
+  printer: {
+    fixShareError:     () => ipcRenderer.invoke('printer:fix-share-error'),
+    getShareRpcStatus: () => ipcRenderer.invoke('printer:get-share-rpc-status'),
+    restartSpooler:    () => ipcRenderer.invoke('printer:restart-spooler'),
+    restartPc:         () => ipcRenderer.invoke('printer:restart-pc'),
+    fixPointAndPrint:  () => ipcRenderer.invoke('printer:fix-point-and-print'),
+    fixOfflineSnmp:    () => ipcRenderer.invoke('printer:fix-offline-snmp'),
+    enableLanSharing:  () => ipcRenderer.invoke('printer:enable-lan-sharing'),
+    fixSpoolerCrash:   () => ipcRenderer.invoke('printer:fix-spooler-crash'),
+    printTestPage:     (name) => ipcRenderer.invoke('printer:print-test-page', name),
+    setDefault:        (name) => ipcRenderer.invoke('printer:set-default', name),
+    resumePrinter:     (name) => ipcRenderer.invoke('printer:resume-printer', name),
+    openQueue:         (name) => ipcRenderer.invoke('printer:open-queue', name),
+    openProperties:    (name) => ipcRenderer.invoke('printer:open-properties', name),
+    openWindowsTool:   (tool) => ipcRenderer.invoke('printer:open-windows-tool', tool),
+    diagnoseAll:       () => ipcRenderer.invoke('printer:diagnose-all'),
+    fixAllIssues:      () => ipcRenderer.invoke('printer:fix-all-issues'),
+  },
 
   // ── Native SQLite Database Suite ──────────────────────────────────────────
   sqlite: {
