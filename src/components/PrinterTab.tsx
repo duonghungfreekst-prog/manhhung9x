@@ -372,7 +372,8 @@ export default function PrinterTab() {
           addLog(`✅ ${res.message || 'Kết nối máy in qua Local Port thành công!'}`);
           alert(`🎉 ĐÃ KẾT NỐI THÀNH CÔNG!\n\nĐã tạo máy in [${res.printerName}] gán vào cổng Local Port [${res.portName}].\n\nBạn có thể mở Word/Excel/HIS và in ngay lập tức mà không bao giờ bị lỗi 0x00000709!`);
           setShowLocalPortModal(false);
-          loadPrinters();
+          await loadPrinters();
+          await diagnoseAllPrinters(true);
         } else {
           addLog(`❌ Kết nối thất bại: ${res?.error || 'Lỗi không xác định'}`);
           alert(`❌ Kết nối thất bại: ${res?.error || 'Vui lòng kiểm tra lại quyền Administrator hoặc tên Driver!'}`);
@@ -387,6 +388,81 @@ export default function PrinterTab() {
   };
   
   const addLog = (msg: string) => setLogs(p => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...p].slice(0, 15));
+
+  const runPS = async (script: string) => {
+    const w = window as unknown as { electronAPI?: { runPowershell: (s: string) => Promise<string> } };
+    if (!w.electronAPI) {
+      throw new Error('Tính năng này chỉ chạy trên phần mềm Desktop gốc (không chạy trên Web).');
+    }
+    return await w.electronAPI.runPowershell(script);
+  };
+
+  const [diagnostics, setDiagnostics] = useState<DiagnosticResult | null>(null);
+  const [fixingAll, setFixingAll] = useState(false);
+
+  const loadPrinters = useCallback(async () => {
+    try {
+      setLoading(true);
+      addLog('Đang quét danh sách máy in hệ thống...');
+      const output = await runPS(`Get-Printer | Select-Object Name, PrinterStatus, JobCount, DriverName, PortName | ConvertTo-Json`);
+      if (output) {
+        const parsed = JSON.parse(output);
+        const list = Array.isArray(parsed) ? parsed : [parsed];
+        setPrinters(list);
+        addLog(`Tìm thấy ${list.length} máy in.`);
+      } else {
+        setPrinters([]);
+      }
+    } catch (err: unknown) {
+      const e = String(err);
+      addLog('Lỗi quét máy in: ' + e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // ── Quét & Chẩn Đoán Toàn Bộ Lỗi Hệ Thống Máy In (Auto Re-Diagnose) ──────────
+  const diagnoseAllPrinters = useCallback(async (isPostFix: boolean = false) => {
+    try {
+      setLoading(true);
+      const postFix = isPostFix === true;
+      if (postFix) {
+        addLog('🔄 [TỰ ĐỘNG BÁO LẠI] Đang quét kiểm tra lại toàn bộ hệ thống sau sửa lỗi...');
+      } else {
+        addLog('🔍 Đang Quét & Chẩn Đoán Toàn Diện Lỗi Máy In, Mạng LAN & Dịch Vụ Hệ Thống...');
+      }
+      const w = window as any;
+      if (w.electronAPI?.printer?.diagnoseAll) {
+        const diag: DiagnosticResult = await w.electronAPI.printer.diagnoseAll();
+        setDiagnostics(diag);
+        if (Array.isArray(diag.printers)) {
+          setPrinters(diag.printers);
+        }
+
+        // Ghi nhật ký phân tích chi tiết báo cáo lại cho người dùng
+        addLog(`📊 KẾT QUẢ KIỂM TRA [${diag.timestamp || new Date().toLocaleTimeString()}]:`);
+        addLog(`• Dịch vụ Spooler: ${diag.spooler?.isOk ? '✅ Đang chạy bình thường' : `❌ LỖI (${diag.spooler?.status})`}`);
+        addLog(`• Chia sẻ mạng LAN (0x709/0x11b): ${diag.lanRpc?.isOk ? '✅ Chuẩn RPC Named Pipe' : '⚠️ Lỗi cấu hình RPC mạng'}`);
+        addLog(`• Driver Point & Print (0xbcb): ${diag.pointAndPrint?.isOk ? '✅ Không bị hạn chế' : '⚠️ Bị Group Policy chặn driver LAN'}`);
+        addLog(`• Tường lửa chia sẻ máy in: ${diag.firewall?.isOk ? '✅ Đã mở cổng' : '⚠️ File & Printer Sharing đang đóng'}`);
+        addLog(`• Bộ đệm Spooler: ${diag.spoolFiles?.isOk ? '✅ Sạch sẽ' : `⚠️ Phát hiện ${diag.spoolFiles?.count} file kẹt trong spool`}`);
+        addLog(`• Cổng mạng SNMP: ${diag.snmpPorts?.isOk ? '✅ Tắt SNMP (Hết Offline ảo)' : `⚠️ Có ${diag.snmpPorts?.badCount} cổng bật SNMP gây Offline ảo`}`);
+        addLog(`• Tổng máy in: ${diag.printers?.length || 0} (Offline: ${diag.offlinePrintersCount || 0})`);
+
+        if (diag.issueCount > 0) {
+          addLog(`⚠️ PHÁT HIỆN ${diag.issueCount} MỤC CẦN XỬ LÝ! Bấm nút "Sửa Tự Động Tất Cả Lỗi" để khắc phục triệt để.`);
+        } else {
+          addLog('🎉 XUẤT SẮC! Hệ thống in ấn và chia sẻ mạng LAN đạt chuẩn 100%, không còn lỗi nào!');
+        }
+      } else {
+        await loadPrinters();
+      }
+    } catch (err: unknown) {
+      addLog('❌ Lỗi trong quá trình chẩn đoán: ' + String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [loadPrinters]);
 
   const checkShareRpcStatus = useCallback(async () => {
     try {
@@ -412,16 +488,18 @@ export default function PrinterTab() {
       setLoading(true);
       addLog('🚀 Bắt đầu khắc phục lỗi chia sẻ máy in LAN (0x00000709 / 0x0000011b)...');
       addLog('① Đang cấu hình Registry: RpcUseNamedPipeProtocol = 1...');
-      addLog('② Đang cấu hình Registry: RpcAuthnLevelPrivacyEnabled = 0...');
-      addLog('③ Đang khởi động lại dịch vụ Print Spooler...');
+      addLog('② Đang cấu hình Registry: RpcAuthnLevelPrivacyEnabled = 0 & RpcAuthnLevelExemption = 1...');
+      addLog('③ Đang gỡ bỏ hạn chế Point and Print & mở Tường lửa...');
+      addLog('④ Đang khởi động lại dịch vụ Print Spooler...');
 
       const w = window as any;
       if (w.electronAPI?.printer?.fixShareError) {
         const res = await w.electronAPI.printer.fixShareError();
         if (res?.ok && res?.success) {
           addLog('✅ ' + (res.message || 'Đã cấu hình Registry và khởi động lại Spooler thành công!'));
-          addLog('💡 Thử kết nối / in lại ngay. Nếu máy in vẫn chưa nhận, vui lòng khởi động lại máy tính (Restart PC).');
           await checkShareRpcStatus();
+          await diagnoseAllPrinters(true);
+          await loadPrinters();
         } else {
           addLog('⚠️ ' + (res?.message || res?.error || 'Có thể cần quyền Administrator để ghi khóa Registry.'));
         }
@@ -434,6 +512,8 @@ export default function PrinterTab() {
         `);
         addLog('✅ Đã thực thi lệnh cấu hình Registry qua PowerShell.');
         await checkShareRpcStatus();
+        await diagnoseAllPrinters(true);
+        await loadPrinters();
       }
     } catch (err: unknown) {
       addLog('❌ Lỗi xử lý: ' + String(err));
@@ -473,76 +553,6 @@ export default function PrinterTab() {
       addLog('❌ Lỗi khởi động lại: ' + String(err));
     }
   };
-
-  const runPS = async (script: string) => {
-    const w = window as unknown as { electronAPI?: { runPowershell: (s: string) => Promise<string> } };
-    if (!w.electronAPI) {
-      throw new Error('Tính năng này chỉ chạy trên phần mềm Desktop gốc (không chạy trên Web).');
-    }
-    return await w.electronAPI.runPowershell(script);
-  };
-
-  const [diagnostics, setDiagnostics] = useState<DiagnosticResult | null>(null);
-  const [fixingAll, setFixingAll] = useState(false);
-
-  const loadPrinters = useCallback(async () => {
-    try {
-      setLoading(true);
-      addLog('Đang quét danh sách máy in hệ thống...');
-      const output = await runPS(`Get-Printer | Select-Object Name, PrinterStatus, JobCount, DriverName, PortName | ConvertTo-Json`);
-      if (output) {
-        const parsed = JSON.parse(output);
-        const list = Array.isArray(parsed) ? parsed : [parsed];
-        setPrinters(list);
-        addLog(`Tìm thấy ${list.length} máy in.`);
-      } else {
-        setPrinters([]);
-      }
-    } catch (err: unknown) {
-      const e = String(err);
-      addLog('Lỗi quét máy in: ' + e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // ── Quét & Chẩn Đoán Toàn Bộ Lỗi Hệ Thống Máy In ──────────────────────────
-  const diagnoseAllPrinters = useCallback(async () => {
-    try {
-      setLoading(true);
-      addLog('🔍 Đang Quét & Chẩn Đoán Toàn Diện Lỗi Máy In, Mạng LAN & Dịch Vụ Hệ Thống...');
-      const w = window as any;
-      if (w.electronAPI?.printer?.diagnoseAll) {
-        const diag: DiagnosticResult = await w.electronAPI.printer.diagnoseAll();
-        setDiagnostics(diag);
-        if (Array.isArray(diag.printers)) {
-          setPrinters(diag.printers);
-        }
-
-        // Ghi nhật ký phân tích chi tiết
-        addLog(`📊 KẾT QUẢ CHẨN ĐOÁN [${diag.timestamp || new Date().toLocaleTimeString()}]:`);
-        addLog(`• Dịch vụ Spooler: ${diag.spooler?.isOk ? '✅ Đang chạy bình thường' : `❌ LỖI (${diag.spooler?.status})`}`);
-        addLog(`• Chia sẻ mạng LAN (0x709/0x11b): ${diag.lanRpc?.isOk ? '✅ Chuẩn RPC Named Pipe' : '⚠️ Lỗi cấu hình RPC mạng'}`);
-        addLog(`• Driver Point & Print (0xbcb): ${diag.pointAndPrint?.isOk ? '✅ Không bị hạn chế' : '⚠️ Bị Group Policy chặn driver LAN'}`);
-        addLog(`• Tường lửa chia sẻ máy in: ${diag.firewall?.isOk ? '✅ Đã mở cổng' : '⚠️ File & Printer Sharing đang đóng'}`);
-        addLog(`• Bộ đệm Spooler: ${diag.spoolFiles?.isOk ? '✅ Sạch sẽ' : `⚠️ Phát hiện ${diag.spoolFiles?.count} file kẹt trong spool`}`);
-        addLog(`• Cổng mạng SNMP: ${diag.snmpPorts?.isOk ? '✅ Tắt SNMP (Hết Offline ảo)' : `⚠️ Có ${diag.snmpPorts?.badCount} cổng bật SNMP gây Offline ảo`}`);
-        addLog(`• Tổng máy in: ${diag.printers?.length || 0} (Offline: ${diag.offlinePrintersCount || 0})`);
-
-        if (diag.issueCount > 0) {
-          addLog(`⚠️ PHÁT HIỆN ${diag.issueCount} LỖI/CẢNH BÁO CẦN XỬ LÝ! Bấm nút "Sửa Tự Động Tất Cả Lỗi" để khắc phục triệt để.`);
-        } else {
-          addLog('🎉 XUẤT SẮC! Hệ thống in ấn và chia sẻ mạng LAN đạt chuẩn 100%, không phát hiện lỗi.');
-        }
-      } else {
-        await loadPrinters();
-      }
-    } catch (err: unknown) {
-      addLog('❌ Lỗi trong quá trình chẩn đoán: ' + String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [loadPrinters]);
 
   // ── Sửa Tự Động Toàn Bộ Lỗi 1-Click ─────────────────────────────────────
   const handleFixAllIssues = async () => {
@@ -672,6 +682,7 @@ export default function PrinterTab() {
 
       await loadJobs(printerName);
       await loadPrinters();
+      await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       addLog(`❌ Lỗi khi xóa lệnh in #${jobId}: ` + String(err));
     } finally {
@@ -707,6 +718,7 @@ export default function PrinterTab() {
 
       await loadJobs(printerName);
       await loadPrinters();
+      await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       addLog(`❌ Lỗi khi xóa toàn bộ lệnh in: ` + String(err));
     } finally {
@@ -750,9 +762,7 @@ export default function PrinterTab() {
       setSelectedPrinter(null);
       setJobs([]);
       await loadPrinters();
-      if (diagnostics) {
-        await diagnoseAllPrinters();
-      }
+      await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       addLog(`❌ Lỗi khi gỡ bỏ máy in: ` + String(err));
     } finally {
@@ -790,6 +800,7 @@ export default function PrinterTab() {
       } else {
         setJobs([]);
       }
+      await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       const e = String(err);
       addLog('❌ Lỗi gỡ kẹt: ' + e);
@@ -810,8 +821,9 @@ export default function PrinterTab() {
       addLog('Đang khởi động lại dịch vụ Spooler...');
       await runPS(`Start-Service -Name Spooler`);
       addLog('✅ Sửa lỗi ứng dụng thành công! Vui lòng mở lại ứng dụng và in thử.');
-      loadPrinters();
+      await loadPrinters();
       setJobs([]);
+      await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       const e = String(err);
       addLog('❌ Lỗi xử lý: ' + e);
@@ -848,6 +860,7 @@ export default function PrinterTab() {
         `);
         addLog('✅ Đã gỡ bỏ hạn chế Point and Print thành công.');
       }
+      await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       addLog('❌ Lỗi xử lý: ' + String(err));
     } finally {
@@ -882,6 +895,7 @@ export default function PrinterTab() {
         addLog('✅ Đã cấu hình đưa máy in về trạng thái Online.');
         await loadPrinters();
       }
+      await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       addLog('❌ Lỗi: ' + String(err));
     } finally {
@@ -914,6 +928,7 @@ export default function PrinterTab() {
         `);
         addLog('✅ Đã cấu hình chia sẻ mạng thành công.');
       }
+      await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       addLog('❌ Lỗi bật chia sẻ mạng: ' + String(err));
     } finally {
@@ -948,6 +963,7 @@ export default function PrinterTab() {
         addLog('✅ Đã phục hồi dịch vụ Spooler.');
         await loadPrinters();
       }
+      await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       addLog('❌ Lỗi phục hồi Spooler: ' + String(err));
     } finally {
@@ -1205,7 +1221,7 @@ export default function PrinterTab() {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <button 
             className="btn-primary" 
-            onClick={diagnoseAllPrinters} 
+            onClick={() => { void diagnoseAllPrinters(false); }} 
             disabled={loading} 
             style={{ background: '#4f46e5', borderColor: '#4f46e5', padding: '0.45rem 0.8rem', fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
             title="Quét và chẩn đoán toàn diện tất cả các lỗi máy in & dịch vụ hệ thống"
@@ -1308,7 +1324,7 @@ export default function PrinterTab() {
                   </button>
                 )}
                 <button
-                  onClick={diagnoseAllPrinters}
+                  onClick={() => { void diagnoseAllPrinters(false); }}
                   disabled={loading}
                   style={{ background: '#fff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px 8px', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
                 >

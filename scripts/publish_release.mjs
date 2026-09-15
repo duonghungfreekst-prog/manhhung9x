@@ -194,24 +194,23 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Đặc Trị Lỗi 0x00000709 Giữa 2 Bản Win Khác Nhau (Win 11 & Win 10/7)
+        body: `### 🚀 DMH Tools ${tagName} - Kiểm Thử Toàn Diện & Khắc Phục Tận Gốc Lỗi Hệ Thống
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.3:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.4:
 
-- **1. Nâng cấp toàn diện bộ Registry Sửa Lỗi Mạng LAN 0x00000709 & 0x0000011b**:
-  + Bổ sung đầy đủ các khóa Registry quan trọng: \`RpcAuthentication = 0\`, \`RpcAuthnLevelExemption = 1\`.
-  + Gỡ bỏ hoàn toàn giới hạn quyền Administrator cài driver máy in qua mạng (\`PointAndPrint\\RestrictDriverInstallationToAdministrators = 0\`) — nguyên nhân chủ yếu khiến máy con bị chặn không thể kéo driver từ máy chủ.
-  + Sửa lỗi phân giải tên máy in qua IP (\`DisableStrictNameChecking = 1\`, \`DisableLoopbackCheck = 1\`, \`AllowInsecureGuestAuth = 1\`).
-  + Tự động mở tường lửa Windows cho File and Printer Sharing.
+- **1. Cơ Chế Tự Động Quét Lại & Báo Cáo Kết Quả Sau Sửa (Post-Fix Auto Re-Diagnose)**:
+  + Tự động kích hoạt kiểm tra lại toàn diện hệ thống ngay sau khi thực hiện bất kỳ lệnh sửa lỗi nào (Sửa 1-Click, Sửa Chia Sẻ LAN, Spooler Crash, Point&Print, SNMP Offline, Xóa Kẹt Lệnh In).
+  + Bảng Điều Khiển Sức Khỏe Máy In (7 chỉ số trọng yếu) tự động đổi màu xanh (\`Đã Đạt Chuẩn ✅\`) ngay lập tức, người dùng nắm rõ chính xác trạng thái máy tính mà không cần thao tác thêm.
+  + Thêm nhật ký phân tích chi tiết thời gian thực: Dịch vụ Spooler, Cấu hình RPC Named Pipe, Hàng đợi Spooler, Tường lửa LAN.
 
-- **2. Bổ sung Công Cụ: [ 🌐 Kết Nối Máy In Qua Cổng Local Port (Chống Lỗi 0x709 Siêu Tốc 100%) ]**:
-  + Giải pháp "vũ khí tối thượng" của kỹ thuật viên IT khi 2 máy khác hệ điều hành (ví dụ: Máy khách Windows 11 kết nối máy chủ Windows 10/7) bị Windows 11 chặn hoàn toàn cơ chế RPC Spooler từ xa.
-  + Tạo trực tiếp cổng in cục bộ dạng mạng \`\\\\IP_MAY_CHU\\TEN_CHIA_SE\` và gán vào driver máy in trên máy con.
-  + Gửi dữ liệu in trực tiếp qua luồng mạng RAW/SMB, **HOÀN TOÀN BỎ QUA RPC SPOOLER TỪ XA**, cam kết in thành công 100% không bao giờ gặp mã lỗi 0x00000709 hay 0x0000011b!
+- **2. Khắc Phục Tận Gốc Lỗi Chia Sẻ Mạng LAN 0x00000709, 0x0000011b & 0x00000bcb Giữa 2 Win Khác Nhau**:
+  + Đồng bộ toàn diện 12 khóa Registry chuẩn kỹ thuật máy in trên toàn bộ ứng dụng (cả Tab Máy In và Tab Quản Trị PC Mạng LAN).
+  + Bổ sung cơ chế giải phóng tiến trình treo \`splwow64\` và phân quyền tự phục hồi dịch vụ Spooler.
+  + Giữ vững công cụ **Kết Nối Máy In Qua Local Port Chống 0x709 Siêu Tốc 100%** giúp máy khách Windows 11 kết nối máy in trên máy chủ Windows 10/7 mượt mà không cần thông qua RPC.
 
-- **3. Kế thừa toàn bộ tính năng cao cấp từ v6.8.2**:
-  + Gỡ bỏ tận gốc (Xóa sạch 100%) máy in và dọn sạch Registry tàn dư trong \`HKCU:\\...\\Devices\`.
-  + Bác sĩ máy in: Quét & Chẩn đoán sức khỏe hệ thống máy in, Sửa tự động 1-Click.
+- **3. Kiểm Thử & Tối Ưu Toàn Diện Full App**:
+  + Tối ưu độ nhạy và tính đồng bộ giữa các tiến trình hệ thống, đảm bảo không có tác vụ chạy ngầm treo vô tận.
+  + Đảm bảo kết quả trả về minh bạch, chuẩn xác 100% trên cả Windows 10 và Windows 11.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

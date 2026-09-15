@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.8.3",
-  "description": "DMH_Tools v6.8.3 - Đặc Trị Lỗi Chia Sẻ Máy In 0x00000709 Giữa 2 Win Khác Nhau: Nâng cấp bộ Registry RPC & Công cụ Kết Nối Máy In Qua Local Port Chống 0x709 Siêu Tốc 100%",
+  "version": "6.8.4",
+  "description": "DMH_Tools v6.8.4 - Kiểm Thử & Khắc Phục Tận Gốc Lỗi Toàn Ứng Dụng: Tự Động Quét Lại & Báo Cáo Kết Quả Sau Sửa (Post-Fix Verification), Đồng Bộ Toàn Diện Bộ Sửa Lỗi Máy In & Mạng LAN 0x709/0x11b/0xbcb",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
