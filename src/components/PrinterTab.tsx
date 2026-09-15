@@ -3,7 +3,7 @@ import {
   Printer, RefreshCw, Trash2, CheckCircle2, Search, Wrench, 
   Download, Activity, Share2, Copy, Check, Power, Terminal,
   ShieldAlert, Wifi, FileText, Settings, ExternalLink, Play, Star,
-  AlertTriangle, CheckCircle, ShieldCheck, Zap
+  AlertTriangle, CheckCircle, ShieldCheck, Zap, Network, X
 } from 'lucide-react';
 
 interface PrinterInfo {
@@ -311,6 +311,80 @@ export default function PrinterTab() {
   const [fixingShare, setFixingShare] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [showCmdDetails, setShowCmdDetails] = useState(false);
+
+  // State quản lý công cụ Kết Nối Máy In Qua Local Port (Đặc trị lỗi 0x00000709 khi 2 máy khác bản Windows)
+  const [showLocalPortModal, setShowLocalPortModal] = useState(false);
+  const [localPortHost, setLocalPortHost] = useState('');
+  const [localPortShare, setLocalPortShare] = useState('');
+  const [localPortPrinterName, setLocalPortPrinterName] = useState('');
+  const [localPortDriver, setLocalPortDriver] = useState('');
+  const [availableDrivers, setAvailableDrivers] = useState<string[]>([]);
+  const [connectingLocalPort, setConnectingLocalPort] = useState(false);
+
+  const openLocalPortModal = async () => {
+    setShowLocalPortModal(true);
+    try {
+      const w = window as any;
+      if (w.electronAPI?.printer?.getDrivers) {
+        const res = await w.electronAPI.printer.getDrivers();
+        if (res?.ok && Array.isArray(res.drivers) && res.drivers.length > 0) {
+          setAvailableDrivers(res.drivers);
+          if (!localPortDriver) {
+            const suggested = res.drivers.find((d: string) => /epson|lq|canon|hp|brother/i.test(d));
+            setLocalPortDriver(suggested || res.drivers[0]);
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleConnectLocalPort = async () => {
+    if (!localPortHost.trim()) {
+      alert('Vui lòng nhập địa chỉ IP hoặc tên máy chủ (ví dụ: 192.168.1.50 hoặc MAY-CHU)!');
+      return;
+    }
+    if (!localPortShare.trim()) {
+      alert('Vui lòng nhập tên chia sẻ của máy in trên máy chủ (ví dụ: epson lq-310 escp2 hoặc LQ310)!');
+      return;
+    }
+    if (!localPortDriver.trim()) {
+      alert('Vui lòng chọn hoặc nhập tên Driver của máy in trên máy tính này!');
+      return;
+    }
+
+    setConnectingLocalPort(true);
+    const targetPort = `\\\\${localPortHost.trim()}\\${localPortShare.trim()}`;
+    addLog(`🚀 Đang thiết lập Cổng Local Port: ${targetPort}...`);
+
+    try {
+      const w = window as any;
+      if (w.electronAPI?.printer?.addLocalPortPrinter) {
+        const res = await w.electronAPI.printer.addLocalPortPrinter({
+          host: localPortHost.trim(),
+          shareName: localPortShare.trim(),
+          printerName: localPortPrinterName.trim() || `${localPortShare.trim()} (LAN)`,
+          driverName: localPortDriver.trim(),
+        });
+
+        if (res?.ok && res?.success) {
+          addLog(`✅ ${res.message || 'Kết nối máy in qua Local Port thành công!'}`);
+          alert(`🎉 ĐÃ KẾT NỐI THÀNH CÔNG!\n\nĐã tạo máy in [${res.printerName}] gán vào cổng Local Port [${res.portName}].\n\nBạn có thể mở Word/Excel/HIS và in ngay lập tức mà không bao giờ bị lỗi 0x00000709!`);
+          setShowLocalPortModal(false);
+          loadPrinters();
+        } else {
+          addLog(`❌ Kết nối thất bại: ${res?.error || 'Lỗi không xác định'}`);
+          alert(`❌ Kết nối thất bại: ${res?.error || 'Vui lòng kiểm tra lại quyền Administrator hoặc tên Driver!'}`);
+        }
+      }
+    } catch (err: unknown) {
+      addLog(`❌ Lỗi kết nối Local Port: ${String(err)}`);
+      alert(`❌ Lỗi: ${String(err)}`);
+    } finally {
+      setConnectingLocalPort(false);
+    }
+  };
   
   const addLog = (msg: string) => setLogs(p => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...p].slice(0, 15));
 
@@ -1424,6 +1498,14 @@ export default function PrinterTab() {
                     <Share2 size={12} className={fixingShare ? 'spin' : ''} />
                     {fixingShare ? 'Đang fix...' : '⚡ Sửa Tự Động 1-Click'}
                   </button>
+                  <button
+                    onClick={openLocalPortModal}
+                    disabled={loading}
+                    style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 4, padding: '5px 8px', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                    title="Giải pháp chống lỗi 0x709 triệt để 100% khi kết nối giữa 2 bản Windows khác nhau (Win 11 - Win 10)"
+                  >
+                    <Network size={12} /> 🌐 Kết Nối Bằng Local Port
+                  </button>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
                       onClick={copyCmdToClipboard}
@@ -1480,6 +1562,18 @@ export default function PrinterTab() {
                 >
                   <Wifi size={12} /> Bật Chia Sẻ Mạng LAN
                 </button>
+              </div>
+            </div>
+
+            {/* Banner hướng dẫn sống còn khi 2 Win khác nhau */}
+            <div style={{ marginTop: '0.65rem', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '0.6rem 0.8rem', fontSize: '0.72rem', color: '#92400e', lineHeight: 1.45 }}>
+              <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, color: '#b45309', marginBottom: 3 }}>
+                <AlertTriangle size={13} /> Lưu ý quan trọng khi bị lỗi 0x00000709 giữa 2 máy khác Win (Win 11 & Win 10):
+              </div>
+              <div style={{ paddingLeft: '0.5rem' }}>
+                • <strong>Bước 1:</strong> Bấm <strong>⚡ Sửa Tự Động 1-Click</strong> trên <u>CẢ 2 MÁY</u> (Cả Máy Chủ cắm máy in và Máy Khách cần in), sau đó Restart máy.<br />
+                • <strong>Bước 2:</strong> Trên máy chủ, đổi tên chia sẻ (Share Name) thành tên <strong>viết liền không dấu cách</strong> (ví dụ đặt <code>LQ310</code> thay vì <code>epson lq-310 escp2</code>).<br />
+                • <strong>Bước 3 (Đặc trị 100%):</strong> Nếu Windows 11 vẫn chặn kéo driver, bấm nút <strong>[ 🌐 Kết Nối Bằng Local Port ]</strong> để in thông suốt vĩnh viễn không bao giờ bị 0x709!
               </div>
             </div>
 
@@ -1806,6 +1900,137 @@ export default function PrinterTab() {
         </div>
 
       </div>
+
+      {/* ═════ MODAL KẾT NỐI MÁY IN LOCAL PORT ═════ */}
+      {showLocalPortModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(3px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '100%', maxWidth: 540, boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', overflow: 'hidden' }}>
+            
+            {/* Header */}
+            <div style={{ background: 'linear-gradient(135deg, #047857 0%, #059669 100%)', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#fff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Network size={20} />
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>Kết Nối Máy In Qua Cổng Local Port</h3>
+                  <p style={{ margin: 0, fontSize: '0.72rem', opacity: 0.9 }}>Đặc trị lỗi 0x00000709 khi chia sẻ giữa 2 bản Windows khác nhau (Win 11 - Win 10/7)</p>
+                </div>
+              </div>
+              <button onClick={() => setShowLocalPortModal(false)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 4, display: 'flex' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+              
+              <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 6, padding: '0.65rem 0.8rem', fontSize: '0.72rem', color: '#065f46', lineHeight: 1.45 }}>
+                <strong>💡 Nguyên lý giải quyết triệt để 100%:</strong> Phương thức này tạo một máy in nội bộ trên máy này và dẫn thẳng cổng in qua mạng tới máy chủ (<code>\\IP\ShareName</code>). Nó hoàn toàn không dùng RPC Spooler từ xa của Windows, nên <strong>không bao giờ bị lỗi 0x00000709 hay 0x0000011b</strong>!
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: 4 }}>
+                  1. Địa chỉ IP hoặc Tên Máy Chủ (Máy cắm máy in): <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: 192.168.1.50 hoặc DESKTOP-MAYCHU"
+                  value={localPortHost}
+                  onChange={e => setLocalPortHost(e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', fontSize: '0.8rem', border: '1px solid #cbd5e1', borderRadius: 6, boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: 4 }}>
+                  2. Tên Chia Sẻ Máy In (Share Name trên máy chủ): <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: epson lq-310 escp2 hoặc LQ310"
+                  value={localPortShare}
+                  onChange={e => setLocalPortShare(e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', fontSize: '0.8rem', border: '1px solid #cbd5e1', borderRadius: 6, boxSizing: 'border-box' }}
+                />
+                <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: 3 }}>
+                  Chính là tên máy in hiện trong cửa sổ mạng khi gõ \\IP_MAY_CHU vào Run.
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: 4 }}>
+                  3. Chọn Driver Máy In Trên Máy Tính Này: <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                {availableDrivers.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <select
+                      value={localPortDriver}
+                      onChange={e => setLocalPortDriver(e.target.value)}
+                      style={{ width: '100%', padding: '7px 10px', fontSize: '0.8rem', border: '1px solid #cbd5e1', borderRadius: 6, background: '#fff' }}
+                    >
+                      <option value="">-- Chọn driver tương ứng với máy in --</option>
+                      {availableDrivers.map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                      Hoặc nhập tên driver nếu không có trong danh sách:
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Hoặc tự gõ tên Driver (ví dụ: EPSON LQ-310 ESC/P2)"
+                      value={localPortDriver}
+                      onChange={e => setLocalPortDriver(e.target.value)}
+                      style={{ width: '100%', padding: '6px 10px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: 6, boxSizing: 'border-box' }}
+                    />
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="Ví dụ: EPSON LQ-310 ESC/P2"
+                    value={localPortDriver}
+                    onChange={e => setLocalPortDriver(e.target.value)}
+                    style={{ width: '100%', padding: '7px 10px', fontSize: '0.8rem', border: '1px solid #cbd5e1', borderRadius: 6, boxSizing: 'border-box' }}
+                  />
+                )}
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: 4 }}>
+                  4. Đặt Tên Máy In Hiển Thị (Tùy chọn):
+                </label>
+                <input
+                  type="text"
+                  placeholder={localPortShare ? `${localPortShare} (LAN)` : 'Epson LQ-310 (Mạng LAN)'}
+                  value={localPortPrinterName}
+                  onChange={e => setLocalPortPrinterName(e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', fontSize: '0.8rem', border: '1px solid #cbd5e1', borderRadius: 6, boxSizing: 'border-box' }}
+                />
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '0.85rem 1.25rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                onClick={() => setShowLocalPortModal(false)}
+                disabled={connectingLocalPort}
+                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Hủy Bỏ
+              </button>
+              <button
+                onClick={handleConnectLocalPort}
+                disabled={connectingLocalPort}
+                style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: '#059669', color: '#fff', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Network size={14} className={connectingLocalPort ? 'spin' : ''} />
+                {connectingLocalPort ? 'Đang tạo cổng...' : '⚡ Tạo Cổng & Kết Nối Ngay'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }

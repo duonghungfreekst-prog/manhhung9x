@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.8.2",
-  "description": "DMH_Tools v6.8.2 - Bổ sung tính năng Gỡ Bỏ Tận Gốc (Xóa Sạch 100%) máy in & driver, dọn sạch registry tàn dư giúp máy in không còn xuất hiện trong Word/Excel/HIS sau khi gỡ",
+  "version": "6.8.3",
+  "description": "DMH_Tools v6.8.3 - Đặc Trị Lỗi Chia Sẻ Máy In 0x00000709 Giữa 2 Win Khác Nhau: Nâng cấp bộ Registry RPC & Công cụ Kết Nối Máy In Qua Local Port Chống 0x709 Siêu Tốc 100%",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

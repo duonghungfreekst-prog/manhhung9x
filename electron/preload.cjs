@@ -206,6 +206,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteJob:         (name, jobId) => ipcRenderer.invoke('printer:delete-job', name, jobId),
     clearQueue:        (name) => ipcRenderer.invoke('printer:clear-queue', name),
     uninstallPrinter:  (name, driverName) => ipcRenderer.invoke('printer:uninstall-printer', name, driverName),
+    getDrivers:        () => ipcRenderer.invoke('printer:get-drivers'),
+    addLocalPortPrinter: (params) => ipcRenderer.invoke('printer:add-local-port-printer', params),
   },
 
   // ── Native SQLite Database Suite ──────────────────────────────────────────

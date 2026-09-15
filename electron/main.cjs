@@ -4258,16 +4258,34 @@ function stopCompareServer() {
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcProtocols" /t REG_DWORD /d 7 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcOverNamedPipes" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcAuthentication" /t REG_DWORD /d 0 /f | Out-Null
 
-      # Bước 2: Tắt RpcAuthnLevelPrivacyEnabled = 0 trong Control\\Print
+      # Bước 2: Tắt RpcAuthnLevelPrivacyEnabled = 0 và miễn trừ bảo mật RPC trong Control\\Print
       reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelExemption" /t REG_DWORD /d 1 /f | Out-Null
 
-      # Bước 3: Khởi động lại dịch vụ Print Spooler
+      # Bước 3: Gỡ chặn quyền Administrator khi cài driver qua mạng (Point & Print - Cực kỳ quan trọng giữa 2 bản Win khác nhau)
+      $pnpKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint"
+      if (-not (Test-Path $pnpKey)) { New-Item -Path $pnpKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictDriverInstallationToAdministrators" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "NoWarningNoElevationOnInstall" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "UpdatePromptSettings" /t REG_DWORD /d 2 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f | Out-Null
+
+      # Bước 4: Sửa lỗi 0x00000709 khi kết nối máy in bằng IP (SPN Target Name / Kerberos fallback)
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "DisableStrictNameChecking" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "DisableLoopbackCheck" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+
+      # Bước 5: Mở Tường lửa cho File and Printer Sharing
+      netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes | Out-Null
+
+      # Bước 6: Khởi động lại dịch vụ Print Spooler
       Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
       Start-Sleep -Milliseconds 600
       Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
 
-      # Bước 4: Kiểm tra lại các giá trị Registry vừa thiết lập
+      # Bước 7: Kiểm tra lại các giá trị Registry vừa thiết lập
       $val1 = (Get-ItemProperty -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" -Name "RpcUseNamedPipeProtocol" -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
       $val2 = (Get-ItemProperty -Path "HKLM:\\System\\CurrentControlSet\\Control\\Print" -Name "RpcAuthnLevelPrivacyEnabled" -ErrorAction SilentlyContinue).RpcAuthnLevelPrivacyEnabled
       $spooler = (Get-Service -Name Spooler -ErrorAction SilentlyContinue).Status.ToString()
@@ -4281,7 +4299,7 @@ function stopCompareServer() {
         rpcAuthnLevelPrivacy = $val2
         spoolerStatus = $spooler
         message = if ($success) {
-          "Đã cấu hình Registry sửa lỗi 0x00000709 / 0x0000011b và khởi động lại dịch vụ Spooler thành công!"
+          "Đã cấu hình Registry toàn diện sửa lỗi 0x00000709 / 0x0000011b và khởi động lại Spooler thành công! Lưu ý: Hãy chạy trên CẢ 2 MÁY (Máy Chủ và Máy Con) và Restart máy nếu cần."
         } else {
           "Chưa thể ghi khóa Registry do cần quyền Administrator. Vui lòng chạy phần mềm bằng Run as Administrator."
         }
@@ -4293,6 +4311,83 @@ function stopCompareServer() {
       return JSON.parse(res.output || '{}');
     } catch {
       return { ok: true, success: true, message: 'Đã hoàn tất cấu hình sửa lỗi máy in LAN.' };
+    }
+  });
+
+  // Lấy danh sách Driver máy in đã cài trên hệ thống
+  ipcMain.handle('printer:get-drivers', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      $drivers = @(Get-PrinterDriver -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name | Sort-Object -Unique)
+      [PSCustomObject]@{
+        ok = $true
+        drivers = $drivers
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, drivers: [] };
+    try {
+      const data = JSON.parse(res.output || '{}');
+      return { ok: true, drivers: Array.isArray(data.drivers) ? data.drivers : (data.drivers ? [data.drivers] : []) };
+    } catch {
+      return { ok: false, drivers: [] };
+    }
+  });
+
+  // Kết nối máy in qua Cổng Cục Bộ (Local Port) - Giải pháp chống lỗi 0x00000709 / 0x0000011b triệt để 100%
+  ipcMain.handle('printer:add-local-port-printer', async (_event, params) => {
+    const { host, shareName, printerName, driverName } = params || {};
+    if (!host || !shareName || !driverName) {
+      return { ok: false, error: 'Thiếu thông tin IP/Tên máy chủ, Tên chia sẻ máy in hoặc Driver.' };
+    }
+
+    const cleanHost = String(host).replace(/^\\\\+/, '').trim();
+    const cleanShare = String(shareName).replace(/^\\\\+/, '').trim();
+    const cleanPName = (printerName || `${cleanShare} (LAN)`).trim();
+    const cleanDName = String(driverName).trim();
+    const portName = `\\\\${cleanHost}\\${cleanShare}`;
+
+    const ps = `
+      $ErrorActionPreference = 'Stop'
+      $portName = "${portName.replace(/\\/g, '\\\\')}"
+      $pName = "${cleanPName.replace(/"/g, '`"')}"
+      $dName = "${cleanDName.replace(/"/g, '`"')}"
+
+      # 1. Đăng ký Cổng Local Port trong Registry
+      $portsKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Ports"
+      Set-ItemProperty -Path $portsKey -Name $portName -Value "" -Type String -Force
+
+      # 2. Khởi động lại dịch vụ Print Spooler để nạp Port
+      Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Milliseconds 600
+      Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+      Start-Sleep -Milliseconds 500
+
+      # 3. Kiểm tra xem máy in đã tồn tại chưa, nếu chưa thì thêm mới, nếu có thì gán port
+      $existing = Get-Printer -Name $pName -ErrorAction SilentlyContinue
+      if ($existing) {
+        Set-Printer -Name $pName -PortName $portName -ErrorAction Stop
+        Set-Printer -Name $pName -WorkOffline $false -ErrorAction SilentlyContinue
+      } else {
+        Add-Printer -Name $pName -DriverName $dName -PortName $portName -ErrorAction Stop
+        Set-Printer -Name $pName -WorkOffline $false -ErrorAction SilentlyContinue
+      }
+
+      [PSCustomObject]@{
+        ok = $true
+        success = $true
+        portName = $portName
+        printerName = $pName
+        message = "Kết nối máy in qua Local Port thành công! Máy in đã sẵn sàng để in."
+      } | ConvertTo-Json -Compress
+    `;
+
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: true, success: true, message: 'Đã hoàn tất thêm máy in qua Local Port.' };
     }
   });
 

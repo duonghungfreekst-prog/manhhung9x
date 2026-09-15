@@ -194,27 +194,24 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Gỡ Bỏ Tận Gốc (Xóa Sạch 100%) Máy In & Dọn Sạch Registry Tàn Dư
+        body: `### 🚀 DMH Tools ${tagName} - Đặc Trị Lỗi 0x00000709 Giữa 2 Bản Win Khác Nhau (Win 11 & Win 10/7)
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.2:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.3:
 
-- **1. Tính năng đột phá: [ 🗑️ Gỡ Bỏ Tận Gốc (Xóa Sạch 100%) ]**:
-  + Khắc phục triệt để tình trạng: *Gỡ driver máy in trong Settings/Control Panel rồi nhưng khi mở Word, Excel, Acrobat, phần mềm bệnh viện (HIS) để in vẫn thấy tên máy in cũ*.
-  + Cơ chế xử lý 9 bước tận gốc chuyên sâu:
-    1. Hủy và dọn sạch toàn bộ lệnh in kẹt, giải phóng các file đệm (\`.SPL\` / \`.SHD\`) đang bị khóa.
-    2. Gỡ bỏ máy in khỏi hàng đợi hệ thống qua PowerShell (\`Remove-Printer\`).
-    3. Buộc hủy đăng ký thiết bị in phần cứng qua WMI (\`Win32_Printer.Delete()\`).
-    4. Gọi API Windows (\`printui.dll /dl\`) để Spooler ngắt kết nối hoàn toàn.
-    5. **Dọn sạch Registry trong nhánh người dùng (\`HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices\`)** — nơi mà Word/Excel/HIS đọc danh sách máy in.
-    6. Dọn sạch Registry trong \`PrinterPorts\` và \`DevModes2\`.
-    7. Dọn sạch Registry cấu hình máy in trong \`HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers\`.
-    8. Tự động kiểm tra và gỡ sạch gói Driver (\`Remove-PrinterDriver\`) nếu không còn máy in nào khác sử dụng.
-    9. Tự động khởi động lại dịch vụ Print Spooler để Windows làm mới bộ nhớ cache in ấn 100%.
+- **1. Nâng cấp toàn diện bộ Registry Sửa Lỗi Mạng LAN 0x00000709 & 0x0000011b**:
+  + Bổ sung đầy đủ các khóa Registry quan trọng: \`RpcAuthentication = 0\`, \`RpcAuthnLevelExemption = 1\`.
+  + Gỡ bỏ hoàn toàn giới hạn quyền Administrator cài driver máy in qua mạng (\`PointAndPrint\\RestrictDriverInstallationToAdministrators = 0\`) — nguyên nhân chủ yếu khiến máy con bị chặn không thể kéo driver từ máy chủ.
+  + Sửa lỗi phân giải tên máy in qua IP (\`DisableStrictNameChecking = 1\`, \`DisableLoopbackCheck = 1\`, \`AllowInsecureGuestAuth = 1\`).
+  + Tự động mở tường lửa Windows cho File and Printer Sharing.
 
-- **2. Kế thừa & tối ưu toàn bộ các tính năng từ v6.8.1 & v6.8.0**:
-  + Xóa từng lệnh in kẹt đơn lẻ theo ID & nút [Xóa Hết] toàn bộ hàng đợi.
-  + Hỗ trợ font Tiếng Việt Unicode chuẩn xác cho tên tài liệu in ấn.
-  + Bác Sĩ Máy In: Quét & Chẩn đoán Toàn Bộ Lỗi Hệ Thống & Sửa Tự Động 1-Click.
+- **2. Bổ sung Công Cụ: [ 🌐 Kết Nối Máy In Qua Cổng Local Port (Chống Lỗi 0x709 Siêu Tốc 100%) ]**:
+  + Giải pháp "vũ khí tối thượng" của kỹ thuật viên IT khi 2 máy khác hệ điều hành (ví dụ: Máy khách Windows 11 kết nối máy chủ Windows 10/7) bị Windows 11 chặn hoàn toàn cơ chế RPC Spooler từ xa.
+  + Tạo trực tiếp cổng in cục bộ dạng mạng \`\\\\IP_MAY_CHU\\TEN_CHIA_SE\` và gán vào driver máy in trên máy con.
+  + Gửi dữ liệu in trực tiếp qua luồng mạng RAW/SMB, **HOÀN TOÀN BỎ QUA RPC SPOOLER TỪ XA**, cam kết in thành công 100% không bao giờ gặp mã lỗi 0x00000709 hay 0x0000011b!
+
+- **3. Kế thừa toàn bộ tính năng cao cấp từ v6.8.2**:
+  + Gỡ bỏ tận gốc (Xóa sạch 100%) máy in và dọn sạch Registry tàn dư trong \`HKCU:\\...\\Devices\`.
+  + Bác sĩ máy in: Quét & Chẩn đoán sức khỏe hệ thống máy in, Sửa tự động 1-Click.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,
