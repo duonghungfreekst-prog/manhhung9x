@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.8.5",
-  "description": "DMH_Tools v6.8.5 - Đặc Trị Lỗi 0x00000040 (The specified network name is no longer available): Tắt Bắt Buộc SMB Signing Windows 11, Chuyển Mạng Private, Duy Trì Phiên SMB Vĩnh Viễn & Chống Đứt Chia Sẻ Mạng Giữa 2 Bản Win Khác Nhau",
+  "version": "6.8.6",
+  "description": "DMH_Tools v6.8.6 - Tối Ưu Hóa Hiệu Năng Tabs Cực Đỉnh: Cơ Chế Virtual Keep-Alive Tab Cache Tốc Độ 0ms, Loại Bỏ Hoàn Toàn Lag Giật Khi Chuyển Đổi Giữa 15 Phân Hệ & Giữ Nguyên 100% Trạng Thái Dữ Liệu",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

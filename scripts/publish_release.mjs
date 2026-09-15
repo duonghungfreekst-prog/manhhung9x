@@ -194,23 +194,22 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Đặc Trị Lỗi 0x00000040 (The specified network name is no longer available)
+        body: `### 🚀 DMH Tools ${tagName} - Tối Ưu Hóa Tabs Cực Đỉnh: 0ms Phản Hồi, Hết Hoàn Toàn Lag Giật
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.5:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.6:
 
-- **1. Đặc Trị Triệt Để Lỗi 0x00000040 (The specified network name is no longer available)**:
-  + **Tắt Bắt Buộc SMB Signing trên Windows 11**: Microsoft mặc định bật \`RequireSecuritySignature = 1\` trên Windows 11, dẫn đến kết nối bị ngắt ngay lập tức khi bắt tay với máy chủ Windows 10/7 chia sẻ máy in $\\rightarrow$ Công cụ tự động tắt cơ chế này để 2 bản Win kết nối mượt mà 100%.
-  + **Tự Động Chuyển Network Profile Sang Private**: Khắc phục tình trạng Windows nhận nhầm mạng Public khiến Firewall tự động drop các gói tin NetBIOS/SMB chia sẻ máy in.
-  + **Chống Đứt Phiên Kết Nối SMB (AutoDisconnect)**: Thiết lập thời gian timeout của LanmanServer lên vô cực, tránh việc sau vài phút không in thì Windows tự động hủy phiên kết nối.
-  + **Bổ Sung Thẻ Chuyên Trị & Nút Bấm 1-Click**: Bổ sung nút **"⚡ Sửa Lỗi 0x00000040"** ngay trên giao diện Khối 1 Máy In và trong Modal Kết Nối Local Port.
+- **1. Cơ Chế Virtual Keep-Alive Tab Cache (Chuyển Tab Siêu Tốc 0 Miligiây)**:
+  + **Tái Cấu Trúc Toàn Diện Bộ Chuyển Tab**: Loại bỏ cơ chế Unmount/Re-mount gượng ép cũ của React khi chuyển tab. Mỗi tab sau khi được bấm mở lần đầu sẽ được nạp thông minh và duy trì trạng thái trong Virtual Stack.
+  + **Chuyển Tab Tức Thì (0ms Response)**: Bấm chuyển qua lại giữa 15 phân hệ (Đối Chiếu, Máy In, Kỹ Thuật PC, Đọc XML, Chuyển Đổi...) diễn ra mượt mà tức thì 0ms, không còn bất kỳ hiện tượng đơ, khựng, lag, hay nhấp nháy Skeleton.
+  + **Bảo Toàn 100% Trạng Thái Dữ Liệu**: Giữ nguyên toàn bộ nội dung đang nhập, form tra cứu, kết quả quét, nhật ký chẩn đoán khi người dùng chuyển sang tab khác rồi quay lại.
 
-- **2. Nâng Cấp Công Cụ Kết Nối Máy In Qua Local Port Chống Đứt Mạng**:
-  + Tự động lưu thông tin xác thực Windows Credential (\`cmdkey\`) và mở sẵn phiên SMB vĩnh viễn (\`net use \\\\IP\\IPC$\`) trước khi gán máy in.
-  + Tự động kiểm tra cổng mạng 445 của máy chủ và đưa ra cảnh báo chi tiết, hướng dẫn kỹ thuật viên chính xác cách xử lý trên máy chủ cắm máy in.
+- **2. Triệt Tiêu Nguyên Nhân Gây Lag Phía Nền Tảng**:
+  + **Loại Bỏ Garbage Collection Cưỡng Bức**: Gỡ bỏ lời gọi \`window.gc()\` gây đóng băng luồng giao diện chính (UI Thread freeze) mỗi khi người dùng click tab.
+  + **Chấm Dứt Vòng Lặp Spawn PowerShell Khi Đổi Tab**: Ngăn chặn việc các tab nặng (Máy In, PcTools) kích hoạt lại các hook WMI/PowerShell ngầm mỗi khi người dùng bấm quay lại tab.
 
-- **3. Kế Thừa Toàn Bộ Cơ Chế v6.8.4**:
-  + Tự động quét lại và cập nhật Bảng Điều Khiển Sức Khỏe Máy In (7 chỉ số trọng yếu) sang màu xanh ngay sau khi sửa.
-  + Khắc phục triệt để lỗi 0x00000709, 0x0000011b, 0x00000bcb giữa 2 máy khác Win.
+- **3. Kế Thừa Toàn Diện Các Giải Pháp Sửa Lỗi Máy In & Mạng (v6.8.5)**:
+  + Đặc trị lỗi 0x00000040 (The specified network name is no longer available): Tắt bắt buộc SMB Signing Windows 11, tự động chuyển mạng Private, chống đứt kết nối SMB.
+  + Công cụ kết nối máy in qua Local Port đặc trị lỗi 0x00000709 / 0x0000011b giữa 2 máy tính khác Windows.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

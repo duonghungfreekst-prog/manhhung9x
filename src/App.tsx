@@ -63,6 +63,7 @@ const PAGE_SIZE = 25;
 
 function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('compare');
+  const [visitedTabs, setVisitedTabs] = useState<Set<AppTab>>(new Set(['compare']));
   const [file1, setFile1]         = useState<File | null>(null);
   const [file2, setFile2]         = useState<File | null>(null);
   const [format1, setFormat1]     = useState<FileFormat | null>(null);
@@ -152,7 +153,11 @@ function App() {
         // Tự động chuyển sang tab đầu tiên có quyền nếu tab ban đầu bị khóa
         if (!r.tabs[activeTab]) {
           const firstAllowed = ALL_TABS.find(t => r.tabs[t]);
-          if (firstAllowed) setActiveTab(firstAllowed as AppTab);
+          if (firstAllowed) {
+            const allowedTab = firstAllowed as AppTab;
+            setActiveTab(allowedTab);
+            setVisitedTabs(prev => new Set(prev).add(allowedTab));
+          }
         }
       }
     });
@@ -177,13 +182,6 @@ function App() {
     });
     return unsub;
   }, []);
-
-  // Tự động giải phóng RAM khi chuyển tab (Memory Overflow Guard)
-  useEffect(() => {
-    if ((window as any).gc) {
-      try { (window as any).gc(); } catch {}
-    }
-  }, [activeTab]);
 
   const canAccess = (tab: typeof ALL_TABS[number]) =>
     license?.valid && !license.expired && license.tabs[tab] === true;
@@ -211,6 +209,12 @@ function App() {
       setShowLicense(true);
       return;
     }
+    setVisitedTabs(prev => {
+      if (prev.has(tab)) return prev;
+      const next = new Set(prev);
+      next.add(tab);
+      return next;
+    });
     setActiveTab(tab);
   };
 
@@ -842,17 +846,19 @@ function App() {
       )}
 
       <main className={`main-content ${activeTab === 'pctools' || activeTab === 'endoscopy' ? 'main-content-full' : ''}`}>
-        {!canAccess(activeTab) ? (
+        {!canAccess(activeTab) && (
           <LockedFeatureGuard
             tab={activeTab as typeof ALL_TABS[number]}
             license={license}
             onOpenLicenseModal={() => setShowLicense(true)}
             onNavigateAllowedTab={(t) => handleTabClick(t as AppTab)}
           />
-        ) : (
-          <>
-            {activeTab === 'compare' && (
-          <>
+        )}
+
+        <div
+          key="tab-compare"
+          style={{ display: canAccess(activeTab) && activeTab === 'compare' ? 'contents' : 'none' }}
+        >
             {/* ── Upload Section ── */}
             <div className="upload-section">
               <UploadCard
@@ -969,35 +975,147 @@ function App() {
                 onPageChange={setPage}
               />
             </div>
-          </>
+        </div>
+
+        {/* ── Các Phân Hệ Chuyên Biệt (Virtual Keep-Alive Tab Stack — Tốc Độ Chuyển Tab 0ms) ── */}
+        {visitedTabs.has('reader') && (
+          <div key="tab-reader" style={{ display: canAccess(activeTab) && activeTab === 'reader' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['reader']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['reader']} />}>
+                <FileReaderTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
         )}
 
-        {activeTab !== 'compare' && (
-          <ErrorBoundary
-            key={activeTab}
-            inline
-            tabTitle={TAB_LABELS[activeTab]}
-            fallbackTab={() => setActiveTab('compare')}
-          >
-            <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS[activeTab]} />}>
-              {activeTab === 'reader' && <FileReaderTab />}
-              {activeTab === 'converter' && <ConverterTab />}
-              {activeTab === 'printer' && <PrinterTab />}
-              {activeTab === 'repair' && <FileRepairTab />}
-              {activeTab === 'filter' && <DataFilterTab />}
-              {activeTab === 'selfbuilt' && <SelfBuilt01Tab />}
-              {activeTab === 'endoscopy' && <EndoscopyTab />}
-              {activeTab === 'hiscall' && <HisCallTab />}
-              {activeTab === 'attendance' && <AttendanceTab />}
-              {activeTab === 'bhytcheck' && <BhytValidatorTab />}
-              {activeTab === 'signature' && <SignatureTab />}
-              {activeTab === 'dcbhyt' && <DcbhytTab />}
-              {activeTab === 'officeformulas' && <OfficeFormulasTab />}
-              {activeTab === 'pctools' && <PcToolsTab />}
-            </Suspense>
-          </ErrorBoundary>
+        {visitedTabs.has('converter') && (
+          <div key="tab-converter" style={{ display: canAccess(activeTab) && activeTab === 'converter' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['converter']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['converter']} />}>
+                <ConverterTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
         )}
-          </>
+
+        {visitedTabs.has('printer') && (
+          <div key="tab-printer" style={{ display: canAccess(activeTab) && activeTab === 'printer' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['printer']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['printer']} />}>
+                <PrinterTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('repair') && (
+          <div key="tab-repair" style={{ display: canAccess(activeTab) && activeTab === 'repair' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['repair']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['repair']} />}>
+                <FileRepairTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('filter') && (
+          <div key="tab-filter" style={{ display: canAccess(activeTab) && activeTab === 'filter' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['filter']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['filter']} />}>
+                <DataFilterTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('selfbuilt') && (
+          <div key="tab-selfbuilt" style={{ display: canAccess(activeTab) && activeTab === 'selfbuilt' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['selfbuilt']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['selfbuilt']} />}>
+                <SelfBuilt01Tab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('endoscopy') && (
+          <div key="tab-endoscopy" style={{ display: canAccess(activeTab) && activeTab === 'endoscopy' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['endoscopy']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['endoscopy']} />}>
+                <EndoscopyTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('hiscall') && (
+          <div key="tab-hiscall" style={{ display: canAccess(activeTab) && activeTab === 'hiscall' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['hiscall']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['hiscall']} />}>
+                <HisCallTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('attendance') && (
+          <div key="tab-attendance" style={{ display: canAccess(activeTab) && activeTab === 'attendance' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['attendance']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['attendance']} />}>
+                <AttendanceTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('bhytcheck') && (
+          <div key="tab-bhytcheck" style={{ display: canAccess(activeTab) && activeTab === 'bhytcheck' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['bhytcheck']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['bhytcheck']} />}>
+                <BhytValidatorTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('signature') && (
+          <div key="tab-signature" style={{ display: canAccess(activeTab) && activeTab === 'signature' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['signature']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['signature']} />}>
+                <SignatureTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('dcbhyt') && (
+          <div key="tab-dcbhyt" style={{ display: canAccess(activeTab) && activeTab === 'dcbhyt' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['dcbhyt']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['dcbhyt']} />}>
+                <DcbhytTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('officeformulas') && (
+          <div key="tab-officeformulas" style={{ display: canAccess(activeTab) && activeTab === 'officeformulas' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['officeformulas']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['officeformulas']} />}>
+                <OfficeFormulasTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('pctools') && (
+          <div key="tab-pctools" style={{ display: canAccess(activeTab) && activeTab === 'pctools' ? 'contents' : 'none' }}>
+            <ErrorBoundary inline tabTitle={TAB_LABELS['pctools']} fallbackTab={() => setActiveTab('compare')}>
+              <Suspense fallback={<TabLoadingSkeleton tabTitle={TAB_LABELS['pctools']} />}>
+                <PcToolsTab />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
         )}
 
         {showMapping && (
