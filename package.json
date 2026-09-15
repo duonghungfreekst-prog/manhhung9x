@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.8.6",
-  "description": "DMH_Tools v6.8.6 - Tối Ưu Hóa Hiệu Năng Tabs Cực Đỉnh: Cơ Chế Virtual Keep-Alive Tab Cache Tốc Độ 0ms, Loại Bỏ Hoàn Toàn Lag Giật Khi Chuyển Đổi Giữa 15 Phân Hệ & Giữ Nguyên 100% Trạng Thái Dữ Liệu",
+  "version": "6.8.7",
+  "description": "DMH_Tools v6.8.7 - Đặc Trị Lỗi Chia Sẻ Máy In LAN & Nâng Cấp Nâng Quyền Administrator Tự Động: Tự Động UAC Elevation Cho Khóa Registry HKLM (0x709, 0x11b, 0xbcb), Đồng Bộ Cặp Khóa Point & Print Chuẩn Xác 100%, Đảm Bảo Tác Động Thực Tế & Xác Thực Xanh Toàn Bộ Hệ Thống",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

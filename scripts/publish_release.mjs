@@ -194,22 +194,21 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Tối Ưu Hóa Tabs Cực Đỉnh: 0ms Phản Hồi, Hết Hoàn Toàn Lag Giật
+        body: `### 🚀 DMH Tools ${tagName} - Đặc Trị Lỗi Máy In LAN & Nâng Cấp Tự Động UAC Administrator Thật 100%
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.6:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.8.7:
 
-- **1. Cơ Chế Virtual Keep-Alive Tab Cache (Chuyển Tab Siêu Tốc 0 Miligiây)**:
-  + **Tái Cấu Trúc Toàn Diện Bộ Chuyển Tab**: Loại bỏ cơ chế Unmount/Re-mount gượng ép cũ của React khi chuyển tab. Mỗi tab sau khi được bấm mở lần đầu sẽ được nạp thông minh và duy trì trạng thái trong Virtual Stack.
-  + **Chuyển Tab Tức Thì (0ms Response)**: Bấm chuyển qua lại giữa 15 phân hệ (Đối Chiếu, Máy In, Kỹ Thuật PC, Đọc XML, Chuyển Đổi...) diễn ra mượt mà tức thì 0ms, không còn bất kỳ hiện tượng đơ, khựng, lag, hay nhấp nháy Skeleton.
-  + **Bảo Toàn 100% Trạng Thái Dữ Liệu**: Giữ nguyên toàn bộ nội dung đang nhập, form tra cứu, kết quả quét, nhật ký chẩn đoán khi người dùng chuyển sang tab khác rồi quay lại.
+- **1. Tự Động Nâng Quyền Administrator (UAC Elevation Guard) Cho Thao Tác Registry**:
+  + **Tự Động Kích Hoạt Quyền Admin Qua UAC**: Tất cả các lệnh sửa lỗi máy in LAN (0x709, 0x11b, 0xbcb, 0x40) tác động đến nhánh hệ thống \`HKLM\` nay được bọc qua cơ chế tự động nâng quyền \`runElevatedPSToolScript\`. Windows sẽ cấp quyền tối cao để ghi trực tiếp vào Registry của máy chủ và máy con.
+  + **Chấm Dứt Hoàn Toàn Lỗi Bị Windows Chặn Ngầm**: Loại bỏ hiện tượng lệnh ghi Registry bị Windows từ chối ngầm (\`Access is denied\`), đảm bảo các khóa RPC và Point & Print được áp dụng thực tế 100% vào hệ điều hành.
 
-- **2. Triệt Tiêu Nguyên Nhân Gây Lag Phía Nền Tảng**:
-  + **Loại Bỏ Garbage Collection Cưỡng Bức**: Gỡ bỏ lời gọi \`window.gc()\` gây đóng băng luồng giao diện chính (UI Thread freeze) mỗi khi người dùng click tab.
-  + **Chấm Dứt Vòng Lặp Spawn PowerShell Khi Đổi Tab**: Ngăn chặn việc các tab nặng (Máy In, PcTools) kích hoạt lại các hook WMI/PowerShell ngầm mỗi khi người dùng bấm quay lại tab.
+- **2. Đồng Bộ Chuẩn Cặp Khóa Point & Print (Lỗi 0x00000bcb)**:
+  + **Sửa Lệch Tên Registry Khóa GPO**: Ghi đồng thời và kiểm tra chuẩn cả 2 biến \`RestrictDriverInstallationToAdministrators\` và \`RestrictedDriver_InstallationAttribute\`.
+  + **Đồng Bộ Hoàn Hảo Giữa Ghi & Chẩn Đoán**: Hệ thống tự động xác nhận sau khi fix và chuyển toàn bộ chỉ số sang **MÀU XANH** chuẩn xác, phản ánh đúng tình trạng thực tế của máy.
 
-- **3. Kế Thừa Toàn Diện Các Giải Pháp Sửa Lỗi Máy In & Mạng (v6.8.5)**:
-  + Đặc trị lỗi 0x00000040 (The specified network name is no longer available): Tắt bắt buộc SMB Signing Windows 11, tự động chuyển mạng Private, chống đứt kết nối SMB.
-  + Công cụ kết nối máy in qua Local Port đặc trị lỗi 0x00000709 / 0x0000011b giữa 2 máy tính khác Windows.
+- **3. Cải Tiến Phản Hồi Trực Quan & Trạng Thái Máy In**:
+  + Khi người dùng bấm "Sửa Tự Động 1-Click" hoặc sửa từng lỗi thành phần, hệ thống tự động cập nhật ngay trạng thái xanh, thông báo rõ ràng các khóa Registry và dịch vụ đã sửa.
+  + Kế thừa toàn diện bộ đệm Virtual Keep-Alive Tab Cache tốc độ 0ms từ v6.8.6 và giải pháp chia sẻ Local Port qua mạng LAN giữa 2 bản Windows khác nhau.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

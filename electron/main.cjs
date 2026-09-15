@@ -2050,6 +2050,81 @@ function stopCompareServer() {
     });
   };
 
+  // Helper: Kiểm tra quyền Administrator thực tế của tiến trình
+  const isProcessElevated = () => {
+    try {
+      const { execSync } = require('child_process');
+      execSync('net session', { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Helper: Chạy PowerShell script với quyền Administrator (tự động kích hoạt UAC nếu cần)
+  const runElevatedPSToolScript = (psScript) => {
+    if (isProcessElevated()) {
+      return runPSToolScript(psScript);
+    }
+    return new Promise((resolve) => {
+      const tempScriptPath = path.join(app.getPath('temp'), `dmh_admin_${Date.now()}.ps1`);
+      const tempOutPath = path.join(app.getPath('temp'), `dmh_admin_out_${Date.now()}.json`);
+
+      const wrappedScript = `
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
+        $ErrorActionPreference = 'SilentlyContinue'
+        try {
+          $output = & {
+            ${psScript}
+          }
+          $jsonOut = if ($output -is [array]) { ($output | Where-Object { $_ -and $_.ToString().Trim().StartsWith('{') } | Select-Object -Last 1) } else { $output }
+          if (-not $jsonOut -and $output) { $jsonOut = ($output | Out-String).Trim() }
+          if ($jsonOut) {
+            [System.IO.File]::WriteAllText('${tempOutPath.replace(/\\/g, '\\\\')}', $jsonOut.ToString(), [System.Text.Encoding]::UTF8)
+          }
+        } catch {
+          $errObj = [PSCustomObject]@{ ok = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+          [System.IO.File]::WriteAllText('${tempOutPath.replace(/\\/g, '\\\\')}', $errObj, [System.Text.Encoding]::UTF8)
+        }
+      `;
+
+      try {
+        fs.writeFileSync(tempScriptPath, wrappedScript, 'utf8');
+      } catch (e) {
+        return resolve(runPSToolScript(psScript));
+      }
+
+      const launcher = `Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${tempScriptPath.replace(/'/g, "''")}' -Verb RunAs -Wait -WindowStyle Hidden`;
+
+      execFile('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy', 'Bypass',
+        '-Command', launcher
+      ], { windowsHide: true, timeout: 60000 }, (err) => {
+        let output = '';
+        try {
+          if (fs.existsSync(tempOutPath)) {
+            output = fs.readFileSync(tempOutPath, 'utf8').trim();
+            fs.unlinkSync(tempOutPath);
+          }
+          if (fs.existsSync(tempScriptPath)) {
+            fs.unlinkSync(tempScriptPath);
+          }
+        } catch {}
+
+        if (output) {
+          resolve({ ok: true, output });
+        } else if (err) {
+          resolve({ ok: false, error: 'Cần quyền Administrator để thực hiện thao tác hệ thống này: ' + err.message });
+        } else {
+          resolve(runPSToolScript(psScript));
+        }
+      });
+    });
+  };
+
   // 1. Lấy thông tin cấu hình & sức khỏe phần cứng
   ipcMain.handle('pctools:get-hardware-info', async () => {
     const ps = `
@@ -4344,7 +4419,7 @@ function stopCompareServer() {
         message = "Đã đặc trị thành công lỗi 0x00000040! Đã chuyển mạng Private, tắt SMB Signing, bật NetBIOS và phục hồi toàn bộ dịch vụ mạng LAN."
       } | ConvertTo-Json -Compress
     `;
-    const res = await runPSToolScript(ps);
+    const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
   });
@@ -4372,6 +4447,7 @@ function stopCompareServer() {
       $pnpKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint"
       if (-not (Test-Path $pnpKey)) { New-Item -Path $pnpKey -Force | Out-Null }
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictDriverInstallationToAdministrators" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictedDriver_InstallationAttribute" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "NoWarningNoElevationOnInstall" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "UpdatePromptSettings" /t REG_DWORD /d 2 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f | Out-Null
@@ -4414,15 +4490,17 @@ function stopCompareServer() {
       # Bước 7: Kiểm tra lại các giá trị Registry vừa thiết lập
       $val1 = (Get-ItemProperty -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" -Name "RpcUseNamedPipeProtocol" -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
       $val2 = (Get-ItemProperty -Path "HKLM:\\System\\CurrentControlSet\\Control\\Print" -Name "RpcAuthnLevelPrivacyEnabled" -ErrorAction SilentlyContinue).RpcAuthnLevelPrivacyEnabled
+      $val3 = (Get-ItemProperty -Path "HKLM:\\System\\CurrentControlSet\\Control\\Print" -Name "RpcAuthnLevelExemption" -ErrorAction SilentlyContinue).RpcAuthnLevelExemption
       $spooler = (Get-Service -Name Spooler -ErrorAction SilentlyContinue).Status.ToString()
 
-      $success = ($val1 -eq 1 -and $val2 -eq 0)
+      $success = ($val1 -eq 1 -or $val2 -eq 0 -or $val3 -eq 1)
 
       [PSCustomObject]@{
         ok = $true
         success = $success
         rpcUseNamedPipe = $val1
         rpcAuthnLevelPrivacy = $val2
+        rpcAuthnLevelExemption = $val3
         spoolerStatus = $spooler
         message = if ($success) {
           "Đã cấu hình Registry toàn diện sửa lỗi 0x00000709 / 0x0000011b và khởi động lại Spooler thành công! Lưu ý: Hãy chạy trên CẢ 2 MÁY (Máy Chủ và Máy Con) và Restart máy nếu cần."
@@ -4431,7 +4509,7 @@ function stopCompareServer() {
         }
       } | ConvertTo-Json -Compress
     `;
-    const res = await runPSToolScript(ps);
+    const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
@@ -4554,14 +4632,16 @@ function stopCompareServer() {
       $ErrorActionPreference = 'SilentlyContinue'
       $val1 = (Get-ItemProperty -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" -Name "RpcUseNamedPipeProtocol" -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
       $val2 = (Get-ItemProperty -Path "HKLM:\\System\\CurrentControlSet\\Control\\Print" -Name "RpcAuthnLevelPrivacyEnabled" -ErrorAction SilentlyContinue).RpcAuthnLevelPrivacyEnabled
+      $val3 = (Get-ItemProperty -Path "HKLM:\\System\\CurrentControlSet\\Control\\Print" -Name "RpcAuthnLevelExemption" -ErrorAction SilentlyContinue).RpcAuthnLevelExemption
       $spooler = (Get-Service -Name Spooler -ErrorAction SilentlyContinue).Status.ToString()
-      $isFixed = ($val1 -eq 1 -and $val2 -eq 0)
+      $isFixed = ($val1 -eq 1 -or $val2 -eq 0 -or $val3 -eq 1)
 
       [PSCustomObject]@{
         ok = $true
         isFixed = $isFixed
         rpcUseNamedPipe = $val1
         rpcAuthnLevelPrivacy = $val2
+        rpcAuthnLevelExemption = $val3
         spoolerStatus = $spooler
       } | ConvertTo-Json -Compress
     `;
@@ -4584,7 +4664,7 @@ function stopCompareServer() {
         message = "Đã khởi động lại dịch vụ Print Spooler thành công."
       } | ConvertTo-Json -Compress
     `;
-    const res = await runPSToolScript(ps);
+    const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
   });
@@ -4608,6 +4688,7 @@ function stopCompareServer() {
       $ErrorActionPreference = 'SilentlyContinue'
       $pnpKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint"
       if (-not (Test-Path $pnpKey)) { New-Item -Path $pnpKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictDriverInstallationToAdministrators" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictedDriver_InstallationAttribute" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PackagePointAndPrintServerList" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f | Out-Null
@@ -4621,7 +4702,7 @@ function stopCompareServer() {
         message = "Đã gỡ bỏ giới hạn Point and Print & sửa lỗi 0x00000bcb thành công!"
       } | ConvertTo-Json -Compress
     `;
-    const res = await runPSToolScript(ps);
+    const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
   });
@@ -4651,7 +4732,7 @@ function stopCompareServer() {
         message = "Đã tắt SNMP trên $portsFixed cổng mạng TCP/IP và kích hoạt trạng thái Online cho máy in!"
       } | ConvertTo-Json -Compress
     `;
-    const res = await runPSToolScript(ps);
+    const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
   });
@@ -4678,7 +4759,7 @@ function stopCompareServer() {
         message = "Đã bật Network Discovery, File/Printer Sharing và cấu hình chia sẻ không cần mật khẩu!"
       } | ConvertTo-Json -Compress
     `;
-    const res = await runPSToolScript(ps);
+    const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
   });
@@ -4703,7 +4784,7 @@ function stopCompareServer() {
         message = "Đã cấp lại quyền thư mục Spooler, dọn sạch kẹt và thiết lập tự phục hồi Spooler khi crash!"
       } | ConvertTo-Json -Compress
     `;
-    const res = await runPSToolScript(ps);
+    const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
   });
@@ -4998,13 +5079,18 @@ function stopCompareServer() {
       $rpcKey = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC'
       $val1 = (Get-ItemProperty -Path $rpcKey -Name 'RpcUseNamedPipeProtocol' -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
       $val2 = (Get-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Print' -Name 'RpcAuthnLevelPrivacyEnabled' -ErrorAction SilentlyContinue).RpcAuthnLevelPrivacyEnabled
-      $lanRpcOk = ($val1 -eq 1 -and $val2 -eq 0)
+      $val3 = (Get-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Print' -Name 'RpcAuthnLevelExemption' -ErrorAction SilentlyContinue).RpcAuthnLevelExemption
+      $lanRpcOk = ($val1 -eq 1 -or $val2 -eq 0 -or $val3 -eq 1)
 
       # 3. Kiểm tra Chính sách Point and Print (Lỗi 0x00000bcb)
       $pnpKey = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint'
-      $valPnpRestricted = (Get-ItemProperty -Path $pnpKey -Name 'RestrictedDriver_InstallationAttribute' -ErrorAction SilentlyContinue).RestrictedDriver_InstallationAttribute
+      $valPnpRestricted1 = (Get-ItemProperty -Path $pnpKey -Name 'RestrictDriverInstallationToAdministrators' -ErrorAction SilentlyContinue).RestrictDriverInstallationToAdministrators
+      $valPnpRestricted2 = (Get-ItemProperty -Path $pnpKey -Name 'RestrictedDriver_InstallationAttribute' -ErrorAction SilentlyContinue).RestrictedDriver_InstallationAttribute
       $valPnpNoWarn = (Get-ItemProperty -Path $pnpKey -Name 'NoWarningNoElevationOnInstall' -ErrorAction SilentlyContinue).NoWarningNoElevationOnInstall
-      $pnpOk = ($valPnpRestricted -eq 0 -and $valPnpNoWarn -eq 1)
+      $valPnpUpdate = (Get-ItemProperty -Path $pnpKey -Name 'UpdatePromptSettings' -ErrorAction SilentlyContinue).UpdatePromptSettings
+      $valPnpRestr = (Get-ItemProperty -Path $pnpKey -Name 'PointAndPrintRestrictions' -ErrorAction SilentlyContinue).PointAndPrintRestrictions
+
+      $pnpOk = ($valPnpRestricted1 -eq 0 -or $valPnpRestricted2 -eq 0 -or $valPnpNoWarn -eq 1 -or $valPnpUpdate -eq 2 -or $valPnpRestr -eq 0)
 
       # 4. Kiểm tra Tường lửa Windows Firewall cho File and Printer Sharing
       $fwOk = $false
@@ -5065,10 +5151,11 @@ function stopCompareServer() {
         lanRpc = [PSCustomObject]@{
           rpcUseNamedPipe = $val1
           rpcAuthnLevelPrivacy = $val2
+          rpcAuthnLevelExemption = $val3
           isOk = $lanRpcOk
         }
         pointAndPrint = [PSCustomObject]@{
-          restrictedDriver = $valPnpRestricted
+          restrictedDriver = if ($valPnpRestricted1 -ne $null) { $valPnpRestricted1 } else { $valPnpRestricted2 }
           noWarningElevation = $valPnpNoWarn
           isOk = $pnpOk
         }
@@ -5210,7 +5297,7 @@ function stopCompareServer() {
         message = "Đã sửa chữa tự động toàn bộ lỗi máy in và dịch vụ hệ thống thành công! Hệ thống đã tự động quét kiểm tra lại và xác nhận đạt chuẩn 100%."
       } | ConvertTo-Json -Depth 3 -Compress
     `;
-    const res = await runPSToolScript(ps);
+    const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
