@@ -194,21 +194,23 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Cài Driver Tự Động A-Z: Tự Bấm Wizard Install/Next, Watcher Tự Ép Cổng USB Thực Tế & Chống Cài Tay
+        body: `### 🚀 DMH Tools ${tagName} - Tự Động Hóa 100% Xprinter: Tự Chọn USB, Tự Chọn Model & Tự Bấm Install Now
 
-#### 🌟 Điểm mới then chốt trong phiên bản ${tagName}:
+#### 🌟 Điểm mới đột phá then chốt trong phiên bản ${tagName}:
 
-- **⚡ Tự Động Bấm Vượt Qua Cửa Sổ Wizard Cài Đặt (Auto-Advance Setup Wizard)**:
-  + Trước đây khi mở bộ cài chính hãng (Inno Setup như \`Setup - XPrinter Driver\`), người dùng vẫn phải tự dùng chuột bấm nút **Install** ở màn hình "Ready to Install" hoặc bấm "Next".
-  + Bản **v6.9.11** tích hợp bộ điều phối **Auto-Advance UI Automation**: Tự động nhận diện cửa sổ cài đặt trung gian của hãng và gửi lệnh bấm nút **Install / Next / Enter** tự động ngay lập tức trong 1 giây.
-  + Người dùng **KHÔNG CẦN BẤM TAY** ở các bước cài đặt Wizard trung gian này nữa!
+- **🤖 Tự Động Hóa 100% Cửa Sổ Cài Đặt "Install Configuration" Của Xprinter**:
+  + Thay vì dừng lại bắt người dùng tự dùng chuột tích chọn radio hoặc bấm nút:
+  + DMH Tools tích hợp Win32 API Engine (\`BM_CLICK\` & \`EnumChildWindows\`) can thiệp trực tiếp vào cửa sổ:
+    1. 🎯 **Tự động chuyển từ 'Other' sang radio 'USB'** (loại bỏ hoàn toàn lỗi gán nhầm cổng ảo Other).
+    2. 🏷️ **Tự động chọn đúng Model máy in**: \`XP-80C\` (hoặc \`XP-58\`) theo đúng dòng máy người dùng đã bấm cài đặt trên DMH Tools.
+    3. ⚡ **Tự động click nút 'Install Now'** ngay lập tức.
+  + Người dùng **HOÀN TOÀN KHÔNG PHẢI CHẠM TAY VÀO CHUỘT HAY BẤM BẤT KỲ NÚT NÀO!**
 
-- **🛡️ Loại Trừ Triệt Để Nhầm Lẫn OPOS/JavaPOS**:
-  + Bộ lọc Smart Ranking đã phế truất 100% các file OPOS phụ trợ, chỉ chọn bộ cài Windows Spooler chính thức.
+- **⚡ Tự Động Bấm Qua Cả Cửa Sổ Wizard Setup Trung Gian**:
+  + Tự động gửi lệnh bấm nút **Install / Next / Enter** trên các bước giải nén trung gian của hãng.
 
 - **👁️ Watcher Spooler Engine & Tự Động Ép Cổng USB Thực Tế (USB003...)**:
-  + Tự động dò tìm cổng USB đang cắm cáp vật lý thực tế (\`USB003\`).
-  + Ngay khi máy in được bộ cài tạo ra, DMH Tools lập tức ép cổng về đúng cổng USB đang cắm và gửi lệnh in test đích danh vào máy in đó.
+  + Ngay khi máy in được tạo thành công trong Windows Spooler, DMH Tools lập tức bắt lấy tên máy in, ép cổng về đúng cổng USB đang cắm cáp vật lý thực tế (\`USB003\`), và gửi lệnh in test page đích danh.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

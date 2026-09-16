@@ -6520,31 +6520,105 @@ pause
           $proc = Start-Process -FilePath $targetExe -PassThru -ErrorAction SilentlyContinue
           $executedExes++
 
+          Add-Type -TypeDefinition @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+
+public class Win32Helper {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool EnumChildWindows(IntPtr hwndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    public const uint BM_CLICK = 0x00F5;
+}
+"@ -ErrorAction SilentlyContinue
+
           Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
           Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
 
           # TIẾN TRÌNH GIÁM SÁT (WATCHER LOOP): Lắng nghe máy in mới xuất hiện trong tối đa 120s
-          # Tích hợp TỰ ĐỘNG BẤM QUA CÁC BƯỚC WIZARD TRUNG GIAN (Install, Next, Enter) - Người dùng KHÔNG PHẢI BẤM TAY!
+          # TÍCH HỢP TỰ ĐỘNG HÓA 100% CỬA SỔ "Install Configuration" & WIZARD SETUP (TỰ CHỌN USB, MODEL, BẤM INSTALL NOW)
           $sw = [System.Diagnostics.Stopwatch]::StartNew()
           $lastAutoClick = [DateTime]::MinValue
 
           while ($sw.ElapsedMilliseconds -lt 120000) {
             Start-Sleep -Seconds 1
 
-            # Tự động hỗ trợ click Next / Install trên các cửa sổ Setup trung gian (như Setup - XPrinter Driver...)
-            if (([DateTime]::Now - $lastAutoClick).TotalSeconds -ge 1.5) {
+            # ── BƯỚC A: TỰ ĐỘNG CẤU HÌNH & BẤM "Install Now" TRÊN CỬA SỔ "Install Configuration" CỦA XPRINTER ──
+            try {
+              $xpWindows = [System.Collections.Generic.List[IntPtr]]::new()
+              [Win32Helper]::EnumWindows({
+                param($h, $lp)
+                $sb = [System.Text.StringBuilder]::new(256)
+                [Win32Helper]::GetWindowText($h, $sb, 256) | Out-Null
+                $t = $sb.ToString()
+                if ($t -like "*Install Configuration*" -or $t -like "*Xprinter*") {
+                  $xpWindows.Add($h)
+                }
+                return $true
+              }, [IntPtr]::Zero)
+
+              foreach ($hXp in $xpWindows) {
+                $children = [System.Collections.Generic.List[PSCustomObject]]::new()
+                [Win32Helper]::EnumChildWindows($hXp, {
+                  param($hc, $lp)
+                  $sb = [System.Text.StringBuilder]::new(256)
+                  [Win32Helper]::GetWindowText($hc, $sb, 256) | Out-Null
+                  $txt = $sb.ToString()
+                  if ($txt) {
+                    $children.Add([PSCustomObject]@{ Handle = $hc; Text = $txt })
+                  }
+                  return $true
+                }, [IntPtr]::Zero)
+
+                # 1. Bấm chọn radio "USB" (tránh bị chọn nhầm Other)
+                $usbBtn = $children | Where-Object { $_.Text -eq "USB" } | Select-Object -First 1
+                if ($usbBtn) {
+                  [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                }
+
+                # 2. Bấm chọn Model máy in (XP-80C hoặc XP-58 theo tên driver)
+                $modelToPick = if ($drvName -match '58') { 'XP-58' } else { 'XP-80C' }
+                $modelBtn = $children | Where-Object { $_.Text -eq $modelToPick -or $_.Text -like "$modelToPick*" } | Select-Object -First 1
+                if ($modelBtn) {
+                  [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                }
+
+                # 3. Tự động bấm nút "Install Now"
+                $installNowBtn = $children | Where-Object { $_.Text -match 'Install Now' } | Select-Object -First 1
+                if ($installNowBtn) {
+                  Start-Sleep -Milliseconds 250
+                  [Win32Helper]::SendMessage($installNowBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                }
+              }
+            } catch {}
+
+            # ── BƯỚC B: TỰ ĐỘNG BẤM QUA CÁC BƯỚC WIZARD SETUP TRUNG GIAN (Next, Install, Enter, OK) ──
+            if (([DateTime]::Now - $lastAutoClick).TotalSeconds -ge 1.2) {
               $lastAutoClick = [DateTime]::Now
               $wizProcs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-                $_.MainWindowTitle -match '(?i)(setup|installer|install wizard|xprinter|pos)' -and
+                $_.MainWindowTitle -match '(?i)(setup|installer|install wizard)' -and
                 $_.MainWindowTitle -notmatch '(?i)(dmh|visual studio|code|powershell|chrome|edge|browser)'
               })
               foreach ($wp in $wizProcs) {
                 try {
                   [Microsoft.VisualBasic.Interaction]::AppActivate($wp.Id)
-                  Start-Sleep -Milliseconds 150
-                  # Gửi Alt+I (Install), Alt+N (Next), Enter
-                  [System.Windows.Forms.SendKeys]::SendWait("%i")
-                  Start-Sleep -Milliseconds 150
+                  Start-Sleep -Milliseconds 100
+                  [System.Windows.Forms.SendKeys]::SendWait("%i") # Alt+I (Install)
+                  Start-Sleep -Milliseconds 100
                   [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
                 } catch {}
               }
