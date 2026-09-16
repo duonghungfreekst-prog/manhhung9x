@@ -6061,16 +6061,79 @@ pause
   ipcMain.handle('printer:get-available-ports', async () => {
     const ps = `
       $ErrorActionPreference = 'SilentlyContinue'
-      $ports = @(Get-PrinterPort | Select-Object Name, Description | Sort-Object Name)
-      $ports | ConvertTo-Json -Compress
+
+      # 1. Quét thiết bị máy in USB đang cắm thực tế vào máy tính (Present = $true)
+      $activeUsbDevices = @(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object { 
+        ($_.Service -eq 'usbprint' -or $_.ClassGuid -eq '{4d36e979-e325-11ce-bfc1-08002be10318}') -and $_.Present -eq $true 
+      })
+
+      # 2. Lấy danh sách máy in đã cài và cổng tương ứng
+      $installedPrinters = @(Get-Printer -ErrorAction SilentlyContinue)
+
+      # 3. Đọc Registry Ports của USB Monitor để map Device Id với cổng USB001, USB002...
+      $usbPortsRegKey = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print\\Monitors\\USB Monitor\\Ports'
+
+      # 4. Lấy toàn bộ cổng máy in từ Windows Spooler
+      $allPorts = @(Get-PrinterPort -ErrorAction SilentlyContinue | Sort-Object Name)
+      $portsList = @()
+      $detectedConnectedPort = ""
+
+      foreach ($p in $allPorts) {
+        $pName = $p.Name
+        $assigned = @($installedPrinters | Where-Object { $_.PortName -eq $pName } | Select-Object -ExpandProperty Name)
+        $isConnected = $false
+        $devName = ""
+        $devId = ""
+
+        if ($pName -like 'USB*') {
+          if (Test-Path $usbPortsRegKey) {
+            $subKey = Join-Path $usbPortsRegKey $pName
+            if (Test-Path $subKey) {
+              $props = Get-ItemProperty $subKey -ErrorAction SilentlyContinue
+              $devId = $props.'Device Id'
+              if ($devId) {
+                $matched = $activeUsbDevices | Where-Object { $_.DeviceID -eq $devId } | Select-Object -First 1
+                if ($matched) {
+                  $isConnected = $true
+                  $devName = if ($matched.Name) { $matched.Name } else { "USB Printing Support" }
+                  if (-not $detectedConnectedPort) {
+                    $detectedConnectedPort = $pName
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        $portsList += [PSCustomObject]@{
+          Name = $pName
+          Description = if ($p.Description) { $p.Description } else { "" }
+          IsConnected = $isConnected
+          DeviceId = $devId
+          DeviceName = $devName
+          AssignedPrinters = $assigned
+        }
+      }
+
+      [PSCustomObject]@{
+        ok = $true
+        ports = $portsList
+        detectedConnectedPort = $detectedConnectedPort
+        activeUsbCount = $activeUsbDevices.Count
+      } | ConvertTo-Json -Depth 3 -Compress
     `;
     const res = await runPSToolScript(ps);
-    if (!res.ok) return { ok: false, ports: [] };
+    if (!res.ok) return { ok: false, ports: [], detectedConnectedPort: "" };
     try {
-      const list = JSON.parse(res.output || '[]');
-      return { ok: true, ports: Array.isArray(list) ? list : [list] };
+      const data = JSON.parse(res.output || '{}');
+      return {
+        ok: true,
+        ports: Array.isArray(data.ports) ? data.ports : [],
+        detectedConnectedPort: data.detectedConnectedPort || "",
+        activeUsbCount: data.activeUsbCount || 0
+      };
     } catch {
-      return { ok: true, ports: [] };
+      return { ok: true, ports: [], detectedConnectedPort: "" };
     }
   });
 
@@ -6466,13 +6529,39 @@ pause
             Add-PrinterPort -Name $assignedPort -PrinterHostAddress $printerIp -PortNumber $printerPortNum -ErrorAction SilentlyContinue
           }
         } else {
+          # CÀI ĐẶT CỔNG USB
           if ($selectedPort -and $selectedPort -ne "AUTO") {
             $assignedPort = $selectedPort
           } else {
-            $usbPorts = @(Get-PrinterPort -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'USB*' } | Sort-Object Name | Select-Object -ExpandProperty Name)
-            $usedPorts = @($afterPrinters | Select-Object -ExpandProperty PortName)
-            $availPort = $usbPorts | Where-Object { $usedPorts -notcontains $_ } | Select-Object -First 1
-            $assignedPort = if ($availPort) { $availPort } elseif ($usbPorts.Count -gt 0) { $usbPorts[0] } else { 'USB001' }
+            # CHẾ ĐỘ AUTO: TỰ ĐỘNG DÒ TÌM CỔNG USB CÓ THIẾT BỊ MÁY IN ĐANG CẮM THỰC TẾ
+            $activeUsbDevices = @(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object { 
+              ($_.Service -eq 'usbprint' -or $_.ClassGuid -eq '{4d36e979-e325-11ce-bfc1-08002be10318}') -and $_.Present -eq $true 
+            })
+            $usbPortsRegKey = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print\\Monitors\\USB Monitor\\Ports'
+            $physicallyConnectedPort = ""
+
+            if (Test-Path $usbPortsRegKey) {
+              foreach ($dev in $activeUsbDevices) {
+                $foundPort = Get-ChildItem $usbPortsRegKey -ErrorAction SilentlyContinue | Where-Object {
+                  $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+                  $props.'Device Id' -and $props.'Device Id' -eq $dev.DeviceID
+                } | Select-Object -ExpandProperty PSChildName -First 1
+                if ($foundPort) {
+                  $physicallyConnectedPort = $foundPort
+                  break
+                }
+              }
+            }
+
+            if ($physicallyConnectedPort) {
+              $assignedPort = $physicallyConnectedPort
+            } else {
+              # Fallback nếu máy in chưa cắm cáp hoặc tắt nguồn: dùng cổng USB khả dụng
+              $usbPorts = @(Get-PrinterPort -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'USB*' } | Sort-Object Name | Select-Object -ExpandProperty Name)
+              $usedPorts = @($afterPrinters | Select-Object -ExpandProperty PortName)
+              $availPort = $usbPorts | Where-Object { $usedPorts -notcontains $_ } | Select-Object -First 1
+              $assignedPort = if ($availPort) { $availPort } elseif ($usbPorts.Count -gt 0) { $usbPorts[0] } else { 'USB001' }
+            }
           }
         }
 
@@ -6506,16 +6595,12 @@ pause
           }
         }
 
-        # 6. KHẮC PHỤC TRIỆT ĐỂ LỖI BỘ CÀI XPRINTER TỰ GÁN VÀO 'OTHER' (LPT/COM/CỔNG ẢO):
-        # Ép cổng của máy in về đúng cổng USB/IP mà người dùng đã chọn!
+        # 6. KHẮC PHỤC TRIỆT ĐỂ LỖI BỘ CÀI XPRINTER TỰ GÁN VÀO 'OTHER' HOẶC SAI CỔNG USB:
+        # Ép cổng của máy in về đúng cổng USB/IP mà người dùng đã chọn hoặc thiết bị đang cắm thực tế!
         if ($detectedName -and $assignedPort) {
           $curr = Get-Printer -Name $detectedName -ErrorAction SilentlyContinue
           if ($curr -and $curr.PortName -ne $assignedPort) {
-            if ($installMode -eq 'usb' -and $curr.PortName -notlike 'USB*') {
-              Set-Printer -Name $detectedName -PortName $assignedPort -ErrorAction SilentlyContinue
-            } elseif ($installMode -eq 'network') {
-              Set-Printer -Name $detectedName -PortName $assignedPort -ErrorAction SilentlyContinue
-            }
+            Set-Printer -Name $detectedName -PortName $assignedPort -ErrorAction SilentlyContinue
           }
         }
 

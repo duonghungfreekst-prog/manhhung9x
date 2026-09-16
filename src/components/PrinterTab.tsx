@@ -4,7 +4,7 @@ import {
   Download, Activity, Share2, Copy, Check, Terminal,
   ShieldAlert, FileText, Settings, ExternalLink, Play, Star,
   AlertTriangle, ShieldCheck, Zap, Network, X, Layers, BookOpen,
-  Sparkles, FolderOpen, Loader2
+  Sparkles, FolderOpen, Loader2, AlertCircle
 } from 'lucide-react';
 import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 import { registerTabRefreshHandler } from '../utils/autoRefreshManager';
@@ -685,7 +685,15 @@ export default function PrinterTab() {
   const [selectedPort, setSelectedPort] = useState<string>('AUTO');
   const [printerIp, setPrinterIp] = useState<string>('');
   const [printerPortNum, setPrinterPortNum] = useState<number>(9100);
-  const [systemPorts, setSystemPorts] = useState<{ Name: string; Description: string }[]>([]);
+  const [systemPorts, setSystemPorts] = useState<{
+    Name: string;
+    Description?: string;
+    IsConnected?: boolean;
+    DeviceId?: string;
+    DeviceName?: string;
+    AssignedPrinters?: string[];
+  }[]>([]);
+  const [detectedUsbPort, setDetectedUsbPort] = useState<string | null>(null);
 
   const openLocalPortModal = async () => {
     setShowLocalPortModal(true);
@@ -2276,13 +2284,18 @@ export default function PrinterTab() {
     setPrinterIp('');
     setShowInstallOptionsModal(true);
 
-    // Tự động quét danh sách cổng trên hệ thống Windows
+    // Tự động quét danh sách cổng trên hệ thống Windows & nhận diện cổng USB đang cắm
     try {
       const w = window as any;
       if (w.electronAPI?.printer?.getAvailablePorts) {
         const res = await w.electronAPI.printer.getAvailablePorts();
         if (res?.ok && Array.isArray(res.ports)) {
           setSystemPorts(res.ports);
+          if (res.detectedConnectedPort) {
+            setDetectedUsbPort(res.detectedConnectedPort);
+          } else {
+            setDetectedUsbPort(null);
+          }
         }
       }
     } catch {}
@@ -4244,8 +4257,47 @@ export default function PrinterTab() {
                   {/* Cấu hình chọn cổng USB con nếu đang chọn USB mode */}
                   {installMode === 'usb' && (
                     <div style={{ marginTop: 10, marginLeft: 24, paddingTop: 8, borderTop: '1px dashed #a7f3d0' }}>
+                      {/* Banner phát hiện cổng đang cắm thiết bị */}
+                      {detectedUsbPort ? (
+                        <div style={{
+                          background: '#ecfdf5',
+                          border: '1px solid #6ee7b7',
+                          borderRadius: 6,
+                          padding: '6px 10px',
+                          marginBottom: 8,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          fontSize: '0.74rem',
+                          color: '#065f46'
+                        }}>
+                          <CheckCircle2 size={15} color="#059669" style={{ flexShrink: 0 }} />
+                          <span>
+                            🎯 <strong>Đã nhận diện phần cứng:</strong> Máy in đang cắm cáp vật lý tại cổng <strong>[{detectedUsbPort}]</strong>. Hệ thống sẽ tự động gán máy in vào đúng cổng này!
+                          </span>
+                        </div>
+                      ) : (
+                        <div style={{
+                          background: '#fffbeb',
+                          border: '1px solid #fde68a',
+                          borderRadius: 6,
+                          padding: '6px 10px',
+                          marginBottom: 8,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          fontSize: '0.73rem',
+                          color: '#92400e'
+                        }}>
+                          <AlertCircle size={15} color="#d97706" style={{ flexShrink: 0 }} />
+                          <span>
+                            ⚠️ <strong>Chưa phát hiện cáp USB:</strong> Hãy cắm cáp USB máy in vào máy tính và <strong>BẬT NGUỒN</strong> máy in để DMH Tools tự động nhận diện chính xác!
+                          </span>
+                        </div>
+                      )}
+
                       <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 700, color: '#065f46', marginBottom: 4 }}>
-                        Cổng USB đích trên máy tính:
+                        Cổng USB máy in trên máy tính:
                       </label>
                       <select
                         value={selectedPort}
@@ -4261,14 +4313,22 @@ export default function PrinterTab() {
                           fontWeight: 600
                         }}
                       >
-                        <option value="AUTO">⚡ [Khuyên dùng] Tự động nhận diện cổng USB khả dụng tối ưu</option>
+                        <option value="AUTO">
+                          {detectedUsbPort
+                            ? `⭐ [Tự động - Khuyên Dùng] Cổng ${detectedUsbPort} (Đang cắm máy in vật lý)`
+                            : `⚡ [Tự động] Quét và tự nhận diện cổng khi cài đặt`}
+                        </option>
                         {systemPorts
                           .filter(p => p.Name.startsWith('USB'))
-                          .map(p => (
-                            <option key={p.Name} value={p.Name}>
-                              {p.Name} ({p.Description || 'Cổng máy in USB'})
-                            </option>
-                          ))}
+                          .map(p => {
+                            const isDev = p.IsConnected;
+                            const assigned = p.AssignedPrinters?.length ? ` [Đã gán: ${p.AssignedPrinters.join(', ')}]` : '';
+                            return (
+                              <option key={p.Name} value={p.Name}>
+                                {p.Name} {isDev ? '🟢 [ĐANG CẮM THIẾT BỊ VẬT LÝ - CHUẨN XÁC]' : `⚪ (Chưa cắm${assigned})`}
+                              </option>
+                            );
+                          })}
                         {!systemPorts.some(p => p.Name.startsWith('USB')) && (
                           <>
                             <option value="USB001">USB001 (Virtual printer port for USB)</option>

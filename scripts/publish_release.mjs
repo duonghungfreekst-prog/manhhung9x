@@ -194,30 +194,25 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Hotfix Khởi Động & Cấu Hình Chế Độ Cài Đặt Driver Chuẩn Xác
+        body: `### 🚀 DMH Tools ${tagName} - Tự Động Quét & Bắt Trúng Cổng USB Đang Cắm Máy In Thực Tế
 
-#### 🌟 Điểm mới & Các bản vá trong phiên bản ${tagName}:
+#### 🌟 Điểm mới đột phá trong phiên bản ${tagName}:
 
-- **🔥 HOTFIX Khởi Động Ứng Dụng (Main Process)**:
-  + Khắc phục triệt để lỗi cú pháp JavaScript khiến một số máy tính gặp thông báo lỗi "A JavaScript error occurred in the main process" khi khởi động.
-  + Đảm bảo ứng dụng khởi động mượt mà, ổn định 100%.
+- **🎯 Tự Động Quét Phần Cứng & Nhận Diện Cổng USB Đang Cắm Máy In (Hardware PnP / USB Monitor)**:
+  + Trước đây hệ thống có thể fallback gán nhầm vào cổng trống \`USB001\` trong khi máy in thực tế đang cắm ở \`USB003\` hoặc cổng khác.
+  + Phiên bản **v6.9.8** tích hợp thuật toán quét trực tiếp từ Windows Plug & Play (\`Win32_PnPEntity\` - \`usbprint\`) và bản đồ cổng \`USB Monitor\\Ports\` trong Registry.
+  + Tự động dò ra chính xác cổng USB nào đang có thiết bị máy in kết nối vật lý (\`Present = true\`, ví dụ: **USB003 - USB Printing Support**).
+  + Tự động chọn và ép hàng đợi máy in liên kết chuẩn xác 100% vào cổng đang cắm thực tế, không còn tình trạng cài xong máy không in được vì sai cổng!
 
-- **1. Hộp Thoại Cấu Hình Chế Độ Cài Đặt Driver Trước Khi Cài (Install Interface Selection Modal)**:
-  + Cung cấp 3 chế độ cài đặt linh hoạt cho người dùng lựa chọn trước khi tiến hành cài:
-    * **🔌 Cổng USB (Cắm Cáp Trực Tiếp - Khuyên Dùng)**: Cho phép tự động dò hoặc chọn đích danh cổng USB máy in đang kết nối (USB001, USB002, USB003...).
-    * **🌐 Mạng LAN / WiFi (Network TCP/IP)**: Cho phép nhập địa chỉ IP máy in và tự động tạo Standard TCP/IP Port trong Windows để liên kết in mạng.
-    * **🖥️ Mở Trình Cài Đặt Gốc Của Hãng (Giao Diện Trực Tiếp - Interactive UI)**: Mở trực tiếp cửa sổ của hãng để người dùng tự tay chọn radio button \`USB\` hay \`Other\`, chọn dòng máy in và khổ giấy 80mm/58mm theo đúng ý muốn.
+- **🟢 Giao Diện Nhận Diện Cổng Thông Minh & Trực Quan**:
+  + Hiển thị banner trạng thái phần cứng trực tiếp trên hộp thoại cài đặt:
+    * 🟢 *Đã nhận diện phần cứng: Máy in đang cắm cáp vật lý tại cổng [USB003].*
+    * ⚠️ *Chưa phát hiện cáp USB: Nhắc nhở người dùng cắm cáp và bật nguồn máy in.*
+  + Danh sách dropdown cổng USB hiển thị rõ trạng thái từng cổng: Cổng nào đang cắm máy in (gắn nhãn Khuyên Dùng), cổng nào chưa cắm hoặc đã gán máy in khác (Canon, HP...).
 
-- **2. Khắc Phục Triệt Để Lỗi Bộ Cài Xprinter Tự Gán Sang Chế Độ 'Other' (LPT/COM Ảo)**:
-  + Khi chạy bộ cài đặt ngầm (silent), một số bộ cài hãng (như Xprinter) thường mặc định gán vào cổng 'Other' dẫn đến lỗi không in được. DMH Tools tự động phát hiện và ép máy in về đúng cổng USB/IP mà người dùng đã lựa chọn.
-
-- **3. Khắc Phục Hoàn Toàn Lỗi In Trang Thử (Print Test Page) Nhầm Sang Máy In Mặc Định**:
-  + Thay thế hoàn toàn lệnh cũ (\`rundll32 printui.dll\`) bằng chuẩn API Microsoft Windows Spooler WMI/CIM (\`Win32_Printer.PrintTestPage()\`).
-  + Lệnh in thử chỉ nhắm mục tiêu 100% vào đúng máy in vừa cài đặt. Nếu máy in chưa cắm cáp hoặc tắt nguồn, hệ thống trả về thông báo trạng thái rõ ràng, **tuyệt đối không bao giờ gửi nhầm sang máy in mặc định** (như Canon LBP2900).
-
-- **4. Tối Ưu Hóa & Đồng Bộ Toàn Bộ Quy Trình Bác Sĩ Máy In**:
-  + Bổ sung API quét và liệt kê danh sách tất cả các cổng máy in trên Windows (\`getAvailablePorts\`).
-  + Nâng cấp toàn diện trải nghiệm người dùng, đảm bảo cài đặt chính xác ngay từ lần đầu tiên.
+- **🔒 Khắc Phục Triệt Để Lỗi Cổng 'Other' Của Xprinter & Chống In Nhầm Máy In Mặc Định**:
+  + Tự động ép cổng máy in về đúng cổng USB đang cắm cáp sau khi bộ cài đặt của hãng chạy xong.
+  + In trang thử nghiệm (Print Test Page) sử dụng lệnh chuẩn WMI/CIM chỉ gửi riêng đến máy in vừa cài, tuyệt đối không gửi nhầm sang máy in mặc định.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,
