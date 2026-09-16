@@ -194,23 +194,24 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Tự Động Hóa 100% Xprinter: Tự Chọn USB, Tự Chọn Model & Tự Bấm Install Now
+        body: `### 🚀 DMH Tools ${tagName} - Tích Hợp Google Gemini AI Đọc & Giải Mã Lỗi In Ấn, Sổ Tay Bệnh Án Telemetry
 
 #### 🌟 Điểm mới đột phá then chốt trong phiên bản ${tagName}:
 
-- **🤖 Tự Động Hóa 100% Cửa Sổ Cài Đặt "Install Configuration" Của Xprinter**:
-  + Thay vì dừng lại bắt người dùng tự dùng chuột tích chọn radio hoặc bấm nút:
-  + DMH Tools tích hợp Win32 API Engine (\`BM_CLICK\` & \`EnumChildWindows\`) can thiệp trực tiếp vào cửa sổ:
-    1. 🎯 **Tự động chuyển từ 'Other' sang radio 'USB'** (loại bỏ hoàn toàn lỗi gán nhầm cổng ảo Other).
-    2. 🏷️ **Tự động chọn đúng Model máy in**: \`XP-80C\` (hoặc \`XP-58\`) theo đúng dòng máy người dùng đã bấm cài đặt trên DMH Tools.
-    3. ⚡ **Tự động click nút 'Install Now'** ngay lập tức.
-  + Người dùng **HOÀN TOÀN KHÔNG PHẢI CHẠM TAY VÀO CHUỘT HAY BẤM BẤT KỲ NÚT NÀO!**
+- **🤖 Trợ Lý Trí Tuệ Nhân Tạo Google Gemini AI Nhúng Trực Tiếp:**
+  + Tích hợp Gemini 1.5 Flash / 2.0 Flash phân tích toàn diện 10 hạng mục chẩn đoán Windows Spooler, Registry RPC Named Pipe (0x709, 0x11b), Point and Print (0xbcb) và trạng thái các cổng USB phần cứng.
+  + Tự động bóc tách nguyên nhân gốc rễ và đưa ra giải pháp khắc phục bằng tiếng Việt chuyên nghiệp, dễ hiểu.
+  + Tích hợp sẵn bộ phân tích cục bộ **DMH Offline Rule Engine** (hoạt động xuất sắc ngay cả khi chưa có API Key hoặc mất kết nối mạng).
 
-- **⚡ Tự Động Bấm Qua Cả Cửa Sổ Wizard Setup Trung Gian**:
-  + Tự động gửi lệnh bấm nút **Install / Next / Enter** trên các bước giải nén trung gian của hãng.
+- **📋 Sổ Tay Bệnh Án Máy Tính & Lưu Trữ Telemetry:**
+  + Tự động lưu lịch sử các ca chẩn đoán để theo dõi tính ổn định của máy in theo thời gian.
+  + Cho phép xuất toàn bộ dữ liệu telemetry chuẩn JSON để gửi cho đội ngũ phát triển nhằm nghiên cứu, hoàn thiện phần mềm ngày càng toàn diện.
 
-- **👁️ Watcher Spooler Engine & Tự Động Ép Cổng USB Thực Tế (USB003...)**:
-  + Ngay khi máy in được tạo thành công trong Windows Spooler, DMH Tools lập tức bắt lấy tên máy in, ép cổng về đúng cổng USB đang cắm cáp vật lý thực tế (\`USB003\`), và gửi lệnh in test page đích danh.
+- **⚙️ Cấu Hình API Key Tiện Lợi & Bảo Mật:**
+  + Nhập Google Gemini API Key miễn phí từ Google AI Studio, bảo mật lưu trữ an toàn trong máy tính người dùng.
+
+- **🖨️ Kế Thừa Toàn Bộ Tự Động Hóa 100% Cài Đặt Xprinter:**
+  + Can thiệp Win32 API (\`BM_CLICK\` & \`EnumChildWindows\`) tự động chọn radio USB, tự chọn model \`XP-80C\`/\`XP-58\`, tự bấm Install Now mà không cần người dùng chạm tay vào chuột.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,
