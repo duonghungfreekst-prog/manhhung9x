@@ -4,11 +4,13 @@ import {
   Download, Activity, Share2, Copy, Check, Terminal,
   ShieldAlert, FileText, Settings, ExternalLink, Play, Star,
   AlertTriangle, ShieldCheck, Zap, Network, X, Layers, BookOpen,
-  Sparkles, FolderOpen, Loader2, AlertCircle
+  Sparkles, FolderOpen, Loader2, AlertCircle, Bot, History, Key
 } from 'lucide-react';
 import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 import { registerTabRefreshHandler } from '../utils/autoRefreshManager';
 import { showToast, showConfirm } from '../utils/notificationSystem';
+import { GeminiService } from '../services/geminiService';
+import { ErrorTelemetryService, type DiagnosticRecord } from '../services/errorTelemetryService';
 
 interface PrinterInfo {
   Name: string;
@@ -411,6 +413,16 @@ export default function PrinterTab() {
   const [active709Tab, setActive709Tab] = useState<'lan' | 'default' | 'manual'>('lan');
   const [credHostInput, setCredHostInput] = useState('');
   const [savingCred, setSavingCred] = useState(false);
+
+  // ── State Trợ Lý Chẩn Đoán & Đọc Lỗi Google Gemini AI ─────────────────────
+  const [showGeminiModal, setShowGeminiModal] = useState(false);
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState('');
+  const [geminiModelSelect, setGeminiModelSelect] = useState('gemini-1.5-flash');
+  const [geminiAnalysisResult, setGeminiAnalysisResult] = useState('');
+  const [geminiLoading, setGeminiLoading] = useState(false);
+  const [geminiActiveTab, setGeminiActiveTab] = useState<'analysis' | 'settings' | 'history'>('analysis');
+  const [diagnosticHistory, setDiagnosticHistory] = useState<DiagnosticRecord[]>([]);
+  const [copiedGeminiText, setCopiedGeminiText] = useState(false);
 
   // ── State Bảng Quy Trình Chẩn Đoán & Sửa Lỗi Tự Động (Tập trung 2 Nút) ──
   interface WorkflowStepItem {
@@ -1690,6 +1702,68 @@ export default function PrinterTab() {
       setLoading(false);
       stopGlobalLoading('workflow-fix');
     }
+  };
+
+  // ── Các Hàm Xử Lý Trí Tuệ Nhân Tạo Gemini AI & Telemetry ─────────────────
+  const handleOpenGeminiAI = async () => {
+    setShowGeminiModal(true);
+    setGeminiApiKeyInput(GeminiService.getApiKey());
+    setGeminiModelSelect(GeminiService.getModel());
+    setDiagnosticHistory(ErrorTelemetryService.getHistory());
+
+    if (!geminiAnalysisResult) {
+      await runGeminiAnalysis();
+    }
+  };
+
+  const runGeminiAnalysis = async () => {
+    setGeminiLoading(true);
+    try {
+      addLog('🤖 Đang gửi dữ liệu chẩn đoán hệ thống in ấn tới Google Gemini AI...');
+      const res = await GeminiService.analyzePrinterDiagnostics(
+        workflowSteps,
+        printers,
+        systemPorts
+      );
+      if (res.ok) {
+        setGeminiAnalysisResult(res.content);
+        const currentIssueCount = workflowSteps.filter(s => s.status === 'error' || s.status === 'warning').length;
+        ErrorTelemetryService.saveRecord({
+          category: 'printer',
+          title: `Chẩn đoán Máy In (${currentIssueCount} sự cố)`,
+          issueCount: currentIssueCount,
+          details: workflowSteps,
+          aiAnalysis: res.content,
+          resolved: currentIssueCount === 0
+        });
+        setDiagnosticHistory(ErrorTelemetryService.getHistory());
+        addLog('✅ Gemini AI đã hoàn thành phân tích chuyên sâu!');
+      } else {
+        showToast.error('Lỗi Gemini AI', res.error || 'Không thể kết nối Gemini API');
+      }
+    } catch (err: any) {
+      showToast.error('Lỗi Gemini AI', err.message || String(err));
+    } finally {
+      setGeminiLoading(false);
+    }
+  };
+
+  const handleSaveGeminiKey = () => {
+    GeminiService.setApiKey(geminiApiKeyInput);
+    GeminiService.setModel(geminiModelSelect);
+    showToast.success('Đã lưu cấu hình', 'Google Gemini API Key đã được cập nhật thành công!');
+  };
+
+  const handleExportTelemetryData = () => {
+    const jsonStr = ErrorTelemetryService.exportTelemetryJson();
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `DMH_Telemetry_Diagnostics_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast.success('Đã xuất dữ liệu', 'Tệp nhật ký telemetry đã được lưu thành công!');
   };
 
   useEffect(() => {
@@ -3494,6 +3568,31 @@ export default function PrinterTab() {
                 >
                   <Zap size={16} className={isWorkflowRunning && workflowMode === 'fix' ? 'spin' : ''} />
                   <span>{isWorkflowRunning && workflowMode === 'fix' ? 'ĐANG KHẮC PHỤC A-Z...' : '⚡ SỬA TỰ ĐỘNG TOÀN BỘ LỖI (1-CLICK)'}</span>
+                </button>
+
+                {/* Nút 3: Gemini AI Phân Tích & Chẩn Đoán Lỗi Chuyên Sâu */}
+                <button
+                  onClick={handleOpenGeminiAI}
+                  disabled={isWorkflowRunning || loading}
+                  style={{
+                    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%)',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 8,
+                    padding: '8px 18px',
+                    fontSize: '0.78rem',
+                    fontWeight: 800,
+                    cursor: (isWorkflowRunning || loading) ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
+                    boxShadow: '0 3px 12px rgba(139, 92, 246, 0.35)',
+                    transition: 'all 0.15s ease'
+                  }}
+                  title="Mở trợ lý Google Gemini AI để đọc lỗi, phân tích chuyên sâu & lưu trữ bệnh án máy tính"
+                >
+                  <Bot size={16} />
+                  <span>🤖 GEMINI AI PHÂN TÍCH LỖI</span>
                 </button>
               </div>
             </div>
@@ -5776,6 +5875,603 @@ net stop Spooler && net start Spooler`}
                 <Check size={14} />
                 <span>Tuyệt Vời, Đã Hiểu</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════════ */}
+      {/* ── MODAL TRỢ LÝ TRÍ TUỆ NHÂN TẠO GOOGLE GEMINI AI & TELEMETRY ──────────── */}
+      {/* ═══════════════════════════════════════════════════════════════════════════ */}
+      {showGeminiModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.72)',
+          backdropFilter: 'blur(5px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '1rem'
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: 16,
+            width: '100%',
+            maxWidth: 880,
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(99, 102, 241, 0.25)',
+            border: '1px solid #c7d2fe',
+            overflow: 'hidden'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 60%, #4338ca 100%)',
+              color: '#ffffff',
+              padding: '1rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  background: 'linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%)',
+                  padding: 8,
+                  borderRadius: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 2px 10px rgba(217, 70, 239, 0.35)'
+                }}>
+                  <Bot size={22} color="#ffffff" />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, letterSpacing: '0.2px' }}>
+                      Bác Sĩ Trí Tuệ Nhân Tạo Google Gemini AI
+                    </h3>
+                    <span style={{
+                      fontSize: '0.65rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 20,
+                      background: GeminiService.getApiKey() ? '#10b981' : '#f59e0b',
+                      color: '#ffffff'
+                    }}>
+                      {GeminiService.getApiKey() ? `Cloud AI (${geminiModelSelect})` : 'Offline Rule Engine'}
+                    </span>
+                  </div>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '0.72rem', color: '#c7d2fe' }}>
+                    Đọc dữ liệu máy in, giải mã nguyên nhân gốc rễ và hỗ trợ tích lũy kinh nghiệm xử lý lỗi
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowGeminiModal(false)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  border: 'none',
+                  borderRadius: 8,
+                  color: '#ffffff',
+                  width: 32,
+                  height: 32,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+                title="Đóng"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Navigation Tabs */}
+            <div style={{
+              display: 'flex',
+              background: '#f8faff',
+              borderBottom: '1px solid #e0e7ff',
+              padding: '0 1rem'
+            }}>
+              <button
+                onClick={() => setGeminiActiveTab('analysis')}
+                style={{
+                  padding: '10px 16px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: geminiActiveTab === 'analysis' ? '3px solid #6366f1' : '3px solid transparent',
+                  color: geminiActiveTab === 'analysis' ? '#4338ca' : '#64748b',
+                  fontWeight: geminiActiveTab === 'analysis' ? 700 : 500,
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+              >
+                <Activity size={15} />
+                <span>Báo Cáo Chẩn Đoán AI</span>
+              </button>
+
+              <button
+                onClick={() => setGeminiActiveTab('settings')}
+                style={{
+                  padding: '10px 16px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: geminiActiveTab === 'settings' ? '3px solid #6366f1' : '3px solid transparent',
+                  color: geminiActiveTab === 'settings' ? '#4338ca' : '#64748b',
+                  fontWeight: geminiActiveTab === 'settings' ? 700 : 500,
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+              >
+                <Key size={15} />
+                <span>Cấu Hình API Key</span>
+              </button>
+
+              <button
+                onClick={() => setGeminiActiveTab('history')}
+                style={{
+                  padding: '10px 16px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: geminiActiveTab === 'history' ? '3px solid #6366f1' : '3px solid transparent',
+                  color: geminiActiveTab === 'history' ? '#4338ca' : '#64748b',
+                  fontWeight: geminiActiveTab === 'history' ? 700 : 500,
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+              >
+                <History size={15} />
+                <span>Sổ Tay Bệnh Án & Telemetry ({diagnosticHistory.length})</span>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '1.2rem', overflowY: 'auto', flex: 1, maxHeight: 'calc(90vh - 180px)' }}>
+              {/* TAB 1: Báo Cáo Chẩn Đoán */}
+              {geminiActiveTab === 'analysis' && (
+                <div>
+                  {geminiLoading ? (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '3rem 1rem',
+                      gap: 12
+                    }}>
+                      <Loader2 size={36} color="#6366f1" className="spin" />
+                      <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#312e81' }}>
+                        Gemini AI đang phân tích dữ liệu kỹ thuật từ hệ thống...
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: '#64748b', textAlign: 'center', maxWidth: 460 }}>
+                        Đang tổng hợp thông số Spooler, kiểm tra kẹt hàng đợi, tra cứu phân quyền Registry Named Pipe và rà soát các cổng máy in vật lý.
+                      </div>
+                    </div>
+                  ) : geminiAnalysisResult ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div style={{
+                        background: '#f8faff',
+                        border: '1px solid #e0e7ff',
+                        borderRadius: 10,
+                        padding: '1.2rem',
+                        fontSize: '0.82rem',
+                        lineHeight: 1.6,
+                        color: '#1e293b',
+                        whiteSpace: 'pre-wrap',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>
+                        {geminiAnalysisResult}
+                      </div>
+
+                      {/* Thanh công cụ hành động dưới báo cáo */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                        flexWrap: 'wrap',
+                        paddingTop: 8,
+                        borderTop: '1px solid #f1f5f9'
+                      }}>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(geminiAnalysisResult);
+                              setCopiedGeminiText(true);
+                              setTimeout(() => setCopiedGeminiText(false), 2000);
+                            }}
+                            style={{
+                              padding: '7px 14px',
+                              background: '#f1f5f9',
+                              border: '1px solid #cbd5e1',
+                              borderRadius: 6,
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6
+                            }}
+                          >
+                            {copiedGeminiText ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+                            <span>{copiedGeminiText ? 'Đã Sao Chép!' : 'Sao Chép Báo Cáo'}</span>
+                          </button>
+
+                          <button
+                            onClick={runGeminiAnalysis}
+                            style={{
+                              padding: '7px 14px',
+                              background: '#f1f5f9',
+                              border: '1px solid #cbd5e1',
+                              borderRadius: 6,
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6
+                            }}
+                          >
+                            <RefreshCw size={14} />
+                            <span>Phân Tích Lại</span>
+                          </button>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setShowGeminiModal(false);
+                            handleWorkflowFixAll();
+                          }}
+                          style={{
+                            padding: '8px 18px',
+                            background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: 8,
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+                          }}
+                        >
+                          <Zap size={15} />
+                          <span>⚡ Áp Dụng Sửa Tự Động A-Z (1-Click)</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>
+                      <Bot size={42} color="#818cf8" style={{ margin: '0 auto 12px' }} />
+                      <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#312e81', marginBottom: 6 }}>
+                        Chưa có báo cáo chẩn đoán
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: 16 }}>
+                        Bấm nút bên dưới để Gemini AI bắt đầu phân tích dữ liệu hệ thống máy in ngay lúc này.
+                      </div>
+                      <button
+                        onClick={runGeminiAnalysis}
+                        style={{
+                          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '8px 18px',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Bắt Đầu Phân Tích
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 2: Cấu Hình API Key */}
+              {geminiActiveTab === 'settings' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Hướng dẫn nhận key */}
+                  <div style={{
+                    background: '#eef2ff',
+                    border: '1px solid #c7d2fe',
+                    borderRadius: 10,
+                    padding: '1rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: '#312e81', fontSize: '0.82rem' }}>
+                      <Sparkles size={16} color="#6366f1" />
+                      <span>Cách Nhận Google Gemini API Key Miễn Phí Trọn Đời:</span>
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: '#4338ca', lineHeight: 1.6 }}>
+                      1. Truy cập cổng Google AI Studio: <b>https://aistudio.google.com/app/apikey</b><br />
+                      2. Đăng nhập tài khoản Google của bạn và bấm <b>Create API Key</b>.<br />
+                      3. Sao chép đoạn mã khóa (bắt đầu bằng <code>AIzaSy...</code>) rồi dán vào ô bên dưới.<br />
+                      <i>(Google cung cấp hạn mức miễn phí hàng ngàn lượt gọi mỗi ngày, hoàn toàn đủ cho nhu cầu chẩn đoán phòng khám).</i>
+                    </div>
+                    <div>
+                      <button
+                        onClick={() => {
+                          const url = 'https://aistudio.google.com/app/apikey';
+                          if ((window as any).electronAPI?.openExternal) {
+                            (window as any).electronAPI.openExternal(url);
+                          } else {
+                            window.open(url, '_blank');
+                          }
+                        }}
+                        style={{
+                          padding: '5px 12px',
+                          background: '#4f46e5',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 6,
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}
+                      >
+                        <ExternalLink size={13} />
+                        <span>Mở Google AI Studio để lấy Key</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Form nhập API Key */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>
+                        Google Gemini API Key:
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="Dán mã API Key của bạn vào đây (AIzaSy...)"
+                        value={geminiApiKeyInput}
+                        onChange={e => setGeminiApiKeyInput(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: 6,
+                          border: '1px solid #cbd5e1',
+                          fontSize: '0.78rem',
+                          outline: 'none',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>
+                        Mô Hình AI (AI Model):
+                      </label>
+                      <select
+                        value={geminiModelSelect}
+                        onChange={e => setGeminiModelSelect(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: 6,
+                          border: '1px solid #cbd5e1',
+                          fontSize: '0.78rem',
+                          outline: 'none',
+                          background: '#fff'
+                        }}
+                      >
+                        <option value="gemini-1.5-flash">gemini-1.5-flash (Khuyên Dùng • Cực Nhanh & Nhẹ)</option>
+                        <option value="gemini-2.0-flash">gemini-2.0-flash (Thế Hệ Mới Nhất • Độ Chính Xác Cao)</option>
+                        <option value="gemini-1.5-pro">gemini-1.5-pro (Mô Hình Lớn • Phân Tích Chuyên Sâu)</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                      <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                        🔒 Key được mã hóa và lưu trực tiếp trong trình duyệt máy bạn.
+                      </span>
+                      <button
+                        onClick={handleSaveGeminiKey}
+                        style={{
+                          background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '8px 20px',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Lưu Cấu Hình Key
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: Sổ Tay Bệnh Án & Telemetry */}
+              {geminiActiveTab === 'history' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 10,
+                    paddingBottom: 8,
+                    borderBottom: '1px solid #e2e8f0'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>
+                        Nhật Ký Chẩn Đoán Lỗi Máy In Đã Lưu ({diagnosticHistory.length} ca)
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                        Hệ thống tự động lưu vết các lần quét lỗi để theo dõi tính ổn định và phục vụ hoàn thiện DMH Tools.
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={handleExportTelemetryData}
+                        style={{
+                          padding: '6px 12px',
+                          background: '#f8fafc',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: 6,
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}
+                      >
+                        <Download size={14} />
+                        <span>Xuất Tệp Telemetry (.json)</span>
+                      </button>
+
+                      {diagnosticHistory.length > 0 && (
+                        <button
+                          onClick={() => {
+                            if (window.confirm('Bạn có chắc muốn xóa sạch toàn bộ lịch sử chẩn đoán?')) {
+                              ErrorTelemetryService.clearHistory();
+                              setDiagnosticHistory([]);
+                              showToast.success('Đã xóa', 'Lịch sử chẩn đoán đã được làm sạch!');
+                            }
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            background: '#fee2e2',
+                            color: '#b91c1c',
+                            border: '1px solid #fca5a5',
+                            borderRadius: 6,
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6
+                          }}
+                        >
+                          <Trash2 size={14} />
+                          <span>Xóa Lịch Sử</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {diagnosticHistory.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: '#94a3b8' }}>
+                      <History size={36} style={{ margin: '0 auto 10px', opacity: 0.5 }} />
+                      <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>Chưa có ca chẩn đoán nào được lưu</div>
+                      <div style={{ fontSize: '0.72rem', marginTop: 4 }}>
+                        Mỗi khi bạn bấm Quét Lỗi và gọi Gemini AI, bệnh án sẽ được tự động lưu vào đây.
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {diagnosticHistory.map((rec) => (
+                        <div
+                          key={rec.id}
+                          style={{
+                            background: '#f8faff',
+                            border: '1px solid #e0e7ff',
+                            borderRadius: 8,
+                            padding: '10px 14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 12
+                          }}
+                        >
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e1b4b' }}>
+                                {rec.title}
+                              </span>
+                              <span style={{
+                                fontSize: '0.65rem',
+                                fontWeight: 600,
+                                padding: '1px 6px',
+                                borderRadius: 10,
+                                background: rec.issueCount === 0 ? '#dcfce7' : '#fee2e2',
+                                color: rec.issueCount === 0 ? '#15803d' : '#b91c1c'
+                              }}>
+                                {rec.issueCount === 0 ? '✓ Tối Ưu' : `⚠️ ${rec.issueCount} Lỗi`}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 3 }}>
+                              Thời gian: {new Date(rec.timestamp).toLocaleString('vi-VN')}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {rec.aiAnalysis && (
+                              <button
+                                onClick={() => {
+                                  setGeminiAnalysisResult(rec.aiAnalysis || '');
+                                  setGeminiActiveTab('analysis');
+                                }}
+                                style={{
+                                  padding: '4px 10px',
+                                  background: '#e0e7ff',
+                                  color: '#4338ca',
+                                  border: 'none',
+                                  borderRadius: 4,
+                                  fontSize: '0.7rem',
+                                  fontWeight: 600,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                Xem Lại Báo Cáo
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => {
+                                ErrorTelemetryService.deleteRecord(rec.id);
+                                setDiagnosticHistory(ErrorTelemetryService.getHistory());
+                              }}
+                              style={{
+                                padding: '4px 8px',
+                                background: 'none',
+                                color: '#94a3b8',
+                                border: 'none',
+                                cursor: 'pointer'
+                              }}
+                              title="Xóa ca này"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
