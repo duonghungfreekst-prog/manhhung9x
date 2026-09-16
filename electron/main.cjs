@@ -6520,10 +6520,36 @@ pause
           $proc = Start-Process -FilePath $targetExe -PassThru -ErrorAction SilentlyContinue
           $executedExes++
 
+          Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+          Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
+
           # TIẾN TRÌNH GIÁM SÁT (WATCHER LOOP): Lắng nghe máy in mới xuất hiện trong tối đa 120s
+          # Tích hợp TỰ ĐỘNG BẤM QUA CÁC BƯỚC WIZARD TRUNG GIAN (Install, Next, Enter) - Người dùng KHÔNG PHẢI BẤM TAY!
           $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          $lastAutoClick = [DateTime]::MinValue
+
           while ($sw.ElapsedMilliseconds -lt 120000) {
             Start-Sleep -Seconds 1
+
+            # Tự động hỗ trợ click Next / Install trên các cửa sổ Setup trung gian (như Setup - XPrinter Driver...)
+            if (([DateTime]::Now - $lastAutoClick).TotalSeconds -ge 1.5) {
+              $lastAutoClick = [DateTime]::Now
+              $wizProcs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                $_.MainWindowTitle -match '(?i)(setup|installer|install wizard|xprinter|pos)' -and
+                $_.MainWindowTitle -notmatch '(?i)(dmh|visual studio|code|powershell|chrome|edge|browser)'
+              })
+              foreach ($wp in $wizProcs) {
+                try {
+                  [Microsoft.VisualBasic.Interaction]::AppActivate($wp.Id)
+                  Start-Sleep -Milliseconds 150
+                  # Gửi Alt+I (Install), Alt+N (Next), Enter
+                  [System.Windows.Forms.SendKeys]::SendWait("%i")
+                  Start-Sleep -Milliseconds 150
+                  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+                } catch {}
+              }
+            }
+
             $currentPrinters = @(Get-Printer -ErrorAction SilentlyContinue)
             $newPrinters = @($currentPrinters | Where-Object { $beforePrinters -notcontains $_.Name })
             if ($newPrinters.Count -gt 0) {

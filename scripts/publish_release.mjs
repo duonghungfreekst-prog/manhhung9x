@@ -194,23 +194,21 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Bộ Cài Chuẩn Windows Driver: Loại Bỏ Triệt Để Nhầm OPOS, Tự Động Ép Cổng USB Thực Tế & Chống Báo Ảo
+        body: `### 🚀 DMH Tools ${tagName} - Cài Driver Tự Động A-Z: Tự Bấm Wizard Install/Next, Watcher Tự Ép Cổng USB Thực Tế & Chống Cài Tay
 
 #### 🌟 Điểm mới then chốt trong phiên bản ${tagName}:
 
-- **🛡️ Khắc Phục Triệt Để Sự Cố Chọn Nhầm Bộ Cài Phụ Trợ OPOS (OPOS_POSPrinterSO)**:
-  + Gói tệp nén của hãng Xprinter chứa đồng thời nhiều thư mục: \`Windows\`, \`OPOS\`, \`JavaPOS\`, \`Linux\`, \`macOS\`...
-  + Do thứ tự bảng chữ cái (\`OPOS\` đứng trước \`Windows\`), thuật toán quét file cũ đã bốc nhầm file tiện ích lập trình \`OPOS_POSPrinterSO\` (tạo icon 3 khối M, E màu mè ra Desktop thay vì cài Driver máy in Windows).
-  + Bản **v6.9.10** tích hợp **Thuật Toán Xếp Hạng Thông Minh (Smart Driver Ranking)**:
-    * ⛔ Trừ điểm nặng (-1000đ) và phế truất triệt để các tệp nằm trong thư mục hoặc tên chứa \`OPOS\`, \`JavaPOS\`, \`Linux\`, \`Tool\`, \`Test\`.
-    * 🎯 Ưu tiên số 1 (+200đ đến +560đ) cho các bộ cài đặt Spooler chính thức nằm trong thư mục \`Windows\` (như: \`XPrinter Driver Setup V8.2.exe\`, \`POS Printer Driver Setup\`).
+- **⚡ Tự Động Bấm Vượt Qua Cửa Sổ Wizard Cài Đặt (Auto-Advance Setup Wizard)**:
+  + Trước đây khi mở bộ cài chính hãng (Inno Setup như \`Setup - XPrinter Driver\`), người dùng vẫn phải tự dùng chuột bấm nút **Install** ở màn hình "Ready to Install" hoặc bấm "Next".
+  + Bản **v6.9.11** tích hợp bộ điều phối **Auto-Advance UI Automation**: Tự động nhận diện cửa sổ cài đặt trung gian của hãng và gửi lệnh bấm nút **Install / Next / Enter** tự động ngay lập tức trong 1 giây.
+  + Người dùng **KHÔNG CẦN BẤM TAY** ở các bước cài đặt Wizard trung gian này nữa!
 
-- **🖥️ Hiển Thị Đúng Cửa Sổ Cài Đặt Windows Driver Của Hãng**:
-  + Mở đúng bộ cài đặt Windows Spooler Driver của nhà sản xuất ra trước mắt người dùng để chọn dòng máy (XP-80, XP-58...) và bấm **Install Now**.
+- **🛡️ Loại Trừ Triệt Để Nhầm Lẫn OPOS/JavaPOS**:
+  + Bộ lọc Smart Ranking đã phế truất 100% các file OPOS phụ trợ, chỉ chọn bộ cài Windows Spooler chính thức.
 
 - **👁️ Watcher Spooler Engine & Tự Động Ép Cổng USB Thực Tế (USB003...)**:
-  + Giám sát thời gian thực hệ thống in Windows: Ngay khi máy in xuất hiện, DMH Tools tự động dò và ép cổng về đúng cổng USB đang cắm cáp vật lý thực tế (\`USB003\`).
-  + Gửi lệnh in test đích danh vào máy in vừa cài, không in nhầm máy in mặc định.
+  + Tự động dò tìm cổng USB đang cắm cáp vật lý thực tế (\`USB003\`).
+  + Ngay khi máy in được bộ cài tạo ra, DMH Tools lập tức ép cổng về đúng cổng USB đang cắm và gửi lệnh in test đích danh vào máy in đó.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,
