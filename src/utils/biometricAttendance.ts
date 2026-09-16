@@ -698,7 +698,7 @@ export function evaluateDailyAttendance(
   // Về sớm & Tăng ca
   let earlyMinutes = 0;
   let overtimeHours = 0;
-  let workHours = 0;
+  let workHours: number;
 
   const hasValidOut = lastPunch && (lastPunch.getTime() - firstPunch.getTime() >= 15 * 60 * 1000);
   if (hasValidOut) {

@@ -1,4 +1,3 @@
-declare const __APP_VERSION__: string;
 
 export type MatchStatus = 'KHỚP' | 'LỆCH' | 'KHÔNG THẤY';
 export type FileFormat = 'excel' | 'xml' | 'csv';

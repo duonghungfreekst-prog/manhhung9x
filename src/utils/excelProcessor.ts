@@ -611,14 +611,14 @@ function compareRows(portal: PatientRow, internal: PatientRow): DiffDetail[] {
   if (portal.dateIn && portal.dateOut) {
     const parseDateTime = (str:string)=>{
       // hỗ trợ dd/MM/yyyy HH:mm hoặc yyyy-MM-dd HH:mm
-      const dmY = str.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})[\sT](\d{2}):(\d{2})/);
+      const dmY = str.match(/^(\d{2})[-/](\d{2})[-/](\d{4})[\sT](\d{2}):(\d{2})/);
       if (dmY) {
-        const [_, d,m,y,h,min] = dmY;
+        const [,d,m,y,h,min] = dmY;
         return new Date(Number(y),Number(m)-1,Number(d),Number(h),Number(min)).getTime();
       }
-      const yMD = str.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})[\sT](\d{2}):(\d{2})/);
+      const yMD = str.match(/^(\d{4})[-/](\d{2})[-/](\d{2})[\sT](\d{2}):(\d{2})/);
       if (yMD) {
-        const [_, y,m,d,h,min] = yMD;
+        const [,y,m,d,h,min] = yMD;
         return new Date(Number(y),Number(m)-1,Number(d),Number(h),Number(min)).getTime();
       }
       return 0; // không có thời gian

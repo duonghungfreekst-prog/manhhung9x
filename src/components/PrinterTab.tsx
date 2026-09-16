@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Printer, RefreshCw, Trash2, CheckCircle2, Search, Wrench, 
   Download, Activity, Share2, Copy, Check, Power, Terminal,
   ShieldAlert, Wifi, FileText, Settings, ExternalLink, Play, Star,
-  AlertTriangle, CheckCircle, ShieldCheck, Zap, Network, X, Layers, BookOpen
+  AlertTriangle, CheckCircle, ShieldCheck, Zap, Network, X, Layers, BookOpen,
+  Sparkles
 } from 'lucide-react';
 import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 
@@ -212,12 +213,6 @@ const COMMON_DRIVERS = [
   { name: 'Epson LQ-300+ / LQ-310 (Kim A4)', regex: /Epson.?LQ.?3[01]/i,
     url: 'https://epson.com.vn/Support/Printers/Single-Function-Inkjet-Printers/Epson-L-Series/Epson-LQ-310/s/SPT_C11CF39501',
     directLink: undefined, sha256: undefined },
-  { name: 'Epson TM-T82 / TM-T88 (Hóa đơn nhiệt)', regex: /Epson.?TM.?T(82|88)/i,
-    url: 'https://download.epson-biz.com/modules/pos/index.php?page=prod&pcat=3&pid=36',
-    directLink: undefined, sha256: undefined },
-  { name: 'Epson TM-T20 / TM-T20II (Hóa đơn)', regex: /Epson.?TM.?T20/i,
-    url: 'https://download.epson-biz.com/modules/pos/index.php?page=prod&pcat=3&pid=62',
-    directLink: undefined, sha256: undefined },
   // ─── SAMSUNG (đã sáp nhập vào HP) ───────────────────────────────────────
   { name: 'Samsung ML-1670 / ML-1675', regex: /Samsung.?ML.?167[05]/i,
     url: 'https://support.hp.com/vn-en/drivers/selfservice/samsung-ml-1670-laser-printer-series/3878063',
@@ -263,40 +258,94 @@ const COMMON_DRIVERS = [
   { name: 'Kyocera ECOSYS P2035d / P2135d', regex: /Kyocera.?P2[01]35/i,
     url: 'https://www.kyoceradocumentsolutions.us/en/support/downloads/index.html',
     directLink: undefined, sha256: undefined },
-  // ─── MÁY IN HÓA ĐƠN NHIỆT (POS / Receipt) ───────────────────────────────
-  { name: 'Xprinter XP-58 / XP-80 / XP-Q200 (Hóa đơn 58mm/80mm)', regex: /Xprinter|XP-[58Q]/i,
+  // ─── MÁY IN HÓA ĐƠN NHIỆT (POS / Receipt / Bill K80 & K58) ───────────────
+  { name: 'Xprinter XP-58 / XP-80 / XP-Q200 (Hóa đơn 58mm/80mm)', category: 'pos', regex: /Xprinter|XP-[58Q]/i,
     url: 'https://xprinter.vn/driver-may-in-hoa-don-xprinter/',
     directLink: 'https://xprinter.vn/wp-content/uploads/2021/04/XPrinter-Driver-V7.77.zip', sha256: null },
-  { name: 'Gprinter GP-58 / GP-80 (Hóa đơn nhiệt)', regex: /Gprinter|GP-[58]/i,
-    url: 'http://www.gprinter.net/download.asp',
+  { name: 'Xprinter XP-N160M / XP-K200L / XP-Q800 / XP-D300M (POS 80mm)', category: 'pos', regex: /XP-N160M|XP-K200|XP-Q800|XP-D300/i,
+    url: 'https://xprinter.vn/driver-may-in-hoa-don-xprinter/',
     directLink: undefined, sha256: undefined },
-  { name: 'DATECS EP-50 / FP-700 (Máy in hóa đơn tài chính)', regex: /DATECS|EP-50|FP-700/i,
-    url: 'https://www.datecs.bg/en/products/printers',
+  { name: 'Posiflex Aura PP-6900 / PP-8800 / PP-7600 (Máy in bill POS)', category: 'pos', regex: /Posiflex|PP-?[6789]000|Aura/i,
+    url: 'https://www.posiflex.com/en-global/download/index/printers',
     directLink: undefined, sha256: undefined },
-  { name: 'Citizen CT-S310 / CT-S651 (Receipt)', regex: /Citizen.?CT.?S[36]/i,
-    url: 'https://www.citizen-systems.com/en/printer/download.html',
+  { name: 'Posbank A7 / A9 / APEXA / BigPOS (Máy in bill POS)', category: 'pos', regex: /Posbank|Apexa|A[79]/i,
+    url: 'https://www.posbank.com/download/',
     directLink: undefined, sha256: undefined },
-  { name: 'Bixolon SRP-350 / SRP-500 (Receipt POS)', regex: /Bixolon|SRP-[35]/i,
+  { name: 'Sunmi T2 / T2s / V2 / NT311 (POS để bàn & cầm tay)', category: 'pos', regex: /Sunmi|NT311/i,
+    url: 'https://developer.sunmi.com/docs/en-US/index',
+    directLink: undefined, sha256: undefined },
+  { name: 'Zywell ZY-303 / ZY-306 / ZY-906 / ZY-908 (Hóa đơn nhiệt 80mm)', category: 'pos', regex: /Zywell|ZY-?[39]0[368]/i,
+    url: 'http://www.zywell.net/download/',
+    directLink: undefined, sha256: undefined },
+  { name: 'Kpos / Atpos K200 / V58 / ZY-303 (Máy in bill K80 / K58)', category: 'pos', regex: /Kpos|Atpos|K200|V58/i,
+    url: 'https://atpos.vn/driver-may-in-hoa-don/',
+    directLink: undefined, sha256: undefined },
+  { name: 'Antech A80 / AP250 / K260L / B80 (Máy in bill nhiệt)', category: 'pos', regex: /Antech|AP250|K260L/i,
+    url: 'https://antech.vn/ho-tro-ky-thuat/driver-may-in/',
+    directLink: undefined, sha256: undefined },
+  { name: 'Epson TM-T82 / TM-T82III / TM-T82X (Hóa đơn nhiệt K80)', category: 'pos', regex: /Epson.?TM.?T82/i,
+    url: 'https://download.epson-biz.com/modules/pos/index.php?page=prod&pcat=3&pid=42',
+    directLink: undefined, sha256: undefined },
+  { name: 'Epson TM-T88 / TM-T88VI / TM-m30 (POS Receipt cao cấp)', category: 'pos', regex: /Epson.?TM.?(T88|m30)/i,
+    url: 'https://download.epson-biz.com/modules/pos/index.php?page=prod&pcat=3&pid=36',
+    directLink: undefined, sha256: undefined },
+  { name: 'Epson TM-T20 / TM-T20II / TM-T20III (Hóa đơn POS)', category: 'pos', regex: /Epson.?TM.?T20/i,
+    url: 'https://download.epson-biz.com/modules/pos/index.php?page=prod&pcat=3&pid=62',
+    directLink: undefined, sha256: undefined },
+  { name: 'Epson TM-U220 / TM-U295 (In kim hóa đơn 2-3 liên)', category: 'pos', regex: /Epson.?TM.?U220|TM.?U295/i,
+    url: 'https://download.epson-biz.com/modules/pos/index.php?page=prod&pcat=3&pid=5',
+    directLink: undefined, sha256: undefined },
+  { name: 'Bixolon SRP-330 / SRP-350 / SRP-E300 (Receipt POS)', category: 'pos', regex: /Bixolon|SRP-[35E]/i,
     url: 'https://www.bixolon.com/subpage.php?m_cd=000100030004',
     directLink: undefined, sha256: undefined },
-  { name: 'Star TSP100 / TSP650 (Receipt)', regex: /Star.?TSP[16]/i,
+  { name: 'Citizen CT-S310 / CT-S651 (Receipt POS)', category: 'pos', regex: /Citizen.?CT.?S[36]/i,
+    url: 'https://www.citizen-systems.com/en/printer/download.html',
+    directLink: undefined, sha256: undefined },
+  { name: 'Star TSP100 / TSP650 / BSC10 (Receipt POS)', category: 'pos', regex: /Star.?TSP[16]|BSC10/i,
     url: 'https://www.star-m.jp/eng/dl/dl06_s.htm',
     directLink: undefined, sha256: undefined },
-  { name: 'Hprt TP805 / TP808 (Hóa đơn nhiệt 80mm)', regex: /Hprt|TP80[58]/i,
+  { name: 'Hprt TP805 / TP808 / PPT2-A (Hóa đơn nhiệt 80mm)', category: 'pos', regex: /Hprt|TP80[58]|PPT2/i,
     url: 'https://www.hprt.com/Support/Download',
     directLink: undefined, sha256: undefined },
-  { name: 'iDPRT SP410 / iT4S (Barcode / Receipt)', regex: /iDPRT|SP4|iT4/i,
-    url: 'https://www.idprt.com/support/download-center.html',
+  { name: 'Rongta RP80 / RP326 / RP58 (Máy in bill siêu tốc)', category: 'pos', regex: /Rongta|RP80|RP326|RP58/i,
+    url: 'https://www.rongtatech.com/download',
     directLink: undefined, sha256: undefined },
-  // ─── MÁY IN NHÃ N (Barcode / Label) ─────────────────────────────────────
-  { name: 'Zebra ZP450 / GK420 / GX420 (Barcode)', regex: /Zebra|ZP450|GK420|GX420/i,
+  { name: 'Gprinter GP-58 / GP-80 / GP-L80180 (Hóa đơn nhiệt)', category: 'pos', regex: /Gprinter|GP-[58L]/i,
+    url: 'http://www.gprinter.net/download.asp',
+    directLink: undefined, sha256: undefined },
+  { name: 'Sewoo LK-T210 / LK-T213 / LK-T320 (Receipt POS)', category: 'pos', regex: /Sewoo|LK-T21|LK-T320/i,
+    url: 'http://www.miniprinter.com/support/download.php',
+    directLink: undefined, sha256: undefined },
+  { name: 'Winpal WPR-80A / WP-T810 / WP300A (Hóa đơn nhiệt K80)', category: 'pos', regex: /Winpal|WPR-80|WP-T810|WP300/i,
+    url: 'https://www.winprt.com/support/download/',
+    directLink: undefined, sha256: undefined },
+  { name: 'SAM4S Giant-100 / Ellix 40 (Receipt POS)', category: 'pos', regex: /SAM4S|Giant-100|Ellix/i,
+    url: 'https://www.sam4s.com/support/download',
+    directLink: undefined, sha256: undefined },
+  { name: 'DATECS EP-50 / FP-700 (Máy in hóa đơn tài chính)', category: 'pos', regex: /DATECS|EP-50|FP-700/i,
+    url: 'https://www.datecs.bg/en/products/printers',
+    directLink: undefined, sha256: undefined },
+  // ─── MÁY IN NHÃN (Barcode / Label / Ống nghiệm) ─────────────────────────
+  { name: 'Godex G500 / G530 / EZ1100 Plus (In tem nhãn xét nghiệm & thuốc)', category: 'barcode', regex: /Godex|G500|EZ1100|G530/i,
+    url: 'https://www.godexintl.com/downloads',
+    directLink: undefined, sha256: undefined },
+  { name: 'Zebra ZP450 / GK420 / GX420 / ZD220 (Barcode nhãn)', category: 'barcode', regex: /Zebra|ZP450|GK420|GX420|ZD220/i,
     url: 'https://www.zebra.com/us/en/support-downloads/printers.html',
     directLink: undefined, sha256: undefined },
-  { name: 'Argox OS-214 / OS-314 (Barcode nhãn)', regex: /Argox|OS-[23]14/i,
+  { name: 'TSC TDP-225 / TE200 / TE210 (Barcode nhãn bệnh viện)', category: 'barcode', regex: /TSC.?(TDP|TE)[23]/i,
+    url: 'https://www.tscprinters.com/EN/download.html',
+    directLink: undefined, sha256: undefined },
+  { name: 'Bixolon SLP-TX400 / SLP-DX220 (Barcode ống nghiệm)', category: 'barcode', regex: /SLP-TX400|SLP-DX220/i,
+    url: 'https://www.bixolon.com/subpage.php?m_cd=000100030003',
+    directLink: undefined, sha256: undefined },
+  { name: 'Argox OS-214 / OS-314 (Barcode nhãn)', category: 'barcode', regex: /Argox|OS-[23]14/i,
     url: 'https://www.argox.com/download.php',
     directLink: undefined, sha256: undefined },
-  { name: 'TSC TDP-225 / TE210 (Barcode nhãn)', regex: /TSC.?(TDP|TE)[23]/i,
-    url: 'https://www.tscprinters.com/EN/download.html',
+  { name: 'iDPRT SP410 / iT4S (Barcode nhãn & vận đơn)', category: 'barcode', regex: /iDPRT|SP4|iT4/i,
+    url: 'https://www.idprt.com/support/download-center.html',
+    directLink: undefined, sha256: undefined },
+  { name: 'Xprinter XP-350B / XP-420B / XP-470B (In tem nhãn mã vạch)', category: 'barcode', regex: /XP-350B|XP-420B|XP-470B/i,
+    url: 'https://xprinter.vn/driver-may-in-ma-vach-xprinter/',
     directLink: undefined, sha256: undefined },
 ];
 
@@ -310,6 +359,9 @@ export default function PrinterTab() {
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   
+  // State tìm kiếm & bộ lọc phân loại Driver máy in (POS / Barcode / Văn Phòng A4)
+  const [driverSearch, setDriverSearch] = useState('');
+  const [driverCategory, setDriverCategory] = useState<'all' | 'pos' | 'barcode' | 'office'>('all');
   // State quản lý sửa lỗi chia sẻ máy in qua mạng LAN (RPC Named Pipe 0x00000709 / 0x0000011b)
   const [shareRpcStatus, setShareRpcStatus] = useState<{ isFixed: boolean; rpcUseNamedPipe?: number; rpcAuthnLevelPrivacy?: number; spoolerStatus?: string } | null>(null);
   const [fixingShare, setFixingShare] = useState(false);
@@ -321,6 +373,127 @@ export default function PrinterTab() {
   const [enablingSharing, setEnablingSharing] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [showCmdDetails, setShowCmdDetails] = useState(false);
+
+  // State Modal Thông Báo Kết Quả Sửa Lỗi Hiện Đại (Thay thế alert native cũ)
+  interface ResultModalState {
+    isOpen: boolean;
+    type: 'success' | 'warning' | 'error' | 'info';
+    title: string;
+    badge?: string;
+    items?: string[];
+    message?: string;
+    actionTip?: string;
+  }
+  const [resultModal, setResultModal] = useState<ResultModalState | null>(null);
+
+  const formatTechnicalText = (text: string) => {
+    const keywords = [
+      'Point and Print Restrictions',
+      'RestrictDriverInstallationToAdministrators',
+      'NoWarningNoElevationOnInstall',
+      'RpcUseNamedPipeProtocol',
+      'RpcAuthnLevelPrivacyEnabled',
+      'RpcAuthnLevelExemption',
+      'RPC Named Pipe',
+      'miễn trừ xác thực RPC',
+      'SMB Signing',
+      'Windows 11',
+      'Windows 10/7',
+      'Private Network',
+      'Tường lửa',
+      'Print Spooler',
+      'Local Port',
+      '0x00000040',
+      '0x00000709',
+      '0x709',
+      '0x11b',
+      '0xbcb',
+      'Network Discovery',
+      'File and Printer Sharing',
+      'Guest',
+      'SNMP',
+    ];
+
+    let segments: (string | React.ReactNode)[] = [text];
+    keywords.forEach(kw => {
+      const nextSegments: (string | React.ReactNode)[] = [];
+      segments.forEach(seg => {
+        if (typeof seg === 'string') {
+          const parts = seg.split(new RegExp(`(${kw})`, 'gi'));
+          parts.forEach((p, idx) => {
+            if (p.toLowerCase() === kw.toLowerCase()) {
+              nextSegments.push(
+                <strong key={`${kw}-${idx}`} style={{ color: '#047857', fontWeight: 700 }}>
+                  {p}
+                </strong>
+              );
+            } else if (p) {
+              nextSegments.push(p);
+            }
+          });
+        } else {
+          nextSegments.push(seg);
+        }
+      });
+      segments = nextSegments;
+    });
+    return segments;
+  };
+
+  const showResultModal = (
+    rawMsg: string,
+    overrideType?: 'success' | 'warning' | 'error' | 'info'
+  ) => {
+    const rawLines = rawMsg.split('\n').map(l => l.trim()).filter(Boolean);
+    let title = rawLines[0] || 'Thông Báo Bác Sĩ Máy In';
+    let type: 'success' | 'warning' | 'error' | 'info' = overrideType || 'info';
+
+    if (title.includes('🎉') || title.includes('✅') || title.includes('THÀNH CÔNG') || title.includes('KẾT NỐI THÀNH CÔNG')) {
+      type = 'success';
+    } else if (title.includes('⚠️') || title.includes('ADMINISTRATOR') || title.includes('CẦN QUYỀN')) {
+      type = 'warning';
+    } else if (title.includes('❌') || title.includes('Lỗi') || title.includes('thất bại') || title.includes('Thất Bại')) {
+      type = 'error';
+    }
+
+    // Bỏ emoji hoặc biểu tượng đầu dòng
+    const emojiList = ['🎉', '✅', '⚠️', '❌', '🚀', '🛠️', '🛠', '💡', '👉'];
+    for (const em of emojiList) {
+      if (title.startsWith(em)) {
+        title = title.slice(em.length).trim();
+      }
+    }
+
+    const items: string[] = [];
+    let actionTip: string | undefined;
+    const textLines: string[] = [];
+
+    for (let i = 1; i < rawLines.length; i++) {
+      let line = rawLines[i];
+      if (line.startsWith('•') || line.startsWith('-')) {
+        items.push(line.replace(/^[•-]\s*/, '').trim());
+      } else if (line.startsWith('👉') || line.startsWith('💡') || line.toLowerCase().startsWith('lưu ý')) {
+        for (const tipIcon of ['👉', '💡']) {
+          if (line.startsWith(tipIcon)) {
+            line = line.slice(tipIcon.length).trim();
+          }
+        }
+        actionTip = line;
+      } else {
+        textLines.push(line);
+      }
+    }
+
+    setResultModal({
+      isOpen: true,
+      type,
+      title,
+      badge: type === 'success' ? 'ĐÃ XỬ LÝ THÀNH CÔNG 100%' : type === 'warning' ? 'YÊU CẦU QUYỀN HỆ THỐNG' : type === 'error' ? 'SỰ CỐ THAO TÁC' : 'THÔNG BÁO',
+      items: items.length > 0 ? items : undefined,
+      message: textLines.length > 0 ? textLines.join('\n') : undefined,
+      actionTip,
+    });
+  };
 
   // State quản lý công cụ Kết Nối Máy In Qua Local Port (Đặc trị lỗi 0x00000709 khi 2 máy khác bản Windows)
   const [showLocalPortModal, setShowLocalPortModal] = useState(false);
@@ -352,15 +525,15 @@ export default function PrinterTab() {
 
   const handleConnectLocalPort = async () => {
     if (!localPortHost.trim()) {
-      alert('Vui lòng nhập địa chỉ IP hoặc tên máy chủ (ví dụ: 192.168.1.50 hoặc MAY-CHU)!');
+      showResultModal('⚠️ Vui lòng nhập địa chỉ IP hoặc tên máy chủ (ví dụ: 192.168.1.50 hoặc MAY-CHU)!', 'warning');
       return;
     }
     if (!localPortShare.trim()) {
-      alert('Vui lòng nhập tên chia sẻ của máy in trên máy chủ (ví dụ: epson lq-310 escp2 hoặc LQ310)!');
+      showResultModal('⚠️ Vui lòng nhập tên chia sẻ của máy in trên máy chủ (ví dụ: epson lq-310 escp2 hoặc LQ310)!', 'warning');
       return;
     }
     if (!localPortDriver.trim()) {
-      alert('Vui lòng chọn hoặc nhập tên Driver của máy in trên máy tính này!');
+      showResultModal('⚠️ Vui lòng chọn hoặc nhập tên Driver của máy in trên máy tính này!', 'warning');
       return;
     }
 
@@ -381,18 +554,18 @@ export default function PrinterTab() {
 
         if (res?.ok && res?.success) {
           addLog(`✅ ${res.message || 'Kết nối máy in qua Local Port thành công!'}`);
-          alert(`🎉 ĐÃ KẾT NỐI THÀNH CÔNG!\n\nĐã tạo máy in [${res.printerName}] gán vào cổng Local Port [${res.portName}].\n\nBạn có thể mở Word/Excel/HIS và in ngay lập tức mà không bao giờ bị lỗi 0x00000709!`);
+          showResultModal(`🎉 ĐÃ KẾT NỐI MÁY IN LOCAL PORT THÀNH CÔNG!\n\n• Đã tạo máy in [${res.printerName}]\n• Đã gán thành công vào cổng Local Port [${res.portName}]\n\n👉 Bạn có thể mở Word/Excel/HIS và in ngay lập tức mà không bao giờ bị lỗi 0x00000709!`);
           setShowLocalPortModal(false);
           await loadPrinters();
           await diagnoseAllPrinters(true);
         } else {
           addLog(`❌ Kết nối thất bại: ${res?.error || 'Lỗi không xác định'}`);
-          alert(`❌ Kết nối thất bại: ${res?.error || 'Vui lòng kiểm tra lại quyền Administrator hoặc tên Driver!'}`);
+          showResultModal(`❌ Kết Nối Thất Bại\n\n${res?.error || 'Vui lòng kiểm tra lại quyền Administrator hoặc tên Driver!'}`, 'error');
         }
       }
     } catch (err: unknown) {
       addLog(`❌ Lỗi kết nối Local Port: ${String(err)}`);
-      alert(`❌ Lỗi: ${String(err)}`);
+      showResultModal(`❌ Lỗi Kết Nối Local Port\n\n${String(err)}`, 'error');
     } finally {
       setConnectingLocalPort(false);
       stopGlobalLoading('printer-local-port');
@@ -521,10 +694,10 @@ export default function PrinterTab() {
           await checkShareRpcStatus();
           await diagnoseAllPrinters(true);
           await loadPrinters();
-          alert('🎉 ĐÃ KHẮC PHỤC THÀNH CÔNG LỖI CHIA SẺ MÁY IN 0x709 / 0x11b!\n\n• Đã ghi Registry RpcUseNamedPipeProtocol = 1\n• Đã ghi RpcAuthnLevelPrivacyEnabled = 0 & RpcAuthnLevelExemption = 1\n• Đã gỡ bỏ giới hạn Point & Print và mở Tường lửa\n• Đã khởi động lại Print Spooler\n\n👉 Tất cả các ô chẩn đoán liên quan đã chuyển sang MÀU XANH chuẩn!');
+          showResultModal('🎉 ĐÃ KHẮC PHỤC THÀNH CÔNG LỖI CHIA SẺ MÁY IN 0x709 / 0x11b!\n\n• Đã ghi Registry RpcUseNamedPipeProtocol = 1\n• Đã ghi RpcAuthnLevelPrivacyEnabled = 0 & RpcAuthnLevelExemption = 1\n• Đã gỡ bỏ giới hạn Point & Print và mở Tường lửa\n• Đã khởi động lại Print Spooler\n\n👉 Tất cả các ô chẩn đoán liên quan đã chuyển sang MÀU XANH chuẩn!');
         } else {
           addLog('⚠️ ' + (res?.message || res?.error || 'Có thể cần quyền Administrator để ghi khóa Registry.'));
-          alert('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.message || res?.error || 'Không thể ghi Registry hệ thống. Vui lòng đóng app và chuột phải chọn "Run as administrator".'));
+          showResultModal('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.message || res?.error || 'Không thể ghi Registry hệ thống.') + '\n\n👉 Vui lòng đóng app và chuột phải chọn "Run as administrator".', 'warning');
         }
       } else {
         // Fallback qua runPS nếu chạy trực tiếp
@@ -566,9 +739,10 @@ export default function PrinterTab() {
         const res = await w.electronAPI.printer.fixError0x40();
         if (res?.ok && res?.success) {
           addLog('✅ ' + (res.message || 'Đã khắc phục lỗi 0x00000040 thành công!'));
-          alert('🎉 ĐÃ KHẮC PHỤC THÀNH CÔNG LỖI 40 (0x00000040)!\n\n• Đã vô hiệu hóa chính sách Point and Print Restrictions (cho phép nhận driver qua mạng).\n• Đã cấu hình RPC Named Pipe & miễn trừ xác thực RPC.\n• Đã tắt SMB Signing bắt buộc của Windows 11.\n• Đã chuyển mạng sang Private Network & mở Tường lửa.\n• Đã khởi động lại dịch vụ Print Spooler.\n\n👉 Bạn hãy thử kết nối lại máy in chia sẻ qua mạng LAN hoặc in thử một trang (Print Test Page)!');
+          showResultModal('🎉 ĐÃ KHẮC PHỤC THÀNH CÔNG LỖI 40 (0x00000040)!\n\n• Đã vô hiệu hóa chính sách Point and Print Restrictions (cho phép nhận driver qua mạng).\n• Đã cấu hình RPC Named Pipe & miễn trừ xác thực RPC.\n• Đã tắt SMB Signing bắt buộc của Windows 11.\n• Đã chuyển mạng sang Private Network & mở Tường lửa.\n• Đã khởi động lại dịch vụ Print Spooler.\n\n👉 Bạn hãy thử kết nối lại máy in chia sẻ qua mạng LAN hoặc in thử một trang (Print Test Page)!');
         } else {
           addLog('⚠️ ' + (res?.message || res?.error || 'Không thể áp dụng cấu hình'));
+          showResultModal('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.message || res?.error || 'Không thể áp dụng cấu hình sửa lỗi 0x00000040.') + '\n\n👉 Vui lòng đóng app và chuột phải chọn "Run as administrator".', 'warning');
         }
       } else {
         await runPS(`
@@ -693,10 +867,10 @@ export default function PrinterTab() {
           await checkShareRpcStatus();
           await diagnoseAllPrinters(true);
           await loadPrinters();
-          alert('🎉 ĐÃ SỬA TỰ ĐỘNG TOÀN BỘ LỖI MÁY IN VÀ XÁC THỰC THÀNH CÔNG 100%!\n\n• Đã cấu hình Registry RPC Named Pipe sửa lỗi 0x709 / 0x11b\n• Đã gỡ bỏ Group Policy chặn Driver LAN 0xbcb\n• Đã mở Firewall File & Printer Sharing\n• Đã dọn sạch file kẹt bộ đệm Spooler\n• Đã tắt SNMP chống lỗi Offline ảo\n\n👉 Tất cả các ô chẩn đoán hệ thống đã chuyển sang MÀU XANH chuẩn!');
+          showResultModal('🎉 ĐÃ SỬA TỰ ĐỘNG TOÀN BỘ LỖI MÁY IN VÀ XÁC THỰC THÀNH CÔNG 100%!\n\n• Đã cấu hình Registry RPC Named Pipe sửa lỗi 0x709 / 0x11b\n• Đã gỡ bỏ Group Policy chặn Driver LAN 0xbcb\n• Đã mở Firewall File & Printer Sharing\n• Đã dọn sạch file kẹt bộ đệm Spooler\n• Đã tắt SNMP chống lỗi Offline ảo\n\n👉 Tất cả các ô chẩn đoán hệ thống đã chuyển sang MÀU XANH chuẩn!');
         } else {
           addLog('⚠️ Sửa lỗi thất bại: ' + (res?.error || 'Có thể cần cấp quyền Administrator.'));
-          alert('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.error || 'Không thể tự động sửa lỗi. Vui lòng đóng ứng dụng và chuột phải chọn "Run as administrator".'));
+          showResultModal('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.error || 'Không thể tự động sửa lỗi.') + '\n\n👉 Vui lòng đóng ứng dụng và chuột phải chọn "Run as administrator".', 'warning');
         }
       } else {
         // Fallback: gọi từng hàm
@@ -965,10 +1139,10 @@ export default function PrinterTab() {
           await checkShareRpcStatus();
           await diagnoseAllPrinters(true);
           await loadPrinters();
-          alert('🎉 ĐÃ GỠ BỎ CHÍNH SÁCH CHẶN DRIVER LAN 0xbcb THÀNH CÔNG!\n\n• Đã bật RestrictDriverInstallationToAdministrators = 0\n• Đã tắt cảnh báo NoWarningNoElevationOnInstall = 1\n• Máy con nay có thể tự nạp Driver từ máy in chia sẻ qua mạng LAN mà không bị Windows chặn.');
+          showResultModal('🎉 ĐÃ GỠ BỎ CHÍNH SÁCH CHẶN DRIVER LAN 0xbcb THÀNH CÔNG!\n\n• Đã bật RestrictDriverInstallationToAdministrators = 0\n• Đã tắt cảnh báo NoWarningNoElevationOnInstall = 1\n• Máy con nay có thể tự nạp Driver từ máy in chia sẻ qua mạng LAN mà không bị Windows chặn.\n\n👉 Bạn có thể kết nối lại máy in trên máy con để Windows tự động nạp driver!');
         } else {
           addLog('⚠️ ' + (res?.error || 'Có thể cần quyền Administrator.'));
-          alert('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.error || 'Không thể cấu hình Point and Print. Vui lòng mở app bằng Run as administrator.'));
+          showResultModal('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.error || 'Không thể cấu hình Point and Print.') + '\n\n👉 Vui lòng mở app bằng Run as administrator.', 'warning');
         }
       } else {
         await runPS(`
@@ -1042,10 +1216,10 @@ export default function PrinterTab() {
         const res = await w.electronAPI.printer.enableLanSharing();
         if (res?.ok) {
           addLog('✅ ' + (res.message || 'Đã bật chia sẻ mạng LAN thành công!'));
-          alert('🎉 ĐÃ BẬT CHIA SẺ MẠNG LAN THÀNH CÔNG!\n\n• Đã mở Tường lửa Firewall cho File and Printer Sharing & Network Discovery.\n• Đã khởi động các dịch vụ mạng nền tảng (FDResPub, fdPHost, LanmanServer).\n• Đã mở tài khoản Guest và cấu hình chia sẻ không cần mật khẩu.');
+          showResultModal('🎉 ĐÃ BẬT CHIA SẺ MẠNG LAN THÀNH CÔNG!\n\n• Đã mở Tường lửa Firewall cho File and Printer Sharing & Network Discovery.\n• Đã khởi động các dịch vụ mạng nền tảng (FDResPub, fdPHost, LanmanServer).\n• Đã mở tài khoản Guest và cấu hình chia sẻ không cần mật khẩu.\n\n👉 Các máy con trong mạng LAN hiện có thể nhìn thấy và truy cập máy in chia sẻ!');
         } else {
           addLog('⚠️ ' + (res?.error || 'Cần quyền Administrator để thay đổi cấu hình mạng.'));
-          alert('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.error || 'Vui lòng chạy phần mềm bằng Run as administrator để có quyền mở cổng Tường lửa Firewall.'));
+          showResultModal('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.error || 'Không đủ quyền hạn thay đổi cấu hình mạng.') + '\n\n👉 Vui lòng chạy phần mềm bằng Run as administrator để có quyền mở cổng Tường lửa Firewall.', 'warning');
         }
       } else {
         await runPS(`
@@ -1530,41 +1704,231 @@ export default function PrinterTab() {
   );
 
   // ── Helper: Render Tự Động Nhận Diện & Tải Driver Máy In ──
-  const renderDriversBlock = () => (
-    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem', width: '100%', boxSizing: 'border-box' }}>
-      <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Download size={16} color="#10b981" /> Tự động nhận diện & Cài Driver Máy In
-      </h3>
-      <p style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: '1rem' }}>
-        Hệ thống cung cấp link tải driver chuẩn cho các dòng máy in phổ biến tại Bệnh viện/Phòng khám.
-      </p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 8 }}>
-        {COMMON_DRIVERS.map(drv => {
-          const detected = printers.some(p => drv.regex.test(p.Name) || drv.regex.test(p.DriverName));
-          return (
-            <button 
-              key={drv.name}
-              onClick={() => downloadAndInstallDriver(drv)}
-              disabled={loading}
-              style={{ 
-                padding: '0.75rem', border: `1px solid ${detected ? '#10b981' : '#e2e8f0'}`, borderRadius: 6,
-                textAlign: 'left', color: '#1e293b', background: detected ? '#f0fdf4' : '#fff', cursor: loading ? 'wait' : 'pointer'
+  const renderDriversBlock = () => {
+    const q = driverSearch.trim().toLowerCase();
+    const filtered = COMMON_DRIVERS.filter(drv => {
+      const cat = drv.category || 'office';
+      const matchCat = driverCategory === 'all' || cat === driverCategory;
+      const matchSearch = !q || drv.name.toLowerCase().includes(q) || cat.toLowerCase().includes(q);
+      return matchCat && matchSearch;
+    });
+
+    const posCount = COMMON_DRIVERS.filter(d => d.category === 'pos').length;
+    const barcodeCount = COMMON_DRIVERS.filter(d => d.category === 'barcode').length;
+    const officeCount = COMMON_DRIVERS.filter(d => !d.category || d.category === 'office').length;
+
+    return (
+      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '1.25rem', width: '100%', boxSizing: 'border-box' }}>
+        {/* Header Block & Search */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0f172a', margin: '0 0 0.25rem 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Download size={18} color="#10b981" /> Thư Viện Driver Máy In Chuẩn (Nhận Diện & Cài Đặt)
+            </h3>
+            <p style={{ fontSize: '0.78rem', color: '#64748b', margin: 0 }}>
+              Hỗ trợ đầy đủ các dòng <strong>Máy in Hóa Đơn POS / Nhiệt</strong>, <strong>Mã Vạch / Tem Nhãn Xét Nghiệm</strong> và <strong>Máy in Văn Phòng A4</strong>.
+            </p>
+          </div>
+
+          {/* Ô Tìm Kiếm Driver Nhanh */}
+          <div style={{ position: 'relative', width: 320, maxWidth: '100%' }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <input
+              type="text"
+              placeholder="Tìm nhanh driver (POS, Xprinter, Zywell, Canon, T82...)..."
+              value={driverSearch}
+              onChange={e => setDriverSearch(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '7px 30px 7px 32px',
+                fontSize: '0.78rem',
+                border: '1px solid #cbd5e1',
+                borderRadius: 8,
+                outline: 'none',
+                boxSizing: 'border-box',
+                background: '#f8fafc',
               }}
+            />
+            {driverSearch && (
+              <button
+                onClick={() => setDriverSearch('')}
+                style={{
+                  position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                  background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 2
+                }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Thanh Lọc Danh Mục (Category Tabs) */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: '1.15rem', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setDriverCategory('all')}
+            style={{
+              padding: '6px 14px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+              border: driverCategory === 'all' ? '1.5px solid #0f172a' : '1px solid #e2e8f0',
+              background: driverCategory === 'all' ? '#0f172a' : '#f8fafc',
+              color: driverCategory === 'all' ? '#fff' : '#475569',
+              display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.15s ease'
+            }}
+          >
+            <span>Tất Cả</span>
+            <span style={{ background: driverCategory === 'all' ? 'rgba(255,255,255,0.25)' : '#e2e8f0', padding: '1px 6px', borderRadius: 10, fontSize: '0.68rem' }}>
+              {COMMON_DRIVERS.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setDriverCategory('pos')}
+            style={{
+              padding: '6px 14px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
+              border: driverCategory === 'pos' ? '1.5px solid #059669' : '1px solid #a7f3d0',
+              background: driverCategory === 'pos' ? '#059669' : '#ecfdf5',
+              color: driverCategory === 'pos' ? '#fff' : '#065f46',
+              display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.15s ease',
+              boxShadow: driverCategory === 'pos' ? '0 2px 8px rgba(5, 150, 105, 0.3)' : 'none'
+            }}
+          >
+            <span>🧾 Máy In Hóa Đơn POS / Nhiệt</span>
+            <span style={{ background: driverCategory === 'pos' ? 'rgba(255,255,255,0.3)' : '#059669', color: '#fff', padding: '1px 7px', borderRadius: 10, fontSize: '0.68rem' }}>
+              {posCount}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setDriverCategory('barcode')}
+            style={{
+              padding: '6px 14px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+              border: driverCategory === 'barcode' ? '1.5px solid #4f46e5' : '1px solid #c7d2fe',
+              background: driverCategory === 'barcode' ? '#4f46e5' : '#eef2ff',
+              color: driverCategory === 'barcode' ? '#fff' : '#3730a3',
+              display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.15s ease',
+              boxShadow: driverCategory === 'barcode' ? '0 2px 8px rgba(79, 70, 229, 0.3)' : 'none'
+            }}
+          >
+            <span>🏷️ Máy In Mã Vạch / Tem Nhãn</span>
+            <span style={{ background: driverCategory === 'barcode' ? 'rgba(255,255,255,0.3)' : '#4f46e5', color: '#fff', padding: '1px 7px', borderRadius: 10, fontSize: '0.68rem' }}>
+              {barcodeCount}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setDriverCategory('office')}
+            style={{
+              padding: '6px 14px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+              border: driverCategory === 'office' ? '1.5px solid #0284c7' : '1px solid #bae6fd',
+              background: driverCategory === 'office' ? '#0284c7' : '#f0f9ff',
+              color: driverCategory === 'office' ? '#fff' : '#0369a1',
+              display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.15s ease',
+              boxShadow: driverCategory === 'office' ? '0 2px 8px rgba(2, 132, 199, 0.3)' : 'none'
+            }}
+          >
+            <span>📄 Máy In Văn Phòng A4</span>
+            <span style={{ background: driverCategory === 'office' ? 'rgba(255,255,255,0.3)' : '#0284c7', color: '#fff', padding: '1px 7px', borderRadius: 10, fontSize: '0.68rem' }}>
+              {officeCount}
+            </span>
+          </button>
+        </div>
+
+        {/* Grid Danh Sách Driver */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(285px, 1fr))', gap: 10 }}>
+          {filtered.map(drv => {
+            const detected = printers.some(p => drv.regex.test(p.Name) || drv.regex.test(p.DriverName));
+            const cat = drv.category || 'office';
+            return (
+              <button 
+                key={drv.name}
+                onClick={() => downloadAndInstallDriver(drv)}
+                disabled={loading}
+                style={{ 
+                  padding: '0.85rem',
+                  border: `1px solid ${detected ? '#10b981' : '#e2e8f0'}`,
+                  borderRadius: 8,
+                  textAlign: 'left',
+                  color: '#1e293b',
+                  background: detected ? '#f0fdf4' : '#fff',
+                  cursor: loading ? 'wait' : 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  boxShadow: detected ? '0 2px 6px rgba(16, 185, 129, 0.15)' : '0 1px 2px rgba(0,0,0,0.02)',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={e => {
+                  if (!detected) {
+                    e.currentTarget.style.borderColor = '#94a3b8';
+                    e.currentTarget.style.boxShadow = '0 4px 10px rgba(0,0,0,0.05)';
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (!detected) {
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                    e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.02)';
+                  }
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{
+                      fontSize: '0.65rem',
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      background: cat === 'pos' ? '#dcfce7' : cat === 'barcode' ? '#ede9fe' : '#e0f2fe',
+                      color: cat === 'pos' ? '#166534' : cat === 'barcode' ? '#5b21b6' : '#075985',
+                    }}>
+                      {cat === 'pos' ? '🧾 POS / HÓA ĐƠN' : cat === 'barcode' ? '🏷️ TEM NHÃN' : '📄 VĂN PHÒNG A4'}
+                    </span>
+                    {detected && (
+                      <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#059669', display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <CheckCircle2 size={11} color="#059669" /> Đã nhận diện
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#0f172a', lineHeight: 1.35 }}>
+                    {drv.name}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px dashed #f1f5f9', marginTop: 2 }}>
+                  <span style={{ fontSize: '0.7rem', color: detected ? '#059669' : '#64748b' }}>
+                    {detected ? 'Máy tính đã cắm máy in này' : 'Click để tải & mở bộ cài'}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', fontWeight: 600, color: '#0284c7' }}>
+                    <Download size={12} /> Cài Đặt
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Empty Search Result State */}
+        {filtered.length === 0 && (
+          <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+            <Printer size={36} color="#cbd5e1" style={{ margin: '0 auto 8px auto' }} />
+            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
+              Không tìm thấy driver nào phù hợp với "{driverSearch}"
+            </div>
+            <p style={{ fontSize: '0.75rem', marginTop: 4 }}>
+              Bạn có thể thử tìm với tên ngắn gọn như <strong>POS</strong>, <strong>Xprinter</strong>, <strong>Zywell</strong>, <strong>Canon</strong>, <strong>T82</strong>...
+            </p>
+            <button
+              onClick={() => { setDriverSearch(''); setDriverCategory('all'); }}
+              style={{ marginTop: 8, padding: '4px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', fontSize: '0.75rem', cursor: 'pointer' }}
             >
-              <div style={{ fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                {detected ? <CheckCircle2 size={14} color="#10b981" /> : <Download size={14} color="#64748b" />} {drv.name}
-              </div>
-              {detected ? (
-                <div style={{ fontSize: '0.7rem', color: '#10b981', marginTop: 4 }}>Đã phát hiện thiết bị này</div>
-              ) : (
-                <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 4 }}>Click để tải & cài đặt</div>
-              )}
+              Xóa bộ lọc tìm kiếm
             </button>
-          );
-        })}
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   // ── Helper: Render Console Nhật Ký Hệ Thống ──
   const renderConsoleLogBlock = (h = 220) => (
@@ -2735,6 +3099,391 @@ export default function PrinterTab() {
               >
                 <Zap size={13} className={fixing0x40 ? 'spin' : ''} />
                 {fixing0x40 ? 'Đang áp dụng...' : '⚡ Chạy Sửa Tự Động 1-Click Ngay'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═════ MODAL THÔNG BÁO KẾT QUẢ HIỆN ĐẠI (THAY THẾ ALERT MẶC ĐỊNH) ═════ */}
+      {resultModal?.isOpen && (
+        <div 
+          onClick={() => setResultModal(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+          }}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            tabIndex={0}
+            onKeyDown={e => {
+              if (e.key === 'Escape' || e.key === 'Enter') setResultModal(null);
+            }}
+            style={{
+              background: '#ffffff',
+              borderRadius: 16,
+              width: '100%',
+              maxWidth: 550,
+              boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(226, 232, 240, 0.9)',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              maxHeight: '90vh',
+              color: '#1e293b',
+              outline: 'none',
+              animation: 'scaleIn 0.15s ease-out',
+            }}
+          >
+            {/* Header với Gradient tương thích trạng thái */}
+            <div style={{
+              background: resultModal.type === 'success' 
+                ? 'linear-gradient(135deg, #065f46 0%, #059669 50%, #10b981 100%)'
+                : resultModal.type === 'warning'
+                ? 'linear-gradient(135deg, #9a3412 0%, #c2410c 50%, #ea580c 100%)'
+                : resultModal.type === 'error'
+                ? 'linear-gradient(135deg, #991b1b 0%, #dc2626 50%, #ef4444 100%)'
+                : 'linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%)',
+              padding: '1.25rem 1.4rem',
+              color: '#ffffff',
+              position: 'relative',
+            }}>
+              {/* Badge trên cùng */}
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '3px 10px',
+                borderRadius: 20,
+                background: 'rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(4px)',
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase',
+                marginBottom: 8,
+              }}>
+                {resultModal.type === 'success' ? (
+                  <>
+                    <Sparkles size={12} color="#fef08a" />
+                    <span>{resultModal.badge || 'ĐÃ XỬ LÝ THÀNH CÔNG 100%'}</span>
+                  </>
+                ) : resultModal.type === 'warning' ? (
+                  <>
+                    <ShieldAlert size={12} color="#fef08a" />
+                    <span>{resultModal.badge || 'CẦN QUYỀN HỆ THỐNG'}</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={12} color="#fef08a" />
+                    <span>{resultModal.badge || 'THÔNG BÁO SỰ CỐ'}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Title & Icon Header */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.22)',
+                  borderRadius: 12,
+                  padding: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                  flexShrink: 0,
+                }}>
+                  {resultModal.type === 'success' ? (
+                    <CheckCircle2 size={26} color="#ffffff" />
+                  ) : resultModal.type === 'warning' ? (
+                    <ShieldAlert size={26} color="#ffffff" />
+                  ) : (
+                    <AlertTriangle size={26} color="#ffffff" />
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, paddingRight: 24 }}>
+                  <h3 style={{
+                    margin: 0,
+                    fontSize: '1.02rem',
+                    fontWeight: 800,
+                    lineHeight: 1.35,
+                    letterSpacing: '0.2px',
+                    color: '#ffffff',
+                  }}>
+                    {resultModal.title}
+                  </h3>
+                  <p style={{
+                    margin: '3px 0 0 0',
+                    fontSize: '0.72rem',
+                    color: 'rgba(255, 255, 255, 0.88)',
+                  }}>
+                    {resultModal.type === 'success' 
+                      ? 'Dịch vụ máy in và kết nối chia sẻ mạng LAN đã được đồng bộ chuẩn xác.' 
+                      : 'Vui lòng xem hướng dẫn chi tiết bên dưới để hoàn tất thao tác.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Close button */}
+              <button
+                onClick={() => setResultModal(null)}
+                title="Đóng cửa sổ"
+                style={{
+                  position: 'absolute',
+                  top: 14,
+                  right: 14,
+                  background: 'rgba(255, 255, 255, 0.15)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: 28,
+                  height: 28,
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)')}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{
+              padding: '1.25rem 1.4rem',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.95rem',
+              background: '#f8fafc',
+            }}>
+              {/* Danh sách các hạng mục đã xử lý kỹ thuật */}
+              {resultModal.items && resultModal.items.length > 0 && (
+                <div>
+                  <div style={{
+                    fontSize: '0.7rem',
+                    fontWeight: 800,
+                    color: '#64748b',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.6px',
+                    marginBottom: 8,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}>
+                    <Wrench size={13} color="#059669" />
+                    <span>CÁC THAO TÁC KỸ THUẬT ĐÃ ÁP DỤNG THÀNH CÔNG:</span>
+                  </div>
+
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}>
+                    {resultModal.items.map((item, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 10,
+                          background: '#ffffff',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 8,
+                          padding: '8px 12px',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                        }}
+                      >
+                        <div style={{
+                          marginTop: 2,
+                          width: 18,
+                          height: 18,
+                          borderRadius: '50%',
+                          background: '#ecfdf5',
+                          border: '1px solid #a7f3d0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}>
+                          <Check size={11} color="#059669" strokeWidth={3} />
+                        </div>
+                        <div style={{
+                          fontSize: '0.78rem',
+                          color: '#334155',
+                          lineHeight: 1.45,
+                        }}>
+                          {formatTechnicalText(item)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Thông điệp text nếu có */}
+              {resultModal.message && (
+                <div style={{
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 10,
+                  padding: '12px 14px',
+                  fontSize: '0.78rem',
+                  color: '#334155',
+                  lineHeight: 1.5,
+                  whiteSpace: 'pre-line',
+                }}>
+                  {resultModal.message}
+                </div>
+              )}
+
+              {/* Hộp chỉ dẫn hành động tiếp theo (Action Tip) */}
+              {resultModal.actionTip && (
+                <div style={{
+                  background: resultModal.type === 'success' 
+                    ? 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)'
+                    : '#fffbeb',
+                  border: resultModal.type === 'success'
+                    ? '1.5px solid #86efac'
+                    : '1.5px solid #fde68a',
+                  borderRadius: 10,
+                  padding: '10px 14px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 10,
+                }}>
+                  <div style={{
+                    padding: 6,
+                    borderRadius: 8,
+                    background: resultModal.type === 'success' ? '#dcfce7' : '#fef3c7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    marginTop: 1,
+                  }}>
+                    {resultModal.type === 'success' ? (
+                      <Printer size={16} color="#15803d" />
+                    ) : (
+                      <Zap size={16} color="#b45309" />
+                    )}
+                  </div>
+                  <div>
+                    <div style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 800,
+                      color: resultModal.type === 'success' ? '#166534' : '#92400e',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      marginBottom: 2,
+                    }}>
+                      HƯỚNG DẪN TIẾP THEO:
+                    </div>
+                    <div style={{
+                      fontSize: '0.78rem',
+                      color: resultModal.type === 'success' ? '#14532d' : '#78350f',
+                      lineHeight: 1.45,
+                      fontWeight: 600,
+                    }}>
+                      {resultModal.actionTip}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Buttons */}
+            <div style={{
+              padding: '0.85rem 1.4rem',
+              background: '#ffffff',
+              borderTop: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+            }}>
+              {/* Nút in thử nếu có máy in khả dụng */}
+              {printers.length > 0 ? (
+                <button
+                  onClick={() => {
+                    const targetPrinter = selectedPrinter || printers[0]?.Name;
+                    if (targetPrinter) {
+                      handlePrintTestPage(targetPrinter);
+                    }
+                  }}
+                  title="Gửi lệnh in một trang thử nghiệm để xác nhận máy in hoạt động tốt"
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 8,
+                    border: '1px solid #cbd5e1',
+                    background: '#f8fafc',
+                    color: '#334155',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = '#e2e8f0';
+                    e.currentTarget.style.borderColor = '#94a3b8';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = '#f8fafc';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  }}
+                >
+                  <Printer size={14} color="#059669" />
+                  <span>In Trang Thử (Test Page)</span>
+                </button>
+              ) : (
+                <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                  DMH Tools • Bác Sĩ Máy In v6.9.3
+                </div>
+              )}
+
+              {/* Nút xác nhận chính */}
+              <button
+                onClick={() => setResultModal(null)}
+                style={{
+                  padding: '8px 20px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: resultModal.type === 'success'
+                    ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
+                    : resultModal.type === 'warning'
+                    ? 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)'
+                    : 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)',
+                  color: '#ffffff',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  boxShadow: resultModal.type === 'success'
+                    ? '0 4px 12px rgba(16, 185, 129, 0.35)'
+                    : '0 4px 12px rgba(234, 88, 12, 0.35)',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.filter = 'brightness(1.08)')}
+                onMouseLeave={e => (e.currentTarget.style.filter = 'none')}
+              >
+                <Check size={14} />
+                <span>Tuyệt Vời, Đã Hiểu</span>
               </button>
             </div>
           </div>

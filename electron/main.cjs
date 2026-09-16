@@ -19,6 +19,12 @@ process.on('unhandledRejection', (reason) => {
   console.error('[CRASH_GUARD] Đã bắt unhandledRejection:', reason);
 });
 
+// ── GPU Crash Guard & Windows Elevation Compatibility ───────────────────────
+// Chống lỗi GPU launch failed (error_code=18) khi chạy dưới quyền Administrator
+// hoặc trên các hệ thống Windows có sandbox token bị chặn bởi bảo mật hệ thống.
+app.commandLine.appendSwitch('disable-gpu-sandbox');
+app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
+
 // ── Single Instance Lock: Tránh chạy đè nhiều tiến trình ────────────────────
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {

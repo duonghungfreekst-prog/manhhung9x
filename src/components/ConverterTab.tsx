@@ -211,11 +211,14 @@ async function convertPdfToDocx(file: File): Promise<{ blob: Blob; filename: str
 
     // Fallback to OCR if standard text extraction yields almost nothing (likely a scanned PDF)
     if (text.trim().length < 15) {
-      // Kiểm tra kết nối trước khi gọi Tesseract (cần tải language pack lần đầu)
       if (!navigator.onLine) {
-        text = `[Trang ${i}: PDF dạng scan nhưng đang OFFLINE. ` +
-          `Kết nối internet để nhận diện chữ (OCR). ` +
-          `Language pack Tesseract cần ~20MB lần đầu dùng.]`;
+        paragraphs.push(new Paragraph({
+          children: [new TextRun(
+            `[Trang ${i}: PDF dạng scan nhưng đang OFFLINE. ` +
+            `Kết nối internet để nhận diện chữ (OCR). ` +
+            `Language pack Tesseract cần ~20MB lần đầu dùng.]`
+          )],
+        }));
       } else {
         try {
           const viewport = page.getViewport({ scale: 2.0 });
@@ -306,10 +309,8 @@ async function convertFile(
     }
     
     // Check if we are running in Electron and have the native Python converter
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ((window as any).electronAPI && file.path) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const uint8Array = await (window as any).electronAPI.convertPdfNative(file.path);
         const blob = new Blob([uint8Array], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
         const filename = file.name.replace(/\.[^.]+$/, '') + '_converted.docx';
@@ -515,7 +516,8 @@ export function ConverterTab() {
     } finally {
       stopGlobalLoading('converter');
     }
-  }, [targetFormat, xmlRootTag, xmlRowTag]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetFormat, xmlRootTag, xmlRowTag]); // intentional: csvDelimiter/excelSheetIndex đọc từ closure state khi gọi
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();

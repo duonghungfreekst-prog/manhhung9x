@@ -1040,7 +1040,8 @@ export function PcToolsTab() {
     if (activeSubTab === 'peripherals_test') {
       refreshMediaDevices();
     }
-  }, [activeSubTab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSubTab]); // intentional: refreshMediaDevices là stable ref
 
   // ── Mic Tester ──
   const startMicTest = async () => {
@@ -1199,7 +1200,8 @@ export function PcToolsTab() {
     if (activeSubTab === 'network_wifi' && savedWifiList.length === 0) {
       handleFetchSavedWifi();
     }
-  }, [activeSubTab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSubTab]); // intentional: savedWifiList.length là guard chứ không phải trigger
 
   const handleNetworkFix = async () => {
     setIsFixingNet(true);
@@ -1472,7 +1474,8 @@ export function PcToolsTab() {
     if ((activeSubTab === 'windows_shortcuts' || activeSubTab === 'windows_tweaks') && restorePoints.length === 0) {
       handleGetRestorePoints();
     }
-  }, [activeSubTab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSubTab]); // intentional: các biến còn lại là guard conditions, không phải trigger
 
   // ── CPU Stress Test Handlers ──
   const stopCpuStressTest = () => {

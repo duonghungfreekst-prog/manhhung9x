@@ -98,6 +98,17 @@ function App() {
   const [showUpdateModal, setShowUpdateModal]   = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
+  const uid = useId();
+
+  const addToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
+    const id = `${uid}-${Date.now()}`;
+    setToasts(prev => [...prev, { ...toast, id }]);
+  }, [uid]);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
   // Tự động kiểm tra bản cập nhật từ GitHub sau 3.5 giây khi mở app
   useEffect(() => {
     if (!isAutoCheckEnabled()) return;
@@ -136,11 +147,11 @@ function App() {
           message: `Ứng dụng đang hoạt động ở phiên bản mới nhất (v${CURRENT_APP_VERSION}), chưa có bản cập nhật mới nào.`,
         });
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       addToast({
         type: 'error',
         title: 'Lỗi kiểm tra cập nhật',
-        message: e.message || 'Không thể kết nối đến GitHub',
+        message: (e as Error).message || 'Không thể kết nối đến GitHub',
       });
     } finally {
       setIsCheckingUpdate(false);
@@ -165,7 +176,8 @@ function App() {
         }
       }
     });
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentional: chỉ chạy 1 lần khi mount, activeTab không phải dep cần watch
 
   // Lắng nghe sự kiện tải ngầm tự động để hiển thị toast thông báo tế nhị
   useEffect(() => {
@@ -185,7 +197,8 @@ function App() {
       }
     });
     return unsub;
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentional: subscription chỉ cần đăng ký 1 lần khi mount
 
   const canAccess = (tab: typeof ALL_TABS[number]) =>
     license?.valid && !license.expired && license.tabs[tab] === true;
@@ -251,17 +264,6 @@ function App() {
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
-
-  const uid = useId();
-
-  const addToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
-    const id = `${uid}-${Date.now()}`;
-    setToasts(prev => [...prev, { ...toast, id }]);
-  }, [uid]);
-
-  const removeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  }, []);
 
   const handleFile1 = async (f: File | null) => {
     setFile1(f);

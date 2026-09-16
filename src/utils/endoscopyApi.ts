@@ -25,7 +25,7 @@ export const getThumbnailB64 = async (p: string) => {
       reader.onerror = () => resolve({ ok: false, data: null });
       reader.readAsDataURL(blob);
     });
-  } catch (e) {
+  } catch {
     return { ok: false, data: null };
   }
 };

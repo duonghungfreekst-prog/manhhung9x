@@ -13,7 +13,6 @@ type Tab = 'live' | 'patients' | 'images';
 type SourceType = 'camera' | 'desktop';
 type Source = { id: string; name: string; thumbnail: string; appIcon: string|null };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const eAPI = () => (window as any).electronAPI;
 
 // Âm thanh chụp ảnh mô phỏng (Shutter Sound) bằng Web Audio API
@@ -205,7 +204,7 @@ export function EndoscopyTab() {
           videoRef.current.srcObject = fallbackMs;
           videoRef.current.play();
         }
-      } catch (fallbackErr: any) {
+      } catch {
         setCaptureLog(prev => [`[Thất Bại] Không thể mở Camera. Vui lòng bấm 'Kiểm Tra Driver' để sửa lỗi.`, ...prev].slice(0, 60));
       }
     }

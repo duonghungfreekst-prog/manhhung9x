@@ -83,7 +83,7 @@ export function setDismissedVersion(version: string): void {
 }
 
 declare const __APP_VERSION__: string | undefined;
-export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '6.9.2';
+export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '6.9.3';
 
 /**
  * Gọi GitHub Releases API để kiểm tra phiên bản mới nhất
@@ -94,12 +94,12 @@ export async function checkForUpdates(
 ): Promise<UpdateCheckResult> {
   const repo = (customRepo || getSavedGithubRepo()).trim().replace(/^https?:\/\/github\.com\//, '');
 
-  let latestVer = '';
-  let latestTag = '';
-  let releaseName = '';
-  let releaseNotes = '';
-  let publishedAt = '';
-  let releaseHtmlUrl = `https://github.com/${repo}/releases/latest`;
+  let latestVer: string;
+  let latestTag: string;
+  let releaseName: string;
+  let releaseNotes: string;
+  let publishedAt = ''; // Mặc định rỗng nếu tầng dự phòng không có published date
+  let releaseHtmlUrl: string;
   let assets: ReleaseAsset[] = [];
   let installerAsset: ReleaseAsset | undefined = undefined;
 
@@ -177,7 +177,7 @@ export async function checkForUpdates(
         };
         assets = [installerAsset];
       } else {
-        throw new Error('Không thể phân giải phiên bản từ GitHub');
+        throw new Error('Không thể phân giải phiên bản từ GitHub', { cause: apiErr });
       }
     } catch (fallbackErr: any) {
       console.error('[UPDATE_CHECK_ERR]', fallbackErr);
@@ -204,7 +204,7 @@ export async function checkForUpdates(
     releaseName: releaseName || `Phiên bản v${latestVer}`,
     releaseNotes: releaseNotes || 'Bản cập nhật nâng cao hiệu năng và tối ưu nghiệp vụ.',
     publishedAt,
-    releaseHtmlUrl,
+    releaseHtmlUrl: releaseHtmlUrl ?? `https://github.com/${repo}/releases/latest`,
     installerAsset,
     assets,
   };

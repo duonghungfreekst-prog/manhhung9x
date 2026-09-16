@@ -154,13 +154,13 @@ export function AttendanceTab() {
   useEffect(() => {
     try {
       localStorage.setItem('dmh_shift_presets', JSON.stringify(shifts));
-    } catch {}
+    } catch { /* localStorage không khả dụng — bỏ qua */ }
   }, [shifts]);
 
   useEffect(() => {
     try {
       localStorage.setItem('dmh_shift_schedules', JSON.stringify(scheduleConfig));
-    } catch {}
+    } catch { /* localStorage không khả dụng — bỏ qua */ }
   }, [scheduleConfig]);
 
   // ── Phương thức nạp dữ liệu: 'lan' (IP mạng) hoặc 'file' (USB / Excel) ──
@@ -563,7 +563,8 @@ export function AttendanceTab() {
       fetchDeviceStatus();
       fetchDeviceUsers();
     }
-  }, [activeSubTab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSubTab]); // intentional: fetchDeviceStatus/fetchDeviceUsers là stable refs, không cần trong dep
 
   // ── Tính toán tổng hợp Bảng công tháng ──
   const monthlySummaries = useMemo(() => {

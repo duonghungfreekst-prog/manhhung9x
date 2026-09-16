@@ -229,7 +229,6 @@ export function HisCallTab() {
     setLogs(prev => [...prev.slice(-99), { time: new Date().toLocaleTimeString('vi-VN'), message, status }]);
   }, []);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const eAPI = () => (window as any).electronAPI;
 
   // ── Fetch patients from DB ──────────────────────────────────────────────────
@@ -257,7 +256,6 @@ export function HisCallTab() {
     try {
       const res = await api.fetchHisPatients(config.dbConnStr, config.roomCode);
       if (res.ok) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const mapped: Patient[] = res.data.map((r: any) => {
           // DaKham co the la: 1 (int), true (bool), '1' (string), 0, false, null
           const daKham = Number(r.DaKham);
@@ -301,7 +299,6 @@ export function HisCallTab() {
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (config.autoRefreshSec <= 0) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAutoCount(config.autoRefreshSec);
     timerRef.current = setInterval(() => {
       setAutoCount(p => {
@@ -360,7 +357,6 @@ export function HisCallTab() {
     const api = eAPI();
     if (!api?.fetchHisRooms) { addLog('Chức năng này chỉ khả dụng trong phần mềm cài đặt', 'error'); return; }
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const r = await (api as any).fetchHisRooms(config.dbConnStr);
       if (r.ok && r.data.length > 0) {
         const roomList = r.data.map((row: { maphong: string; tenphong: string }) => `${row.maphong} - ${row.tenphong}`).join(', ');

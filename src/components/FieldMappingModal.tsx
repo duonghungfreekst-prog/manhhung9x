@@ -55,14 +55,12 @@ export function FieldMappingModal({ portalCols, internalCols, initialPortal, ini
   const [portalMap, setPortalMap] = useState<ColumnMapping>({ ...DEFAULT_PORTAL_MAPPING });
   const [internalMap, setInternalMap] = useState<ColumnMapping>({ ...DEFAULT_INTERNAL_MAPPING });
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (initialPortal) setPortalMap({ ...DEFAULT_PORTAL_MAPPING, ...initialPortal });
     else setPortalMap(guessMapping(portalCols, DEFAULT_PORTAL_MAPPING));
     if (initialInternal) setInternalMap({ ...DEFAULT_INTERNAL_MAPPING, ...initialInternal });
     else setInternalMap(guessMapping(internalCols, DEFAULT_INTERNAL_MAPPING));
   }, [portalCols, internalCols, initialPortal, initialInternal]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleChange = (side: 'portal' | 'internal', field: keyof ColumnMapping, value: string) => {
     if (side === 'portal') {

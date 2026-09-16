@@ -194,25 +194,26 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Khắc Phục Triệt Để Lỗi Mất Thanh Cuộn & Tái Cấu Trúc Toàn Diện Vùng Cuộn Giao Diện (Layout Scroll Fix)
+        body: `### 🚀 DMH Tools ${tagName} - Nâng Cấp Bác Sĩ Máy In Toàn Diện, Bổ Sung GPU Crash Guard & Tối Ưu Hóa Toàn Diện
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.9.2:
+#### 🌟 Điểm mới nổi bật trong phiên bản v6.9.3:
 
-- **1. Khắc Phục Triệt Để Lỗi Mất Thanh Cuộn (Scrollbar) & Cắt Cụt Nội Dung Đáy**:
-  + Sửa tận gốc lỗi CSS Flexbox khiến vùng hiển thị nội dung phân hệ Kỹ Thuật PC (\`PcToolsTab\`) và Trạm Nội Soi (\`EndoscopyTab\`) bị đẩy tràn khung nhìn và cắt cụt nội dung ở phía dưới.
-  + Loại bỏ thuộc tính xung đột chiều cao \`height: 100%\` bên trong flex container có header, giúp vùng làm việc tự động nhận diện chính xác 100% không gian khả dụng của màn hình.
-  + Đảm bảo 100% danh mục phần mềm (Kho Ứng Dụng Thiết Yếu, Bộ gõ, Giải nén, Hỗ trợ từ xa, Runtime, Trình phát đa phương tiện...) và tất cả các sub-tab đều cuộn được mượt mà từ đầu tới cuối.
+- **1. Nâng Cấp Đột Phá Bác Sĩ Máy In (Printer Doctor Interactive Diagnostics & Result Modal)**:
+  + Bổ sung cửa sổ tương tác kết quả chẩn đoán và khắc phục sự cố máy in chuyên nghiệp (\`resultModal\`): phân cấp trực quan danh mục các bước đã xử lý (Spooler, Driver Isolation, RPC Ports, WSD -> Standard TCP/IP, Hàng đợi in kẹt).
+  + Tích hợp định dạng văn bản kỹ thuật cao cấp, phân giải tự động các mã trạng thái và mã lỗi hệ thống Windows.
+  + Tích hợp tính năng **In Trang Thử Nghiệm (Print Test Page)** trực tiếp ngay từ hộp thoại xử lý, giúp kỹ thuật viên xác nhận kết quả in ấn tức thì mà không cần mở Control Panel.
+  + Hộp chỉ dẫn hành động tiếp theo (Action Tip) thông minh, hướng dẫn người dùng các bước kế tiếp khi gặp sự cố phức tạp.
 
-- **2. Tích Hợp Bộ Thanh Cuộn Trực Quan Toàn Cầu (Global Webkit Scrollbar Styling)**:
-  + Trang bị giao diện thanh cuộn 9px cao cấp, trực quan với rãnh trượt tinh tế, ngăn chặn triệt để tình trạng Windows 10/11 tự động ẩn thanh cuộn (Overlay Scrollbar) gây khó khăn cho người dùng.
-  + Thiết kế riêng thanh cuộn \`dark-slate-scrollbar\` siêu ngầu cho thanh Sidebar chuyên mục Kỹ Thuật PC, đồng bộ hoàn hảo với phong cách dark navy slate hiện đại.
+- **2. Bổ Sung GPU Crash Guard & Windows Elevation Compatibility**:
+  + Thêm cơ chế bảo vệ nhân Chromium/Electron với tham số \`--disable-gpu-sandbox\` và \`--disable-gpu-process-crash-limit\` trong \`electron/main.cjs\`.
+  + Khắc phục triệt để lỗi crash tiến trình đồ họa GPU (\`error_code=18\`) khi ứng dụng được khởi chạy với đặc quyền Administrator hoặc trên các phiên bản Windows có chính sách bảo mật token doanh nghiệp nghiêm ngặt.
 
-- **3. Tái Cấu Trúc Wrapper Phân Hệ Với \`.tab-panel-fullbleed\`**:
-  + Thay thế cấu trúc cũ bằng class chuẩn \`.tab-panel-fullbleed\` (\`flex: 1 1 auto; min-height: 0; height: 100%;\`), loại bỏ hoàn toàn khoảng trống xanh nhạt (\`#dbeafe\`) bị hở ở đáy màn hình.
-  + Bổ sung đệm đáy rộng rãi (\`padding-bottom: 60px\` cho Workspace và \`3.5rem\` cho toàn bộ các tab tài liệu), giúp các nút bấm và card nội dung cuối cùng luôn cách mép đáy thoáng đãng, không bao giờ bị thanh Taskbar Windows che khuất.
+- **3. Tinh Chỉnh Bộ Cài Đặt NSIS (Installer UX)**:
+  + Tối ưu cấu hình \`electron-builder-slim.json\`, cho phép cài đặt chuẩn mực, ổn định và thân thiện hơn với người dùng thông thường trong khi vẫn đảm bảo đầy đủ khả năng nâng quyền khi thao tác kỹ thuật chuyên sâu.
 
-- **4. Tối Ưu Hóa & Kiểm Thử Toàn Diện 15 Phân Hệ**:
-  + Kiểm tra và tinh chỉnh độ mượt khi cuộn trên mọi độ phân giải màn hình từ Laptop (1366x768, 1600x900) đến Màn hình máy bàn (1920x1080, 2K, 4K) và các mức phóng to tỉ lệ hiển thị (Zoom 125%, 150%).
+- **4. Tối Ưu Hóa Tuyệt Đối Độ Ổn Định Mã Nguồn (100% Clean Codebase)**:
+  + Hoàn thiện cấu hình ESLint 9 & TypeScript, loại bỏ 100% cảnh báo và lỗi cú pháp.
+  + Chuẩn hóa xử lý lỗi, cải tiến bộ dò cập nhật GitHub (\`updateChecker.ts\`) với cơ chế phòng ngừa lỗi mạng và tự động phân giải phiên bản chính xác.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

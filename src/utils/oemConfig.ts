@@ -27,7 +27,7 @@ export function loadOemConfig(): OemConfig {
   return DEFAULT_OEM_CONFIG;
 }
 
-export function saveOemConfig(_config?: Partial<OemConfig>): OemConfig {
+export function saveOemConfig(_config?: Partial<OemConfig>): OemConfig { // eslint-disable-line @typescript-eslint/no-unused-vars
   // Khóa cố định: không thể thay đổi thông tin thương hiệu mặc định
   return DEFAULT_OEM_CONFIG;
 }

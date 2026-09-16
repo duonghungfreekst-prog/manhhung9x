@@ -23,7 +23,7 @@ export function numberToVietnameseWords(num: number): string {
   const readTwoDigits = (n: number): string => {
     const tens = Math.floor(n / 10);
     const unit = n % 10;
-    let s = '';
+    let s: string;
 
     if (tens === 1) {
       s = 'mười';

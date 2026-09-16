@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.9.2",
-  "description": "DMH_Tools v6.9.2 - Khắc Phục Triệt Để Lỗi Mất Thanh Cuộn & Tái Cấu Trúc Toàn Diện Vùng Cuộn Giao Diện (Layout Scroll Fix): Hiển Thị Trực Quan Thanh Cuộn 100%, Chống Cắt Cụt Nội Dung Đáy, Cuộn Mượt Mà Mọi Độ Phân Giải",
+  "version": "6.9.3",
+  "description": "DMH_Tools v6.9.3 - Nâng Cấp Bác Sĩ Máy In Toàn Diện (Interactive Diagnostics & Result Modal), Bổ Sung GPU Crash Guard Chống Lỗi Windows Elevation, Tối Ưu Hóa 100% Codebase & Tự Động Kiểm Tra Cập Nhật",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
