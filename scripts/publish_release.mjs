@@ -194,26 +194,25 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Nâng Cấp Bác Sĩ Máy In Toàn Diện, Bổ Sung GPU Crash Guard & Tối Ưu Hóa Toàn Diện
+        body: `### 🚀 DMH Tools ${tagName} - Nâng Cấp Hệ Thống Bác Sĩ Máy In Hợp Nhất 2 Nút & Quy Trình 10 Bước Tự Động A-Z
 
-#### 🌟 Điểm mới nổi bật trong phiên bản v6.9.3:
+#### 🌟 Điểm mới nổi bật trong phiên bản ${tagName}:
 
-- **1. Nâng Cấp Đột Phá Bác Sĩ Máy In (Printer Doctor Interactive Diagnostics & Result Modal)**:
-  + Bổ sung cửa sổ tương tác kết quả chẩn đoán và khắc phục sự cố máy in chuyên nghiệp (\`resultModal\`): phân cấp trực quan danh mục các bước đã xử lý (Spooler, Driver Isolation, RPC Ports, WSD -> Standard TCP/IP, Hàng đợi in kẹt).
-  + Tích hợp định dạng văn bản kỹ thuật cao cấp, phân giải tự động các mã trạng thái và mã lỗi hệ thống Windows.
-  + Tích hợp tính năng **In Trang Thử Nghiệm (Print Test Page)** trực tiếp ngay từ hộp thoại xử lý, giúp kỹ thuật viên xác nhận kết quả in ấn tức thì mà không cần mở Control Panel.
-  + Hộp chỉ dẫn hành động tiếp theo (Action Tip) thông minh, hướng dẫn người dùng các bước kế tiếp khi gặp sự cố phức tạp.
+- **1. Nâng Cấp Đột Phá Bác Sĩ Máy In Hợp Nhất (Printer Doctor 2-Button Action & 10-Step Workflow)**:
+  + Hợp nhất quy trình thao tác thành 2 nút hành động trọng tâm (Chuẩn Đoán Nhanh & Sửa Lỗi Tự Động Toàn Diện A-Z), giúp người dùng không cần am hiểu kỹ thuật vẫn xử lý sự cố máy in chỉ bằng 1 cú nhấp chuột.
+  + Tích hợp Bảng Quy Trình 10 Bước Chuyên Nghiệp: Tự động khởi động Spooler, thiết lập Driver Isolation, xóa hàng đợi in kẹt, thông tắc cổng RPC/SMB, chuyển đổi cổng WSD sang Standard TCP/IP và kích hoạt Printer Sharing.
+  + Cửa sổ tương tác chẩn đoán trực quan (\`resultModal\`) kèm nút **In Trang Thử Nghiệm (Print Test Page)** tức thì để kỹ thuật viên kiểm tra kết quả ngay tại chỗ.
 
-- **2. Bổ Sung GPU Crash Guard & Windows Elevation Compatibility**:
-  + Thêm cơ chế bảo vệ nhân Chromium/Electron với tham số \`--disable-gpu-sandbox\` và \`--disable-gpu-process-crash-limit\` trong \`electron/main.cjs\`.
-  + Khắc phục triệt để lỗi crash tiến trình đồ họa GPU (\`error_code=18\`) khi ứng dụng được khởi chạy với đặc quyền Administrator hoặc trên các phiên bản Windows có chính sách bảo mật token doanh nghiệp nghiêm ngặt.
+- **2. Hệ Thống Auto-Refresh & Trung Tâm Thông Báo Thông Minh**:
+  + Bổ sung thành phần \`AutoRefreshControl\` và \`NotificationDialog\` hỗ trợ tự động đồng bộ hóa trạng thái hệ thống theo chu kỳ.
+  + Tích hợp bộ tiện ích \`autoRefreshManager\`, \`notificationSystem\` và \`statePreserver\` đảm bảo duy trì liên tục ngữ cảnh làm việc khi chuyển đổi tab.
 
-- **3. Tinh Chỉnh Bộ Cài Đặt NSIS (Installer UX)**:
-  + Tối ưu cấu hình \`electron-builder-slim.json\`, cho phép cài đặt chuẩn mực, ổn định và thân thiện hơn với người dùng thông thường trong khi vẫn đảm bảo đầy đủ khả năng nâng quyền khi thao tác kỹ thuật chuyên sâu.
+- **3. Nâng Cấp Module Chuyển Đổi & Xử Lý Tài Liệu (Document Converter Engine)**:
+  + Nâng cấp toàn diện \`ConverterTab\` với các thư viện \`jspdf\`, \`jspdf-autotable\`, \`jszip\` hỗ trợ nén, giải nén và xuất tài liệu y tế chuẩn mực.
 
-- **4. Tối Ưu Hóa Tuyệt Đối Độ Ổn Định Mã Nguồn (100% Clean Codebase)**:
-  + Hoàn thiện cấu hình ESLint 9 & TypeScript, loại bỏ 100% cảnh báo và lỗi cú pháp.
-  + Chuẩn hóa xử lý lỗi, cải tiến bộ dò cập nhật GitHub (\`updateChecker.ts\`) với cơ chế phòng ngừa lỗi mạng và tự động phân giải phiên bản chính xác.
+- **4. Tối Ưu Hóa Giao Diện Toàn Diện & GPU Crash Guard**:
+  + Hoàn thiện cơ chế chống tràn layout (Fullbleed layout & Custom scrollbars), khắc phục triệt để hiện tượng vỡ khung hình.
+  + Duy trì cơ chế bảo vệ tiến trình đồ họa GPU khi ứng dụng chạy với quyền Administrator trên các hệ điều hành Windows doanh nghiệp.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,
