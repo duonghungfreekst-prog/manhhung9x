@@ -194,9 +194,13 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Cấu Hình Chế Độ Cài Đặt Driver & Khắc Phục Triệt Để In Test Page
+        body: `### 🚀 DMH Tools ${tagName} - Hotfix Khởi Động & Cấu Hình Chế Độ Cài Đặt Driver Chuẩn Xác
 
-#### 🌟 Điểm mới nổi bật trong phiên bản ${tagName}:
+#### 🌟 Điểm mới & Các bản vá trong phiên bản ${tagName}:
+
+- **🔥 HOTFIX Khởi Động Ứng Dụng (Main Process)**:
+  + Khắc phục triệt để lỗi cú pháp JavaScript khiến một số máy tính gặp thông báo lỗi "A JavaScript error occurred in the main process" khi khởi động.
+  + Đảm bảo ứng dụng khởi động mượt mà, ổn định 100%.
 
 - **1. Hộp Thoại Cấu Hình Chế Độ Cài Đặt Driver Trước Khi Cài (Install Interface Selection Modal)**:
   + Cung cấp 3 chế độ cài đặt linh hoạt cho người dùng lựa chọn trước khi tiến hành cài:

@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.9.6",
-  "description": "DMH_Tools v6.9.6 - Cấu Hình Tùy Chọn Chế Độ Cài Đặt Driver (USB / Mạng / Interactive UI), Khắc Phục Lỗi Cổng Other & Chống In Nhầm Máy In Mặc Định",
+  "version": "6.9.7",
+  "description": "DMH_Tools v6.9.7 - Hotfix Khởi Động Main Process, Khắc Phục Cổng Other & In Test Page Chuẩn WMI",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

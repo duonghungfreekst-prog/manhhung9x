@@ -6055,6 +6055,8 @@ pause
     } catch {
       return { ok: true, success: true, message: 'Đã hoàn tất sửa tự động toàn bộ lỗi.' };
     }
+  });
+
   // ── PRINTER SUITE: Lấy Danh Sách Các Cổng Máy In (USB, COM, LPT, IP...) ────────
   ipcMain.handle('printer:get-available-ports', async () => {
     const ps = `
