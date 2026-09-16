@@ -194,29 +194,23 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Bộ Cài Driver Tương Tác: Mở Cửa Sổ Hãng, Watcher Tự Ép Cổng USB Thực Tế & Chống Báo Ảo
+        body: `### 🚀 DMH Tools ${tagName} - Bộ Cài Chuẩn Windows Driver: Loại Bỏ Triệt Để Nhầm OPOS, Tự Động Ép Cổng USB Thực Tế & Chống Báo Ảo
 
-#### 🌟 Điểm mới đột phá trong phiên bản ${tagName}:
+#### 🌟 Điểm mới then chốt trong phiên bản ${tagName}:
 
-- **🖥️ Hiển Thị Trực Tiếp Cửa Sổ Cài Đặt Của Hãng (Xprinter, Kpos, HPRT, Zywell...)**:
-  + Thay vì cố gắng chạy silent ẩn ngầm (\`-WindowStyle Hidden\`) khiến nhiều bộ cài Win32/MFC của hãng thoát sớm hoặc bị treo mà không tạo được máy in trong Windows Spooler.
-  + DMH Tools nay chủ động mở cửa sổ cài đặt của hãng ra màn hình trước mắt người dùng để người dùng dễ dàng chọn dòng máy (ví dụ: XP-80, XP-58...) và nhấn **Install Now**.
+- **🛡️ Khắc Phục Triệt Để Sự Cố Chọn Nhầm Bộ Cài Phụ Trợ OPOS (OPOS_POSPrinterSO)**:
+  + Gói tệp nén của hãng Xprinter chứa đồng thời nhiều thư mục: \`Windows\`, \`OPOS\`, \`JavaPOS\`, \`Linux\`, \`macOS\`...
+  + Do thứ tự bảng chữ cái (\`OPOS\` đứng trước \`Windows\`), thuật toán quét file cũ đã bốc nhầm file tiện ích lập trình \`OPOS_POSPrinterSO\` (tạo icon 3 khối M, E màu mè ra Desktop thay vì cài Driver máy in Windows).
+  + Bản **v6.9.10** tích hợp **Thuật Toán Xếp Hạng Thông Minh (Smart Driver Ranking)**:
+    * ⛔ Trừ điểm nặng (-1000đ) và phế truất triệt để các tệp nằm trong thư mục hoặc tên chứa \`OPOS\`, \`JavaPOS\`, \`Linux\`, \`Tool\`, \`Test\`.
+    * 🎯 Ưu tiên số 1 (+200đ đến +560đ) cho các bộ cài đặt Spooler chính thức nằm trong thư mục \`Windows\` (như: \`XPrinter Driver Setup V8.2.exe\`, \`POS Printer Driver Setup\`).
 
-- **👁️ Tích Hợp Watcher Spooler Engine Thông Minh (Real-time 120s)**:
-  + Trong lúc người dùng thao tác trên bộ cài của hãng, DMH Tools kích hoạt trình giám sát Spooler ngầm (quét mỗi giây 1 lần).
-  + Ngay khi người dùng bấm "Install Now" và máy in mới xuất hiện trong hệ thống Windows, DMH Tools lập tức bắt lấy tên máy in vừa được sinh ra!
+- **🖥️ Hiển Thị Đúng Cửa Sổ Cài Đặt Windows Driver Của Hãng**:
+  + Mở đúng bộ cài đặt Windows Spooler Driver của nhà sản xuất ra trước mắt người dùng để chọn dòng máy (XP-80, XP-58...) và bấm **Install Now**.
 
-- **🎯 Tự Động Ép Cổng Về Cổng USB Đang Cắm Cáp Thực Tế (USB003...)**:
-  + Ngay sau khi bắt được máy in vừa tạo, hệ thống tự động kiểm tra cổng.
-  + Nếu bộ cài của hãng tự gán vào cổng khác (cổng trống \`USB001\`, cổng \`Other\`, \`COM\`, \`LPT\`), DMH Tools lập tức chạy lệnh ép hàng đợi máy in về đúng cổng USB đang cắm cáp phần cực kỳ chuẩn xác (\`USB003\`).
-
-- **🖨️ In Test Page Đích Danh & Chống Báo Thành Công Ảo**:
-  + Tuyệt đối không gửi lệnh in nhầm sang máy in mặc định (Canon, PDF...). DMH Tools gửi lệnh \`PrintTestPage\` đích danh trực tiếp vào máy in vừa cài đặt.
-  + Nếu quá thời gian giám sát hoặc bộ cài bị đóng mà chưa tạo máy in, hệ thống thông báo trạng thái rõ ràng, tuyệt đối không báo thành công ảo nếu chưa có máy in trong Windows.
-
-- **🟢 Giao Diện Nhận Diện Cổng Thông Minh & Trực Quan**:
-  + Banner xanh nhận diện phần cứng đang cắm cáp tại cổng nào (VD: [USB003]).
-  + Dropdown cổng hiển thị rõ ràng cổng nào đang cắm máy in (Khuyên Dùng).
+- **👁️ Watcher Spooler Engine & Tự Động Ép Cổng USB Thực Tế (USB003...)**:
+  + Giám sát thời gian thực hệ thống in Windows: Ngay khi máy in xuất hiện, DMH Tools tự động dò và ép cổng về đúng cổng USB đang cắm cáp vật lý thực tế (\`USB003\`).
+  + Gửi lệnh in test đích danh vào máy in vừa cài, không in nhầm máy in mặc định.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

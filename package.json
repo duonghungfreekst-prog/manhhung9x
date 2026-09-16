@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.9.9",
-  "description": "DMH_Tools v6.9.9 - Bộ Cài Driver Tương Tác: Mở Cửa Sổ Hãng, Watcher Tự Ép Cổng USB Thực Tế & Chống Báo Ảo",
+  "version": "6.9.10",
+  "description": "DMH_Tools v6.9.10 - Bộ Cài Chuẩn Windows Driver: Loại Bỏ Triệt Để Nhầm OPOS, Tự Động Ép Cổng USB Thực Tế & Chống Báo Ảo",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

@@ -6474,20 +6474,49 @@ pause
           }
         }
 
-        # ── BƯỚC 3: TÌM BỘ CÀI ĐẶT EXE VÀ CHẠY HIỂN THỊ CỬA SỔ HÃNG ──
-        $exeCandidates = @(Get-ChildItem -Path $extractDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object {
-          $_.Name -match 'setup|install|driver|printer' -or $_.Length -gt 300KB
-        })
-        if ($exeCandidates.Count -eq 0 -and (Test-Path $installerPath) -and $installerPath.EndsWith('.exe', [System.StringComparison]::OrdinalIgnoreCase)) {
-          $exeCandidates = @(Get-Item -Path $installerPath -ErrorAction SilentlyContinue)
+        # ── BƯỚC 3: TÌM ĐÚNG BỘ CÀI ĐẶT WINDOWS DRIVER (LOẠI TRỪ TRIỆT ĐỂ OPOS, JAVAPOS, LINUX...) ──
+        $allExes = @(Get-ChildItem -Path $extractDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue)
+        if ($allExes.Count -eq 0 -and (Test-Path $installerPath) -and $installerPath.EndsWith('.exe', [System.StringComparison]::OrdinalIgnoreCase)) {
+          $allExes = @(Get-Item -Path $installerPath -ErrorAction SilentlyContinue)
         }
+
+        # Tính điểm độ tin cậy để bốc đúng Windows Spooler Driver Setup
+        $scoredExes = @()
+        foreach ($exe in $allExes) {
+          $fPath = $exe.FullName
+          $fName = $exe.Name
+          $score = 0
+
+          # Loại trừ mạnh các thành phần phụ trợ không phải Windows Driver
+          if ($fPath -match '(?i)[\\/]opos' -or $fName -match '(?i)opos') { $score -= 1000 }
+          if ($fPath -match '(?i)[\\/]javapos' -or $fName -match '(?i)javapos') { $score -= 1000 }
+          if ($fPath -match '(?i)[\\/](linux|macos|mac|android)[\\/]') { $score -= 1000 }
+          if ($fName -match '(?i)(test|utility|tool|demo|sample|sdk|firmware|update)') { $score -= 200 }
+
+          # Ưu tiên cực cao file nằm trong thư mục Windows / Win
+          if ($fPath -match '(?i)[\\/]windows[\\/]' -or $fPath -match '(?i)[\\/]win(10|11|64|32|7|8)?[\\/]') { $score += 200 }
+
+          # Ưu tiên theo tên chuẩn của bộ cài đặt máy in
+          if ($fName -match '(?i)driver.?setup') { $score += 150 }
+          if ($fName -match '(?i)printer.?setup') { $score += 140 }
+          if ($fName -match '(?i)(xprinter|pos|receipt|label|barcode).?driver') { $score += 130 }
+          if ($fName -match '(?i)setup\.exe$') { $score += 100 }
+          if ($fName -match '(?i)install\.exe$') { $score += 90 }
+          if ($fName -match '(?i)(driver|printer)') { $score += 50 }
+          if ($exe.Length -gt 1MB) { $score += 30 }
+
+          $scoredExes += [PSCustomObject]@{ File = $exe; Score = $score }
+        }
+
+        $sortedExes = @($scoredExes | Sort-Object Score -Descending)
+        $targetExeFile = if ($sortedExes.Count -gt 0 -and $sortedExes[0].Score -gt -500) { $sortedExes[0].File } else { $null }
 
         $detectedName = ""
         $autoCreatedQueue = $false
 
-        if ($exeCandidates.Count -gt 0) {
+        if ($targetExeFile) {
           # Mở cửa sổ trực tiếp của bộ cài hãng (KHÔNG dùng WindowStyle Hidden để người dùng nhìn thấy & bấm Install Now)
-          $targetExe = $exeCandidates[0].FullName
+          $targetExe = $targetExeFile.FullName
           $proc = Start-Process -FilePath $targetExe -PassThru -ErrorAction SilentlyContinue
           $executedExes++
 
