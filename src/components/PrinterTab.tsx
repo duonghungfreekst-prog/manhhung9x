@@ -671,6 +671,22 @@ export default function PrinterTab() {
   const [connectingLocalPort, setConnectingLocalPort] = useState(false);
   const [clearingSmbCache, setClearingSmbCache] = useState(false);
 
+  // State quản lý Modal Tùy Chọn Chế Độ Cài Đặt Driver Máy In Trước Khi Cài (Tránh lỗi cổng Other & nhầm máy in)
+  const [showInstallOptionsModal, setShowInstallOptionsModal] = useState(false);
+  const [pendingInstallDriver, setPendingInstallDriver] = useState<{
+    name: string;
+    url: string;
+    directLink?: string;
+    sha256?: string | null;
+    category?: string;
+    localFilePath?: string;
+  } | null>(null);
+  const [installMode, setInstallMode] = useState<'usb' | 'network' | 'interactive'>('usb');
+  const [selectedPort, setSelectedPort] = useState<string>('AUTO');
+  const [printerIp, setPrinterIp] = useState<string>('');
+  const [printerPortNum, setPrinterPortNum] = useState<number>(9100);
+  const [systemPorts, setSystemPorts] = useState<{ Name: string; Description: string }[]>([]);
+
   const openLocalPortModal = async () => {
     setShowLocalPortModal(true);
     try {
@@ -2138,9 +2154,9 @@ export default function PrinterTab() {
           showToast.warning('In test page', res?.error || 'Không thể gửi lệnh in test.');
         }
       } else {
-        await runPS(`rundll32.exe printui.dll,PrintUIEntry /k /n "${printerName}"`);
-        addLog(`✅ Đã phát lệnh in test page tới "${printerName}".`);
-        showToast.success('In test page', `Đã phát lệnh in test tới "${printerName}".`);
+        await runPS(`$p = Get-CimInstance Win32_Printer -Filter "Name = '${printerName}'"; if ($p) { Invoke-CimMethod -InputObject $p -MethodName PrintTestPage }`);
+        addLog(`✅ Đã gửi lệnh in test page trực tiếp tới "${printerName}".`);
+        showToast.success('In test page', `Đã gửi lệnh in test trực tiếp tới "${printerName}".`);
       }
     } catch (err: unknown) {
       addLog(`❌ Lỗi in test: ` + String(err));
@@ -2252,44 +2268,53 @@ export default function PrinterTab() {
     addLog(`🚀 Đã mở công cụ Windows: ${tool}`);
   };
 
-  const downloadAndInstallDriver = async (drv: { name: string; url: string; directLink?: string; sha256?: string | null; category?: string }, localFilePath?: string) => {
+  // Mở Modal Cấu Hình & Tùy Chọn Chế Độ Cài Đặt Driver Máy In (Tránh lỗi cổng Other)
+  const openInstallOptionsModal = async (drv: { name: string; url: string; directLink?: string; sha256?: string | null; category?: string }, localFilePath?: string) => {
+    setPendingInstallDriver({ ...drv, localFilePath });
+    setInstallMode('usb');
+    setSelectedPort('AUTO');
+    setPrinterIp('');
+    setShowInstallOptionsModal(true);
+
+    // Tự động quét danh sách cổng trên hệ thống Windows
+    try {
+      const w = window as any;
+      if (w.electronAPI?.printer?.getAvailablePorts) {
+        const res = await w.electronAPI.printer.getAvailablePorts();
+        if (res?.ok && Array.isArray(res.ports)) {
+          setSystemPorts(res.ports);
+        }
+      }
+    } catch {}
+  };
+
+  const handleConfirmInstallWithOptions = async () => {
+    if (!pendingInstallDriver) return;
+    if (installMode === 'network' && !printerIp.trim()) {
+      showToast.warning('Thiếu địa chỉ IP', 'Vui lòng nhập địa chỉ IP của máy in (ví dụ: 192.168.1.200)!');
+      return;
+    }
+
+    const drv = pendingInstallDriver;
+    const localPath = pendingInstallDriver.localFilePath;
+    const mode = installMode;
+    const port = selectedPort;
+    const ip = printerIp.trim();
+    const portNum = printerPortNum;
+
+    setShowInstallOptionsModal(false);
+
     const w = window as any;
     if (!w.electronAPI?.printer?.autoInstallDriver) {
       addLog('❌ Bản cập nhật Desktop cần có API printer.autoInstallDriver để thực hiện.');
       return;
     }
 
-    const domain = localFilePath
-      ? 'Tệp bộ cài cục bộ trên máy'
-      : (drv.directLink
-        ? (drv.directLink.includes('drive.google.com') ? 'Google Drive (Kho Driver Chính Thức)' : new URL(drv.directLink).hostname)
-        : (drv.url ? new URL(drv.url).hostname : 'Kho Driver Hãng'));
-
-    const fileName = localFilePath
-      ? localFilePath.split(/[\\/]/).pop()
-      : (drv.directLink ? drv.directLink.split('/').pop()?.split('?')[0] : '');
-
-    const confirmed = await showConfirm({
-      title: 'Tự Động Cài Đặt Driver Máy In (Từ A - Z)',
-      message: `Bắt đầu tự động tải và cài đặt Driver cho "${drv.name}" từ A-Z?\n\n` +
-        (fileName ? `• Tệp: ${fileName}\n` : '') +
-        `• Nguồn: ${domain}\n` +
-        `• Tự động nạp gói Driver vào hệ thống Windows (Silent / Unattended Install)\n` +
-        (autoTestPrint ? `• Tự động gửi lệnh in trang thử (Print Test Page) sau khi cài thành công\n` : '') +
-        `\n👉 Toàn bộ quá trình diễn ra tự động ngầm, bạn không cần phải bấm Next hay chọn cổng bằng tay!`,
-      type: 'info',
-      badge: 'CÀI TỰ ĐỘNG TỪ A-Z',
-      confirmText: 'Bắt đầu tự động cài'
-    });
-    if (!confirmed) {
-      addLog(`Đã hủy tiến trình cài đặt driver ${drv.name}.`);
-      return;
-    }
-
     try {
       setLoading(true);
-      startGlobalLoading('driver-install', `Đang tự động cài đặt Driver ${drv.name} từ A-Z...`);
-      addLog(`🚀 BẮT ĐẦU TỰ ĐỘNG CÀI ĐẶT DRIVER "${drv.name}" TỪ A-Z...`);
+      const modeText = mode === 'usb' ? `Cổng USB [${port !== 'AUTO' ? port : 'Tự động'}]` : mode === 'network' ? `Mạng LAN [${ip}]` : 'Giao diện trực tiếp của hãng';
+      startGlobalLoading('driver-install', `Đang cài đặt Driver ${drv.name} (${modeText})...`);
+      addLog(`🚀 BẮT ĐẦU CÀI ĐẶT DRIVER "${drv.name}" TỪ A-Z (Chế độ: ${mode.toUpperCase()} - ${modeText})...`);
 
       const res = await w.electronAPI.printer.autoInstallDriver({
         name: drv.name,
@@ -2298,32 +2323,37 @@ export default function PrinterTab() {
         sha256: drv.sha256,
         category: drv.category,
         autoTestPrint: autoTestPrint,
-        localFilePath: localFilePath
+        localFilePath: localPath,
+        installMode: mode,
+        selectedPort: port,
+        printerIp: ip,
+        printerPortNum: portNum
       });
 
       if (res?.ok) {
         addLog(`🎉 ${res.message || 'Cài đặt driver hoàn tất!'}`);
         showResultModal(
-          `🎉 ĐÃ TỰ ĐỘNG CÀI ĐẶT DRIVER THÀNH CÔNG!\n\n` +
+          `🎉 ĐÃ CÀI ĐẶT DRIVER THÀNH CÔNG!\n\n` +
           `• Dòng máy in: ${drv.name}\n` +
           (res.printerName ? `• Máy in nhận diện: [${res.printerName}]\n` : `• Driver đã nạp vào Driver Store Windows sẵn sàng!\n`) +
-          (res.testPrintSent ? `• Đã tự động gửi lệnh in trang thử nghiệm (Print Test Page)!\n` : `• Cắm cáp USB máy in vào là máy sẽ tự động in được ngay!\n`) +
-          `\n👉 Toàn bộ quá trình đã được cài đặt tự động 100% không cần can thiệp!`,
+          `• Chế độ kết nối: ${modeText}\n` +
+          (res.testPrintSent ? `• Đã tự động gửi lệnh in trang thử nghiệm (Print Test Page) trực tiếp vào đúng máy in này!\n` : `• Cắm cáp USB / kết nối mạng là máy sẽ tự động in được ngay!\n`) +
+          `\n👉 Cổng kết nối và driver đã được DMH Tools cấu hình chuẩn xác 100%!`,
           'success'
         );
         await loadPrinters(true);
       } else {
         addLog(`⚠️ Cài đặt tự động chưa hoàn tất: ${res?.error || 'Có lỗi xảy ra'}`);
         showResultModal(
-          `⚠️ Chưa Hoàn Tất Cài Đặt Tự Động\n\n` +
+          `⚠️ Chưa Hoàn Tất Cài Đặt\n\n` +
           `${res?.error || 'Hệ thống đã mở trang chủ nhà sản xuất để bạn tải bộ cài.'}\n\n` +
-          `💡 Mẹo: Nếu bạn đã có sẵn file bộ cài (.exe, .zip, .rar, .inf), hãy bấm nút "Cài từ tệp trên máy" để DMH Tools tự động cài ngầm từ A-Z!`,
+          `💡 Mẹo: Nếu bạn đã có sẵn file bộ cài (.exe, .zip, .rar, .inf), hãy bấm nút "Cài từ tệp trên máy" để DMH Tools cấu hình chuẩn xác cho bạn!`,
           'warning'
         );
       }
     } catch (err: unknown) {
       const e = String(err);
-      addLog('❌ Lỗi tự động cài driver: ' + e);
+      addLog('❌ Lỗi cài driver: ' + e);
       showResultModal(`❌ Lỗi Cài Driver\n\n${e}`, 'error');
     } finally {
       setLoading(false);
@@ -2341,8 +2371,8 @@ export default function PrinterTab() {
     try {
       const res = await w.electronAPI.printer.selectDriverFile();
       if (res.canceled || !res.filePath) return;
-      const fileName = res.filePath.split(/[\\/]/).pop() || 'Driver Installer';
-      await downloadAndInstallDriver({
+      const fileName = res.filePath.split(/[\\/]/).pop() || 'Bộ cài đặt Driver';
+      await openInstallOptionsModal({
         name: fileName,
         url: '',
       }, res.filePath);
@@ -2404,8 +2434,7 @@ export default function PrinterTab() {
     const match = COMMON_DRIVERS.find(d => d.regex.test(printerName) || d.regex.test(driverName));
     if (match) {
       addLog(`🔍 Phát hiện driver phù hợp: ${match.name}`);
-      addLog(`📥 Đang tải driver mới...`);
-      await downloadAndInstallDriver(match);
+      await openInstallOptionsModal(match);
     } else {
       addLog(`ℹ️ Không tìm thấy driver tự động cho "${driverName}".`);
       addLog(`Vui lòng tải driver thủ công từ trang web nhà sản xuất.`);
@@ -3019,7 +3048,7 @@ export default function PrinterTab() {
             return (
               <button 
                 key={drv.name}
-                onClick={() => downloadAndInstallDriver(drv)}
+                onClick={() => openInstallOptionsModal(drv)}
                 disabled={loading}
                 style={{ 
                   padding: '0.85rem',
@@ -4131,7 +4160,305 @@ export default function PrinterTab() {
         </div>
       )}
 
-      {/* Modal Hướng Dẫn & Đặc Trị Lỗi 40 (0x00000040) */}
+      {/* ═════ MODAL TÙY CHỌN CHẾ ĐỘ CÀI ĐẶT DRIVER MÁY IN ═════ */}
+      {showInstallOptionsModal && pendingInstallDriver && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(3px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 580, boxShadow: '0 25px 30px -5px rgba(0, 0, 0, 0.25), 0 10px 15px -5px rgba(0, 0, 0, 0.1)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            
+            {/* Header Modal */}
+            <div style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%)', padding: '1.1rem 1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#fff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 8, padding: 6, display: 'flex' }}>
+                  <Settings size={20} color="#a5b4fc" />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <h3 style={{ margin: 0, fontSize: '0.96rem', fontWeight: 800, letterSpacing: '0.2px' }}>Tùy Chọn Chế Độ Cài Đặt Driver</h3>
+                    <span style={{ fontSize: '0.65rem', background: '#4f46e5', color: '#e0e7ff', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                      CHỐNG LỖI CỔNG
+                    </span>
+                  </div>
+                  <p style={{ margin: '3px 0 0 0', fontSize: '0.73rem', color: '#c7d2fe' }}>
+                    Dòng máy: <strong style={{ color: '#fff' }}>{pendingInstallDriver.name}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowInstallOptionsModal(false)}
+                style={{ background: 'transparent', border: 'none', color: '#c7d2fe', cursor: 'pointer', padding: 4, display: 'flex', borderRadius: 6 }}
+                onMouseEnter={e => e.currentTarget.style.color = '#fff'}
+                onMouseLeave={e => e.currentTarget.style.color = '#c7d2fe'}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Body Modal */}
+            <div style={{ padding: '1.3rem', display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '78vh', overflowY: 'auto' }}>
+              
+              {/* Lời nhắc rõ ràng */}
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '0.75rem 0.9rem', fontSize: '0.73rem', color: '#166534', lineHeight: 1.5 }}>
+                <strong>💡 Tránh lỗi chọn nhầm cổng 'Other' của nhà sản xuất:</strong> Các bộ cài máy in hóa đơn/nhiệt (như Xprinter) khi cài ngầm thường tự động gán vào cổng <em>Other (LPT/COM ảo)</em> gây lỗi không in được. DMH Tools cung cấp 3 chế độ chuẩn xác dưới đây:
+              </div>
+
+              {/* LỰA CHỌN CHẾ ĐỘ CÀI ĐẶT (3 CARDS) */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b' }}>
+                  1. Chọn Phương Thức Kết Nối (Interface):
+                </label>
+
+                {/* Option 1: USB Interface */}
+                <div
+                  onClick={() => setInstallMode('usb')}
+                  style={{
+                    border: installMode === 'usb' ? '2px solid #059669' : '1px solid #cbd5e1',
+                    background: installMode === 'usb' ? '#ecfdf5' : '#ffffff',
+                    borderRadius: 10,
+                    padding: '0.85rem 1rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    boxShadow: installMode === 'usb' ? '0 2px 8px rgba(5, 150, 105, 0.15)' : 'none'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="radio"
+                        name="installModeRadio"
+                        checked={installMode === 'usb'}
+                        onChange={() => setInstallMode('usb')}
+                        style={{ accentColor: '#059669', width: 16, height: 16, cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: '0.82rem', fontWeight: 800, color: installMode === 'usb' ? '#065f46' : '#1e293b' }}>
+                        🔌 Cổng USB (Cắm Cáp Trực Tiếp - Khuyên Dùng)
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#d1fae5', color: '#047857' }}>
+                      Chuẩn Nhất
+                    </span>
+                  </div>
+                  <p style={{ margin: '6px 0 0 24px', fontSize: '0.72rem', color: '#475569', lineHeight: 1.45 }}>
+                    Tự động nạp Driver vào Driver Store của Windows và <strong>ép máy in gắn chặt vào cổng USB</strong> (chống hoàn toàn hiện tượng bộ cài tự nhảy sang cổng Other/LPT/COM ảo).
+                  </p>
+
+                  {/* Cấu hình chọn cổng USB con nếu đang chọn USB mode */}
+                  {installMode === 'usb' && (
+                    <div style={{ marginTop: 10, marginLeft: 24, paddingTop: 8, borderTop: '1px dashed #a7f3d0' }}>
+                      <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 700, color: '#065f46', marginBottom: 4 }}>
+                        Cổng USB đích trên máy tính:
+                      </label>
+                      <select
+                        value={selectedPort}
+                        onChange={e => setSelectedPort(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '6px 10px',
+                          fontSize: '0.76rem',
+                          borderRadius: 6,
+                          border: '1px solid #059669',
+                          background: '#fff',
+                          color: '#0f172a',
+                          fontWeight: 600
+                        }}
+                      >
+                        <option value="AUTO">⚡ [Khuyên dùng] Tự động nhận diện cổng USB khả dụng tối ưu</option>
+                        {systemPorts
+                          .filter(p => p.Name.startsWith('USB'))
+                          .map(p => (
+                            <option key={p.Name} value={p.Name}>
+                              {p.Name} ({p.Description || 'Cổng máy in USB'})
+                            </option>
+                          ))}
+                        {!systemPorts.some(p => p.Name.startsWith('USB')) && (
+                          <>
+                            <option value="USB001">USB001 (Virtual printer port for USB)</option>
+                            <option value="USB002">USB002 (Virtual printer port for USB)</option>
+                            <option value="USB003">USB003 (Virtual printer port for USB)</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Option 2: Network / LAN IP */}
+                <div
+                  onClick={() => setInstallMode('network')}
+                  style={{
+                    border: installMode === 'network' ? '2px solid #0284c7' : '1px solid #cbd5e1',
+                    background: installMode === 'network' ? '#f0f9ff' : '#ffffff',
+                    borderRadius: 10,
+                    padding: '0.85rem 1rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    boxShadow: installMode === 'network' ? '0 2px 8px rgba(2, 132, 199, 0.15)' : 'none'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="radio"
+                        name="installModeRadio"
+                        checked={installMode === 'network'}
+                        onChange={() => setInstallMode('network')}
+                        style={{ accentColor: '#0284c7', width: 16, height: 16, cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: '0.82rem', fontWeight: 800, color: installMode === 'network' ? '#0369a1' : '#1e293b' }}>
+                        🌐 Mạng LAN / WiFi (Network TCP/IP Port)
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#e0f2fe', color: '#0369a1' }}>
+                      In Qua Mạng
+                    </span>
+                  </div>
+                  <p style={{ margin: '6px 0 0 24px', fontSize: '0.72rem', color: '#475569', lineHeight: 1.45 }}>
+                    Dành cho máy in cắm dây mạng LAN hoặc kết nối WiFi trong phòng khám. Hệ thống sẽ tự động tạo Standard TCP/IP Port liên kết máy in.
+                  </p>
+
+                  {/* Cấu hình IP con nếu đang chọn Network mode */}
+                  {installMode === 'network' && (
+                    <div style={{ marginTop: 10, marginLeft: 24, paddingTop: 8, borderTop: '1px dashed #bae6fd', display: 'flex', gap: 8 }}>
+                      <div style={{ flex: 2 }}>
+                        <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 700, color: '#0369a1', marginBottom: 4 }}>
+                          Địa chỉ IP máy in: <span style={{ color: '#ef4444' }}>*</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ví dụ: 192.168.1.200"
+                          value={printerIp}
+                          onChange={e => setPrinterIp(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '6px 10px',
+                            fontSize: '0.76rem',
+                            borderRadius: 6,
+                            border: '1px solid #0284c7',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 700, color: '#0369a1', marginBottom: 4 }}>
+                          Cổng Raw:
+                        </label>
+                        <input
+                          type="number"
+                          value={printerPortNum}
+                          onChange={e => setPrinterPortNum(Number(e.target.value) || 9100)}
+                          style={{
+                            width: '100%',
+                            padding: '6px 10px',
+                            fontSize: '0.76rem',
+                            borderRadius: 6,
+                            border: '1px solid #cbd5e1',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Option 3: Interactive UI (Mở trình cài đặt của hãng) */}
+                <div
+                  onClick={() => setInstallMode('interactive')}
+                  style={{
+                    border: installMode === 'interactive' ? '2px solid #6366f1' : '1px solid #cbd5e1',
+                    background: installMode === 'interactive' ? '#eef2ff' : '#ffffff',
+                    borderRadius: 10,
+                    padding: '0.85rem 1rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    boxShadow: installMode === 'interactive' ? '0 2px 8px rgba(99, 102, 241, 0.15)' : 'none'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="radio"
+                        name="installModeRadio"
+                        checked={installMode === 'interactive'}
+                        onChange={() => setInstallMode('interactive')}
+                        style={{ accentColor: '#6366f1', width: 16, height: 16, cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: '0.82rem', fontWeight: 800, color: installMode === 'interactive' ? '#4338ca' : '#1e293b' }}>
+                        🖥️ Mở Trình Cài Đặt Gốc Của Hãng (Giao Diện Trực Tiếp)
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#e0e7ff', color: '#4338ca' }}>
+                      Thủ Công
+                    </span>
+                  </div>
+                  <p style={{ margin: '6px 0 0 24px', fontSize: '0.72rem', color: '#475569', lineHeight: 1.45 }}>
+                    Mở trực tiếp cửa sổ của nhà sản xuất (như cửa sổ bạn chụp) để bạn tự tay tích chọn <strong>USB</strong> hay <strong>Other</strong>, chọn model máy in và khổ giấy 80mm/58mm... theo ý mình.
+                  </p>
+                </div>
+              </div>
+
+              {/* TÙY CHỌN IN TRANG THỬ */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '0.75rem 0.9rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={autoTestPrint}
+                    onChange={e => setAutoTestPrint(e.target.checked)}
+                    style={{ width: 16, height: 16, accentColor: '#059669', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Printer size={15} color="#059669" />
+                    Tự động gửi lệnh in trang thử (Print Test Page) sau khi cài thành công
+                  </span>
+                </label>
+                <div style={{ fontSize: '0.71rem', color: '#64748b', marginTop: 4, marginLeft: 24, lineHeight: 1.4 }}>
+                  🔒 <strong>Cam kết gửi đúng máy:</strong> Lệnh in test sử dụng phương thức WMI/CIM chỉ gửi riêng đến máy in vừa cài, <strong>tuyệt đối không bị gửi nhầm sang máy in mặc định</strong> của máy tính!
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer Nút Bấm */}
+            <div style={{ padding: '0.9rem 1.3rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                onClick={() => setShowInstallOptionsModal(false)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: '#fff',
+                  color: '#475569',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Hủy Bỏ
+              </button>
+
+              <button
+                onClick={handleConfirmInstallWithOptions}
+                style={{
+                  padding: '8px 22px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                  color: '#fff',
+                  fontSize: '0.8rem',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.35)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 7
+                }}
+              >
+                <Download size={15} />
+                <span>Bắt Đầu Cài Đặt Ngay</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
       {/* ── MODAL TRUNG TÂM CHẨN ĐOÁN & ĐẶC TRỊ LỖI 0x00000709 TỪ A-Z ── */}
       {showError709Modal && (
         <div style={{

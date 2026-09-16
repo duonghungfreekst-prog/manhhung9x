@@ -194,25 +194,26 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Nâng Cấp Hệ Thống Bác Sĩ Máy In Hợp Nhất 2 Nút & Quy Trình 10 Bước Tự Động A-Z
+        body: `### 🚀 DMH Tools ${tagName} - Cấu Hình Chế Độ Cài Đặt Driver & Khắc Phục Triệt Để In Test Page
 
 #### 🌟 Điểm mới nổi bật trong phiên bản ${tagName}:
 
-- **1. Nâng Cấp Đột Phá Bác Sĩ Máy In Hợp Nhất (Printer Doctor 2-Button Action & 10-Step Workflow)**:
-  + Hợp nhất quy trình thao tác thành 2 nút hành động trọng tâm (Chuẩn Đoán Nhanh & Sửa Lỗi Tự Động Toàn Diện A-Z), giúp người dùng không cần am hiểu kỹ thuật vẫn xử lý sự cố máy in chỉ bằng 1 cú nhấp chuột.
-  + Tích hợp Bảng Quy Trình 10 Bước Chuyên Nghiệp: Tự động khởi động Spooler, thiết lập Driver Isolation, xóa hàng đợi in kẹt, thông tắc cổng RPC/SMB, chuyển đổi cổng WSD sang Standard TCP/IP và kích hoạt Printer Sharing.
-  + Cửa sổ tương tác chẩn đoán trực quan (\`resultModal\`) kèm nút **In Trang Thử Nghiệm (Print Test Page)** tức thì để kỹ thuật viên kiểm tra kết quả ngay tại chỗ.
+- **1. Hộp Thoại Cấu Hình Chế Độ Cài Đặt Driver Trước Khi Cài (Install Interface Selection Modal)**:
+  + Cung cấp 3 chế độ cài đặt linh hoạt cho người dùng lựa chọn trước khi tiến hành cài:
+    * **🔌 Cổng USB (Cắm Cáp Trực Tiếp - Khuyên Dùng)**: Cho phép tự động dò hoặc chọn đích danh cổng USB máy in đang kết nối (USB001, USB002, USB003...).
+    * **🌐 Mạng LAN / WiFi (Network TCP/IP)**: Cho phép nhập địa chỉ IP máy in và tự động tạo Standard TCP/IP Port trong Windows để liên kết in mạng.
+    * **🖥️ Mở Trình Cài Đặt Gốc Của Hãng (Giao Diện Trực Tiếp - Interactive UI)**: Mở trực tiếp cửa sổ của hãng để người dùng tự tay chọn radio button \`USB\` hay \`Other\`, chọn dòng máy in và khổ giấy 80mm/58mm theo đúng ý muốn.
 
-- **2. Hệ Thống Auto-Refresh & Trung Tâm Thông Báo Thông Minh**:
-  + Bổ sung thành phần \`AutoRefreshControl\` và \`NotificationDialog\` hỗ trợ tự động đồng bộ hóa trạng thái hệ thống theo chu kỳ.
-  + Tích hợp bộ tiện ích \`autoRefreshManager\`, \`notificationSystem\` và \`statePreserver\` đảm bảo duy trì liên tục ngữ cảnh làm việc khi chuyển đổi tab.
+- **2. Khắc Phục Triệt Để Lỗi Bộ Cài Xprinter Tự Gán Sang Chế Độ 'Other' (LPT/COM Ảo)**:
+  + Khi chạy bộ cài đặt ngầm (silent), một số bộ cài hãng (như Xprinter) thường mặc định gán vào cổng 'Other' dẫn đến lỗi không in được. DMH Tools tự động phát hiện và ép máy in về đúng cổng USB/IP mà người dùng đã lựa chọn.
 
-- **3. Nâng Cấp Module Chuyển Đổi & Xử Lý Tài Liệu (Document Converter Engine)**:
-  + Nâng cấp toàn diện \`ConverterTab\` với các thư viện \`jspdf\`, \`jspdf-autotable\`, \`jszip\` hỗ trợ nén, giải nén và xuất tài liệu y tế chuẩn mực.
+- **3. Khắc Phục Hoàn Toàn Lỗi In Trang Thử (Print Test Page) Nhầm Sang Máy In Mặc Định**:
+  + Thay thế hoàn toàn lệnh cũ (\`rundll32 printui.dll\`) bằng chuẩn API Microsoft Windows Spooler WMI/CIM (\`Win32_Printer.PrintTestPage()\`).
+  + Lệnh in thử chỉ nhắm mục tiêu 100% vào đúng máy in vừa cài đặt. Nếu máy in chưa cắm cáp hoặc tắt nguồn, hệ thống trả về thông báo trạng thái rõ ràng, **tuyệt đối không bao giờ gửi nhầm sang máy in mặc định** (như Canon LBP2900).
 
-- **4. Tối Ưu Hóa Giao Diện Toàn Diện & GPU Crash Guard**:
-  + Hoàn thiện cơ chế chống tràn layout (Fullbleed layout & Custom scrollbars), khắc phục triệt để hiện tượng vỡ khung hình.
-  + Duy trì cơ chế bảo vệ tiến trình đồ họa GPU khi ứng dụng chạy với quyền Administrator trên các hệ điều hành Windows doanh nghiệp.
+- **4. Tối Ưu Hóa & Đồng Bộ Toàn Bộ Quy Trình Bác Sĩ Máy In**:
+  + Bổ sung API quét và liệt kê danh sách tất cả các cổng máy in trên Windows (\`getAvailablePorts\`).
+  + Nâng cấp toàn diện trải nghiệm người dùng, đảm bảo cài đặt chính xác ngay từ lần đầu tiên.
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,

@@ -1,8 +1,8 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "6.9.5",
-  "description": "DMH_Tools v6.9.5 - Nâng Cấp Hệ Thống Bác Sĩ Máy In Hợp Nhất 2 Nút & Bảng Quy Trình 10 Bước Chuẩn Đoán & Sửa Lỗi Tự Động A-Z",
+  "version": "6.9.6",
+  "description": "DMH_Tools v6.9.6 - Cấu Hình Tùy Chọn Chế Độ Cài Đặt Driver (USB / Mạng / Interactive UI), Khắc Phục Lỗi Cổng Other & Chống In Nhầm Máy In Mặc Định",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

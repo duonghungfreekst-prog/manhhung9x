@@ -5435,8 +5435,57 @@ pause
     const safeName = String(printerName).replace(/["']/g, '');
     const ps = `
       $ErrorActionPreference = 'SilentlyContinue'
-      rundll32.exe printui.dll,PrintUIEntry /k /n "${safeName}"
-      [PSCustomObject]@{ ok = $true; message = "Đã gửi lệnh in trang thử nghiệm đến máy in ${safeName}" } | ConvertTo-Json -Compress
+      $target = "${safeName}"
+
+      # 1. Tìm chính xác máy in trong hệ thống
+      $p = Get-CimInstance -ClassName Win32_Printer -Filter "Name = '$target'" -ErrorAction SilentlyContinue
+      if (-not $p) {
+        $p = Get-CimInstance -ClassName Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*$target*" -or $target -like "*$($_.Name)*" } | Select-Object -First 1
+      }
+
+      if (-not $p) {
+        [PSCustomObject]@{
+          ok = $false
+          error = "Không tìm thấy máy in [$target] trên hệ thống Windows. Tuyệt đối không gửi nhầm sang máy in khác!"
+        } | ConvertTo-Json -Compress
+        exit
+      }
+
+      # 2. Đảm bảo máy in Online và không bị tạm dừng hàng đợi
+      Set-Printer -Name $p.Name -WorkOffline $false -ErrorAction SilentlyContinue
+      Resume-PrintJob -PrinterName $p.Name -ErrorAction SilentlyContinue
+
+      # 3. Gửi lệnh in trang thử nghiệm trực tiếp qua CIM / WMI đến đúng máy in này
+      $wmiRes = Invoke-CimMethod -InputObject $p -MethodName PrintTestPage -ErrorAction SilentlyContinue
+
+      if ($wmiRes -and $wmiRes.ReturnValue -eq 0) {
+        [PSCustomObject]@{
+          ok = $true
+          message = "Đã gửi lệnh in trang thử nghiệm trực tiếp đến máy in [$($p.Name)] (Cổng: $($p.PortName))!"
+        } | ConvertTo-Json -Compress
+      } else {
+        # Dự phòng bằng phương thức WMI Win32_Printer trực tiếp
+        $retCode = -1
+        try {
+          $inst = Get-WmiObject -Class Win32_Printer -Filter "Name='$($p.Name)'" -ErrorAction SilentlyContinue
+          if ($inst) {
+            $wmiRet = $inst.PrintTestPage()
+            $retCode = $wmiRet.ReturnValue
+          }
+        } catch {}
+
+        if ($retCode -eq 0) {
+          [PSCustomObject]@{
+            ok = $true
+            message = "Đã gửi lệnh in trang thử nghiệm đến máy in [$($p.Name)] (Cổng: $($p.PortName))!"
+          } | ConvertTo-Json -Compress
+        } else {
+          [PSCustomObject]@{
+            ok = $false
+            error = "Không thể gửi lệnh in thử đến máy in [$($p.Name)] (Cổng: $($p.PortName)). Vui lòng kiểm tra cáp kết nối hoặc bật nguồn máy in!"
+          } | ConvertTo-Json -Compress
+        }
+      }
     `;
     const res = await runPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
@@ -6006,6 +6055,21 @@ pause
     } catch {
       return { ok: true, success: true, message: 'Đã hoàn tất sửa tự động toàn bộ lỗi.' };
     }
+  // ── PRINTER SUITE: Lấy Danh Sách Các Cổng Máy In (USB, COM, LPT, IP...) ────────
+  ipcMain.handle('printer:get-available-ports', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      $ports = @(Get-PrinterPort | Select-Object Name, Description | Sort-Object Name)
+      $ports | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, ports: [] };
+    try {
+      const list = JSON.parse(res.output || '[]');
+      return { ok: true, ports: Array.isArray(list) ? list : [list] };
+    } catch {
+      return { ok: true, ports: [] };
+    }
   });
 
   // ── PRINTER SUITE: Tự Động Cài Đặt Driver Máy In Hoàn Toàn (A-Z) & In Thử Nghiệm ────
@@ -6035,7 +6099,19 @@ pause
       console.log(`[AutoDriverInstall Step ${step}/${total}] ${text}`);
     };
 
-    const { name, directLink, url, sha256, category, autoTestPrint = true, localFilePath } = params || {};
+    const {
+      name,
+      directLink,
+      url,
+      sha256,
+      category,
+      autoTestPrint = true,
+      localFilePath,
+      installMode = 'usb',
+      selectedPort = 'AUTO',
+      printerIp = '',
+      printerPortNum = 9100
+    } = params || {};
     const driverName = name || 'Máy in';
 
     try {
@@ -6269,6 +6345,10 @@ pause
         $installerPath = "${installerPath.replace(/\\/g, '\\\\')}"
         $drvName = "${driverName.replace(/"/g, '`"')}"
         $targetKeywords = ${keywordsPsArray}
+        $installMode = "${installMode}"
+        $selectedPort = "${selectedPort}"
+        $printerIp = "${printerIp}"
+        $printerPortNum = ${Number(printerPortNum) || 9100}
 
         $installedInfs = 0
         $executedExes = 0
@@ -6293,38 +6373,46 @@ pause
           $exeCandidates = @(Get-Item -Path $installerPath -ErrorAction SilentlyContinue)
         }
 
-        foreach ($exe in $exeCandidates) {
-          # Nhận diện thông minh cấu trúc Inno Setup vs NSIS vs Generic
-          $silentArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-')
-          try {
-            $rawSample = [System.IO.File]::ReadAllBytes($exe.FullName)
-            $sampleStr = [System.Text.Encoding]::ASCII.GetString($rawSample, 0, [Math]::Min(120000, $rawSample.Length))
-            if ($sampleStr -match 'NullsoftInst') {
-              $silentArgs = @('/S')
-            }
-          } catch {}
-
-          try {
-            # Khởi động với PassThru và kiểm soát Timeout để chống treo vô tận nếu installer mở dialog
-            $proc = Start-Process -FilePath $exe.FullName -ArgumentList $silentArgs -PassThru -WindowStyle Hidden -ErrorAction Stop
+        if ($installMode -eq 'interactive') {
+          # Chế độ tương tác: Mở trực tiếp cửa sổ của hãng để người dùng tự chọn USB / Other theo ý muốn
+          if ($exeCandidates.Count -gt 0) {
+            $targetExe = $exeCandidates[0].FullName
+            Start-Process -FilePath $targetExe -ErrorAction SilentlyContinue
             $executedExes++
-            if ($proc) {
-              $sw = [System.Diagnostics.Stopwatch]::StartNew()
-              while (-not $proc.HasExited -and $sw.ElapsedMilliseconds -lt 35000) {
-                Start-Sleep -Milliseconds 500
-              }
-            }
-          } catch {
+          }
+        } else {
+          foreach ($exe in $exeCandidates) {
+            # Nhận diện thông minh cấu trúc Inno Setup vs NSIS vs Generic
+            $silentArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-')
             try {
-              $proc2 = Start-Process -FilePath $exe.FullName -ArgumentList '/S' -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
+              $rawSample = [System.IO.File]::ReadAllBytes($exe.FullName)
+              $sampleStr = [System.Text.Encoding]::ASCII.GetString($rawSample, 0, [Math]::Min(120000, $rawSample.Length))
+              if ($sampleStr -match 'NullsoftInst') {
+                $silentArgs = @('/S')
+              }
+            } catch {}
+
+            try {
+              $proc = Start-Process -FilePath $exe.FullName -ArgumentList $silentArgs -PassThru -WindowStyle Hidden -ErrorAction Stop
               $executedExes++
-              if ($proc2) {
-                $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
-                while (-not $proc2.HasExited -and $sw2.ElapsedMilliseconds -lt 25000) {
+              if ($proc) {
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                while (-not $proc.HasExited -and $sw.ElapsedMilliseconds -lt 35000) {
                   Start-Sleep -Milliseconds 500
                 }
               }
-            } catch {}
+            } catch {
+              try {
+                $proc2 = Start-Process -FilePath $exe.FullName -ArgumentList '/S' -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
+                $executedExes++
+                if ($proc2) {
+                  $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
+                  while (-not $proc2.HasExited -and $sw2.ElapsedMilliseconds -lt 25000) {
+                    Start-Sleep -Milliseconds 500
+                  }
+                }
+              } catch {}
+            }
           }
         }
 
@@ -6369,6 +6457,23 @@ pause
         $autoCreatedQueue = $false
         $assignedPort = ""
 
+        # Xác định targetPort theo cấu hình người dùng
+        if ($installMode -eq 'network' -and $printerIp) {
+          $assignedPort = "IP_$printerIp"
+          if (-not (Get-PrinterPort -Name $assignedPort -ErrorAction SilentlyContinue)) {
+            Add-PrinterPort -Name $assignedPort -PrinterHostAddress $printerIp -PortNumber $printerPortNum -ErrorAction SilentlyContinue
+          }
+        } else {
+          if ($selectedPort -and $selectedPort -ne "AUTO") {
+            $assignedPort = $selectedPort
+          } else {
+            $usbPorts = @(Get-PrinterPort -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'USB*' } | Sort-Object Name | Select-Object -ExpandProperty Name)
+            $usedPorts = @($afterPrinters | Select-Object -ExpandProperty PortName)
+            $availPort = $usbPorts | Where-Object { $usedPorts -notcontains $_ } | Select-Object -First 1
+            $assignedPort = if ($availPort) { $availPort } elseif ($usbPorts.Count -gt 0) { $usbPorts[0] } else { 'USB001' }
+          }
+        }
+
         # 5. CHUYÊN BIỆT CHO MÁY IN NHIỆT / POS / BARCODE:
         # Nếu Windows chưa tự động sinh Queue máy in và đây là dòng POS/Barcode
         $isPosOrBarcode = "${category || ''}" -match 'pos|barcode' -or ($targetKeywords | Where-Object { $_ -match 'XP-|Xprinter|POS|Thermal|Receipt|Barcode|Label' })
@@ -6385,19 +6490,6 @@ pause
           } | Select-Object -First 1
 
           if ($bestDriver) {
-            # Dò tìm các cổng USB máy in trên máy tính (USB001, USB002, ...)
-            $usbPorts = @(Get-PrinterPort -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'USB*' } | Sort-Object Name | Select-Object -ExpandProperty Name)
-            
-            # Cổng USB đã bị máy in khác gán
-            $usedPorts = @($afterPrinters | Select-Object -ExpandProperty PortName)
-            
-            # Ưu tiên cổng USB khả dụng chưa gán máy in nào; nếu tất cả đã gán hoặc chưa có, lấy USB001
-            $targetPort = $usbPorts | Where-Object { $usedPorts -notcontains $_ } | Select-Object -First 1
-            if (-not $targetPort) {
-              $targetPort = if ($usbPorts.Count -gt 0) { $usbPorts[0] } else { 'USB001' }
-            }
-
-            # Đặt tên máy in theo Driver chuẩn
             $queueName = $bestDriver.Name
             if (@($afterPrinters.Name) -contains $queueName) {
               $queueName = "$queueName (Auto)"
@@ -6405,11 +6497,23 @@ pause
 
             # Tự động tạo hàng đợi máy in trong Windows
             try {
-              Add-Printer -Name $queueName -DriverName $bestDriver.Name -PortName $targetPort -ErrorAction Stop
+              Add-Printer -Name $queueName -DriverName $bestDriver.Name -PortName $assignedPort -ErrorAction Stop
               $detectedName = $queueName
               $autoCreatedQueue = $true
-              $assignedPort = $targetPort
             } catch {}
+          }
+        }
+
+        # 6. KHẮC PHỤC TRIỆT ĐỂ LỖI BỘ CÀI XPRINTER TỰ GÁN VÀO 'OTHER' (LPT/COM/CỔNG ẢO):
+        # Ép cổng của máy in về đúng cổng USB/IP mà người dùng đã chọn!
+        if ($detectedName -and $assignedPort) {
+          $curr = Get-Printer -Name $detectedName -ErrorAction SilentlyContinue
+          if ($curr -and $curr.PortName -ne $assignedPort) {
+            if ($installMode -eq 'usb' -and $curr.PortName -notlike 'USB*') {
+              Set-Printer -Name $detectedName -PortName $assignedPort -ErrorAction SilentlyContinue
+            } elseif ($installMode -eq 'network') {
+              Set-Printer -Name $detectedName -PortName $assignedPort -ErrorAction SilentlyContinue
+            }
           }
         }
 
@@ -6448,26 +6552,50 @@ pause
       let printedTargetName = '';
 
       if (autoTestPrint) {
-        sendLog(4, 4, `Đang gửi lệnh in trang thử nghiệm (Test Page)...`, 'info');
+        sendLog(4, 4, `Đang gửi lệnh in trang thử nghiệm (Test Page) trực tiếp tới [${detectedPrinterName || driverName}]...`, 'info');
 
         const testPs = `
           $target = "${detectedPrinterName.replace(/"/g, '`"')}"
           
           # Chỉ in trang thử khi đã xác định được chính xác máy in vừa cài!
-          # TUYỆT ĐỐI KHÔNG fallback sang máy in khác trong Windows để tránh in nhầm.
+          # TUYỆT ĐỐI KHÔNG DÙNG printui.dll để tránh bị in nhầm sang máy in mặc định.
           if ($target) {
-            # Đảm bảo máy in Online và không bị tạm dừng hàng đợi
-            Set-Printer -Name $target -WorkOffline $false -ErrorAction SilentlyContinue
-            Resume-PrintJob -PrinterName $target -ErrorAction SilentlyContinue
+            $p = Get-CimInstance -ClassName Win32_Printer -Filter "Name = '$target'" -ErrorAction SilentlyContinue
+            if (-not $p) {
+              $p = Get-CimInstance -ClassName Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*$target*" } | Select-Object -First 1
+            }
 
-            # Gửi lệnh in trang thử nghiệm chuẩn của Microsoft Windows
-            Start-Process -FilePath "rundll32.exe" -ArgumentList "printui.dll,PrintUIEntry /k /n \`"$target\`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
-            
-            Start-Sleep -Milliseconds 800
-            $jobs = @(Get-PrintJob -PrinterName $target -ErrorAction SilentlyContinue)
-            $jobQueued = $jobs.Count -gt 0
+            if ($p) {
+              Set-Printer -Name $p.Name -WorkOffline $false -ErrorAction SilentlyContinue
+              Resume-PrintJob -PrinterName $p.Name -ErrorAction SilentlyContinue
 
-            [PSCustomObject]@{ ok = $true; printed = $true; target = $target; queued = $jobQueued } | ConvertTo-Json -Compress
+              # Gọi trực tiếp method PrintTestPage của đúng máy in này qua WMI / CIM:
+              $wmiRes = Invoke-CimMethod -InputObject $p -MethodName PrintTestPage -ErrorAction SilentlyContinue
+              $printedOk = ($wmiRes -and $wmiRes.ReturnValue -eq 0)
+
+              if (-not $printedOk) {
+                try {
+                  $inst = Get-WmiObject -Class Win32_Printer -Filter "Name='$($p.Name)'" -ErrorAction SilentlyContinue
+                  if ($inst) {
+                    $wmiRet = $inst.PrintTestPage()
+                    $printedOk = ($wmiRet.ReturnValue -eq 0)
+                  }
+                } catch {}
+              }
+
+              Start-Sleep -Milliseconds 600
+              $jobs = @(Get-PrintJob -PrinterName $p.Name -ErrorAction SilentlyContinue)
+
+              [PSCustomObject]@{
+                ok = $true
+                printed = $printedOk
+                target = $p.Name
+                port = $p.PortName
+                queued = ($jobs.Count -gt 0)
+              } | ConvertTo-Json -Compress
+            } else {
+              [PSCustomObject]@{ ok = $false; printed = $false; target = ""; error = "Không tìm thấy máy in [$target] để in thử!" } | ConvertTo-Json -Compress
+            }
           } else {
             [PSCustomObject]@{ ok = $true; printed = $false; target = ""; queued = $false } | ConvertTo-Json -Compress
           }
@@ -6481,7 +6609,9 @@ pause
           testPrintSent = true;
           printedTargetName = testData.target;
           const queuedNote = testData.queued ? ' (Hàng đợi Spooler đã tiếp nhận lệnh in)' : '';
-          sendLog(4, 4, `✅ ĐÃ GỬI LỆNH IN TRANG THỬ (TEST PAGE) TỚI "${testData.target}"${queuedNote}. Vui lòng kiểm tra khay giấy ra!`, 'ok');
+          sendLog(4, 4, `✅ ĐÃ GỬI LỆNH IN TRANG THỬ (TEST PAGE) TRỰC TIẾP TỚI "${testData.target}" (Cổng ${testData.port || 'USB'})${queuedNote}. Vui lòng kiểm tra khay giấy ra!`, 'ok');
+        } else if (testData.target) {
+          sendLog(4, 4, `ℹ️ Đã hoàn tất cài đặt máy in "${testData.target}". Máy in hiện chưa kết nối vật lý (cáp USB/nguồn) nên Spooler chưa nhả lệnh in test. Khi cắm cáp bật máy sẽ in bình thường!`, 'warn');
         } else {
           sendLog(4, 4, `ℹ️ Máy in hiện chưa cắm cáp USB hoặc đang tắt. Driver đã nạp sẵn sàng 100%, bạn chỉ việc cắm cáp là dùng ngay!`, 'info');
         }

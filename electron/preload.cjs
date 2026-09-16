@@ -216,6 +216,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clearQueue:        (name) => ipcRenderer.invoke('printer:clear-queue', name),
     uninstallPrinter:  (name, driverName) => ipcRenderer.invoke('printer:uninstall-printer', name, driverName),
     getDrivers:        () => ipcRenderer.invoke('printer:get-drivers'),
+    getAvailablePorts: () => ipcRenderer.invoke('printer:get-available-ports'),
     addLocalPortPrinter: (params) => ipcRenderer.invoke('printer:add-local-port-printer', params),
     autoInstallDriver:   (params) => ipcRenderer.invoke('printer:auto-install-driver', params),
     selectDriverFile:    () => ipcRenderer.invoke('printer:select-driver-file'),
