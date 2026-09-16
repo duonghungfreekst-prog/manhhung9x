@@ -14,6 +14,8 @@ import type {
   RawPunchLog,
   EmployeeMonthlySummary,
 } from '../utils/biometricAttendance';
+import { registerTabRefreshHandler } from '../utils/autoRefreshManager';
+import { showToast, showConfirm } from '../utils/notificationSystem';
 import {
   DEFAULT_SHIFTS,
   DEFAULT_WEEKLY_TEMPLATE,
@@ -293,6 +295,29 @@ export function AttendanceTab() {
     }
   };
 
+  // Đăng ký làm mới thông minh toàn app cho Tab Chấm Công
+  useEffect(() => {
+    return registerTabRefreshHandler('attendance', async () => {
+      if (dataInputMode === 'lan' && lanIp) {
+        try {
+          const eAPI = (window as any).electronAPI?.biometric;
+          if (eAPI?.testConnection) {
+            const res = await eAPI.testConnection(lanIp.trim(), lanPort, 3000);
+            if (res.ok) {
+              setLanStatus({
+                ok: true,
+                message: `Máy ${lanIp.trim()}:${lanPort} đang hoạt động bình thường (${res.userCount ?? 0} nhân viên, ${res.logCount ?? 0} bản ghi)`,
+                details: res,
+              });
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    });
+  }, [dataInputMode, lanIp, lanPort]);
+
   const handleScanLan = async () => {
     setLanScanning(true);
     startGlobalLoading('attendance-scan', 'Đang quét toàn bộ dải mạng LAN để tìm máy chấm công...');
@@ -444,9 +469,14 @@ export function AttendanceTab() {
   };
 
   const handleRebootDevice = async () => {
-    if (!window.confirm(`Xác nhận khởi động lại máy chấm công tại ${lanIp}:${lanPort}?\n\nThiết bị sẽ khởi động lại và tạm ngắt kết nối trong khoảng 20-30 giây.`)) {
-      return;
-    }
+    const ok = await showConfirm({
+      title: 'Khởi động lại máy chấm công',
+      message: `Xác nhận khởi động lại máy chấm công tại ${lanIp}:${lanPort}?\n\nThiết bị sẽ khởi động lại và tạm ngắt kết nối trong khoảng 20-30 giây.`,
+      type: 'warning',
+      badge: 'KHỞI ĐỘNG THIẾT BỊ',
+      confirmText: 'Khởi động lại ngay'
+    });
+    if (!ok) return;
     setDeviceActionLoading('reboot');
     setDeviceActionMsg(null);
     try {
@@ -455,20 +485,28 @@ export function AttendanceTab() {
       const res = await eAPI.reboot(lanIp.trim(), lanPort, 5000);
       if (res.ok) {
         setDeviceActionMsg({ ok: true, message: res.message || 'Đã gửi lệnh khởi động lại máy chấm công!' });
+        showToast.success('Khởi động máy chấm công', res.message || 'Đã gửi lệnh khởi động lại thành công.');
       } else {
         setDeviceActionMsg({ ok: false, message: res.error || 'Lỗi khi gửi lệnh khởi động lại.' });
+        showToast.error('Khởi động thất bại', res.error || 'Không thể gửi lệnh');
       }
     } catch (e: any) {
       setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi khởi động lại máy.' });
+      showToast.error('Lỗi khởi động', e.message);
     } finally {
       setDeviceActionLoading(null);
     }
   };
 
   const handleClearAdmin = async () => {
-    if (!window.confirm('CẢNH BÁO QUAN TRỌNG: Bạn có chắc muốn XÓA QUYỀN ADMIN trên máy chấm công?\n\nChức năng này giúp cứu hộ khi quên mật khẩu hoặc quản trị viên cũ nghỉ việc. Sau khi xóa, bạn có thể nhấn trực tiếp phím M/OK để vào Menu cài đặt máy mà không cần xác thực.')) {
-      return;
-    }
+    const ok = await showConfirm({
+      title: 'Xóa quyền Quản Trị Viên (Admin)',
+      message: 'CẢNH BÁO QUAN TRỌNG: Bạn có chắc muốn XÓA QUYỀN ADMIN trên máy chấm công?\n\nChức năng này giúp cứu hộ khi quên mật khẩu hoặc quản trị viên cũ nghỉ việc. Sau khi xóa, bạn có thể nhấn trực tiếp phím M/OK để vào Menu cài đặt máy mà không cần xác thực.',
+      type: 'danger',
+      badge: 'CỨU HỘ MẬT KHẨU MÁY',
+      confirmText: 'Xác nhận xóa Admin'
+    });
+    if (!ok) return;
     setDeviceActionLoading('clearAdmin');
     setDeviceActionMsg(null);
     try {
@@ -477,12 +515,15 @@ export function AttendanceTab() {
       const res = await eAPI.clearAdmin(lanIp.trim(), lanPort, 5000);
       if (res.ok) {
         setDeviceActionMsg({ ok: true, message: res.message || 'Đã xóa quyền quản trị viên trên máy chấm công thành công!' });
+        showToast.success('Xóa quyền Admin thành công', 'Máy chấm công hiện có thể truy cập Menu tự do không cần mật khẩu.');
         fetchDeviceUsers();
       } else {
         setDeviceActionMsg({ ok: false, message: res.error || 'Lỗi khi xóa quyền admin máy.' });
+        showToast.error('Xóa Admin thất bại', res.error || 'Lỗi kết nối máy chấm công');
       }
     } catch (e: any) {
       setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi xóa quyền admin máy.' });
+      showToast.error('Lỗi thực thi', e.message);
     } finally {
       setDeviceActionLoading(null);
     }
@@ -497,20 +538,28 @@ export function AttendanceTab() {
       const res = await eAPI.unlockDoor(lanIp.trim(), lanPort, unlockDuration, 5000);
       if (res.ok) {
         setDeviceActionMsg({ ok: true, message: res.message || `Đã mở chốt cửa trong ${unlockDuration} giây!` });
+        showToast.success('Đã mở cửa', `Đã kích hoạt mở chốt cửa trong ${unlockDuration} giây.`);
       } else {
         setDeviceActionMsg({ ok: false, message: res.error || 'Lỗi khi gửi lệnh mở khóa cửa.' });
+        showToast.error('Mở cửa thất bại', res.error || 'Không thể mở cửa');
       }
     } catch (e: any) {
       setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi kích hoạt mở khóa cửa.' });
+      showToast.error('Lỗi kích hoạt', e.message);
     } finally {
       setDeviceActionLoading(null);
     }
   };
 
   const handleDeleteDeviceUser = async (uid: number, name: string) => {
-    if (!window.confirm(`Bạn có chắc chắn muốn xóa nhân viên "${name || `UID ${uid}`}" khỏi máy chấm công?\n\nThao tác này sẽ xóa hồ sơ nhân viên và vân tay/thẻ khỏi máy chấm công!`)) {
-      return;
-    }
+    const ok = await showConfirm({
+      title: 'Xóa nhân viên khỏi máy chấm công',
+      message: `Bạn có chắc chắn muốn xóa nhân viên "${name || `UID ${uid}`}" khỏi máy chấm công?\n\nThao tác này sẽ xóa hồ sơ nhân viên và vân tay/thẻ khỏi máy chấm công!`,
+      type: 'danger',
+      badge: 'XÓA NHÂN VIÊN MÁY',
+      confirmText: 'Xác nhận xóa'
+    });
+    if (!ok) return;
     setDeviceActionLoading(`del_${uid}`);
     setDeviceActionMsg(null);
     try {
@@ -519,25 +568,39 @@ export function AttendanceTab() {
       const res = await eAPI.deleteUser(lanIp.trim(), lanPort, uid, 5000);
       if (res.ok) {
         setDeviceActionMsg({ ok: true, message: res.message || `Đã xóa nhân viên UID ${uid} khỏi máy!` });
+        showToast.success('Xóa nhân viên thành công', `Đã xóa nhân viên ${name || `UID ${uid}`} khỏi máy chấm công.`);
         fetchDeviceUsers();
         fetchDeviceStatus(true);
       } else {
         setDeviceActionMsg({ ok: false, message: res.error || 'Lỗi xóa nhân sự trên máy.' });
+        showToast.error('Xóa thất bại', res.error || 'Không thể xóa');
       }
     } catch (e: any) {
       setDeviceActionMsg({ ok: false, message: e.message || 'Lỗi xóa nhân sự trên máy.' });
+      showToast.error('Lỗi xóa nhân sự', e.message);
     } finally {
       setDeviceActionLoading(null);
     }
   };
 
   const handleClearDeviceLogs = async () => {
-    if (!window.confirm('CẢNH BÁO QUAN TRỌNG: Thao tác này sẽ XÓA SẠCH toàn bộ dữ liệu lịch sử quẹt thẻ đang lưu trên máy chấm công để giải phóng bộ nhớ.\n\nHãy đảm bảo bạn đã bấm nút "KÉO DỮ LIỆU CHẤM CÔNG" về phần mềm DMH_Tools trước khi thực hiện xóa!\n\nBạn có muốn tiếp tục?')) {
-      return;
-    }
-    if (!window.confirm('XÁC NHẬN LẦN 2: Bạn thực sự muốn XÓA VĨNH VIỄN toàn bộ nhật ký quẹt thẻ trên máy chấm công?')) {
-      return;
-    }
+    const ok1 = await showConfirm({
+      title: 'Xóa sạch lịch sử quẹt thẻ',
+      message: 'CẢNH BÁO QUAN TRỌNG: Thao tác này sẽ XÓA SẠCH toàn bộ dữ liệu lịch sử quẹt thẻ đang lưu trên máy chấm công để giải phóng bộ nhớ.\n\nHãy đảm bảo bạn đã bấm nút "KÉO DỮ LIỆU CHẤM CÔNG" về phần mềm DMH_Tools trước khi thực hiện xóa!',
+      type: 'danger',
+      badge: 'XÓA DỮ LIỆU LỊCH SỬ',
+      confirmText: 'Tiếp tục'
+    });
+    if (!ok1) return;
+
+    const ok2 = await showConfirm({
+      title: 'Xác nhận lần 2',
+      message: 'Bạn thực sự muốn XÓA VĨNH VIỄN toàn bộ nhật ký quẹt thẻ trên máy chấm công?',
+      type: 'danger',
+      badge: 'XÁC NHẬN BƯỚC CUỐI',
+      confirmText: 'Xóa sạch nhật ký ngay'
+    });
+    if (!ok2) return;
     setDeviceActionLoading('clearLogs');
     setDeviceActionMsg(null);
     try {
@@ -601,15 +664,18 @@ export function AttendanceTab() {
           const result = parseBiometricTextOrDat(text);
           if (!result.punchLogs.length) {
             setBioError('Không tìm thấy dữ liệu quẹt thẻ hợp lệ trong file!');
+            showToast.warning('File trống', 'Không tìm thấy dữ liệu quẹt thẻ hợp lệ trong file.');
           } else {
             setRawPunchLogs(result.punchLogs);
             // Tự động cập nhật tháng/năm theo lần quẹt gần nhất
             const lastLog = result.punchLogs[result.punchLogs.length - 1];
             setSelectedMonth(lastLog.timestamp.getMonth() + 1);
             setSelectedYear(lastLog.timestamp.getFullYear());
+            showToast.success('Tải dữ liệu thành công', `Đã tải ${result.punchLogs.length} lượt quẹt thẻ từ tệp: ${file.name}`);
           }
         } catch {
           setBioError('Lỗi phân tích file văn bản/DAT từ máy chấm công.');
+          showToast.error('Lỗi đọc file', 'Không thể phân tích dữ liệu tệp máy chấm công.');
         }
         setBioLoading(false);
       };
@@ -622,14 +688,17 @@ export function AttendanceTab() {
           const result = parseBiometricExcelOrCsv(buf);
           if (!result.punchLogs.length) {
             setBioError('Không tìm thấy dữ liệu quẹt thẻ hợp lệ trong file Excel/CSV!');
+            showToast.warning('File trống', 'Không tìm thấy dữ liệu quẹt thẻ hợp lệ trong file Excel/CSV.');
           } else {
             setRawPunchLogs(result.punchLogs);
             const firstLog = result.punchLogs[0];
             setSelectedMonth(firstLog.timestamp.getMonth() + 1);
             setSelectedYear(firstLog.timestamp.getFullYear());
+            showToast.success('Tải dữ liệu thành công', `Đã nhận diện ${result.punchLogs.length} lượt quẹt thẻ (Tháng ${firstLog.timestamp.getMonth() + 1}/${firstLog.timestamp.getFullYear()})`);
           }
         } catch {
           setBioError('Không đọc được file. Vui lòng kiểm tra định dạng (.xlsx, .xls, .csv, .txt, .dat).');
+          showToast.error('Lỗi đọc file', 'Vui lòng kiểm tra định dạng tệp Excel/CSV.');
         }
         setBioLoading(false);
       };
@@ -674,17 +743,32 @@ export function AttendanceTab() {
     });
     setShowShiftModal(false);
     setEditingShift(null);
+    showToast.success('Lưu ca làm việc', `Đã lưu cấu hình ca làm việc: ${editingShift.name} (${editingShift.code})`);
   };
 
-  const handleDeleteShift = (id: string) => {
-    if (confirm('Bạn có chắc muốn xóa ca làm việc này?')) {
+  const handleDeleteShift = async (id: string) => {
+    const ok = await showConfirm({
+      title: 'Xóa ca làm việc',
+      message: 'Bạn có chắc chắn muốn xóa ca làm việc này khỏi danh sách?',
+      type: 'warning',
+      confirmText: 'Xác nhận xóa'
+    });
+    if (ok) {
       setShifts(prev => prev.filter(s => s.id !== id));
+      showToast.info('Đã xóa ca', 'Đã xóa ca làm việc khỏi hệ thống.');
     }
   };
 
-  const handleResetDefaultShifts = () => {
-    if (confirm('Khôi phục danh mục ca chuẩn mặc định?')) {
+  const handleResetDefaultShifts = async () => {
+    const ok = await showConfirm({
+      title: 'Khôi phục ca mặc định',
+      message: 'Bạn có muốn khôi phục danh mục ca chuẩn mặc định của bệnh viện?',
+      type: 'info',
+      confirmText: 'Khôi phục'
+    });
+    if (ok) {
       setShifts(DEFAULT_SHIFTS);
+      showToast.success('Khôi phục thành công', 'Đã đưa danh mục ca làm việc về thiết lập chuẩn.');
     }
   };
 
@@ -897,7 +981,10 @@ export function AttendanceTab() {
         {activeSubTab === 'biometric' && monthlySummaries.length > 0 && (
           <div style={{ display: 'flex', gap: 8 }}>
             <button
-              onClick={() => exportMonthlyTimesheetExcel(monthlySummaries, selectedMonth, selectedYear)}
+              onClick={() => {
+                exportMonthlyTimesheetExcel(monthlySummaries, selectedMonth, selectedYear);
+                showToast.success('Xuất bảng công thành công', `Đã xuất bảng tổng hợp công tháng ${selectedMonth}/${selectedYear} ra Excel.`);
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -915,7 +1002,10 @@ export function AttendanceTab() {
               <Download size={14} /> Xuất Bảng Công Tháng
             </button>
             <button
-              onClick={() => exportDetailedPunchLogsExcel(monthlySummaries, selectedMonth, selectedYear)}
+              onClick={() => {
+                exportDetailedPunchLogsExcel(monthlySummaries, selectedMonth, selectedYear);
+                showToast.success('Xuất chi tiết quẹt thẻ thành công', `Đã xuất dữ liệu chi tiết quẹt thẻ tháng ${selectedMonth}/${selectedYear} ra Excel.`);
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',

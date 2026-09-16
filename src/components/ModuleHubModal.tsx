@@ -10,6 +10,7 @@ import {
   type ModuleInfo 
 } from '../utils/moduleManifest';
 import type { LicenseResult } from '../utils/licenseManager';
+import { showConfirm, showAlert, showToast } from '../utils/notificationSystem';
 
 interface ModuleStatus {
   id: string;
@@ -110,32 +111,47 @@ export const ModuleHubModal: React.FC<ModuleHubModalProps> = ({
 
       if (res?.ok) {
         setSuccessMessage(`Đã cài đặt thành công ${mod.name}!`);
+        showToast.success(`Đã tải và cài đặt thành công module "${mod.name}"!`);
         await refreshStatuses();
       } else {
-        setErrorMessage(`Tải thất bại: ${res?.error || 'Không thể tải gói từ GitHub'}`);
+        const errMsg = `Tải thất bại: ${res?.error || 'Không thể tải gói từ GitHub'}`;
+        setErrorMessage(errMsg);
+        showToast.error(errMsg);
       }
     } catch (err: any) {
-      setErrorMessage(`Lỗi mạng khi tải module: ${err.message || err}`);
+      const errMsg = `Lỗi mạng khi tải module: ${err.message || err}`;
+      setErrorMessage(errMsg);
+      showToast.error(errMsg);
     } finally {
       setDownloadingModule(null);
     }
   };
 
   const handleUninstall = async (mod: ModuleInfo) => {
-    if (!confirm(`Bạn có chắc chắn muốn gỡ cài đặt "${mod.name}" để giải phóng dung lượng ổ cứng không?`)) {
-      return;
-    }
+    const confirmed = await showConfirm({
+      title: 'Xác nhận gỡ module',
+      message: `Bạn có chắc chắn muốn gỡ cài đặt "${mod.name}" để giải phóng dung lượng ổ cứng không?`,
+      type: 'warning',
+      confirmText: 'Gỡ cài đặt',
+      cancelText: 'Hủy bỏ'
+    });
+    if (!confirmed) return;
 
     try {
       const res = await eModules.uninstall(mod.id);
       if (res?.ok) {
         setSuccessMessage(`Đã gỡ cài đặt ${mod.name}!`);
+        showToast.success(`Đã gỡ cài đặt thành công module "${mod.name}"!`);
         await refreshStatuses();
       } else {
-        setErrorMessage(res?.error || 'Không thể xóa thư mục module');
+        const errMsg = res?.error || 'Không thể xóa thư mục module';
+        setErrorMessage(errMsg);
+        showToast.error(`Gỡ module thất bại: ${errMsg}`);
       }
     } catch (err: any) {
-      setErrorMessage(`Lỗi gỡ cài đặt: ${err.message || err}`);
+      const errMsg = `Lỗi gỡ cài đặt: ${err.message || err}`;
+      setErrorMessage(errMsg);
+      showToast.error(errMsg);
     }
   };
 
@@ -144,9 +160,20 @@ export const ModuleHubModal: React.FC<ModuleHubModalProps> = ({
       const baseDir = await eModules?.getBaseDir();
       if (baseDir && eAPI?.openFolder) {
         await eAPI.openFolder(baseDir);
+        showToast.info('Đã mở thư mục lưu trữ module');
+      } else if (baseDir) {
+        await showAlert({
+          title: 'Thư mục Modules',
+          message: `Đường dẫn thư mục module:\n${baseDir}`,
+          type: 'info'
+        });
       }
     } catch (e: any) {
-      alert(`Đường dẫn thư mục module: ${e.message || e}`);
+      await showAlert({
+        title: 'Thông báo',
+        message: `Đường dẫn thư mục module: ${e.message || e}`,
+        type: 'warning'
+      });
     }
   };
 

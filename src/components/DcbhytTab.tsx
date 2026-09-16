@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ShieldCheck, UploadCloud, FileSpreadsheet, Activity, Server, AlertCircle } from 'lucide-react';
 import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
+import { showToast } from '../utils/notificationSystem';
 
 export function DcbhytTab() {
   const [xmlFile, setXmlFile] = useState<File | null>(null);
@@ -56,7 +57,7 @@ export function DcbhytTab() {
       if (file.name.toLowerCase().endsWith('.xml')) {
         setXmlFile(file);
       } else {
-        alert("Vui lòng chọn file .xml");
+        showToast.warning("Vui lòng chọn tệp định dạng .xml!");
       }
     }
   };
@@ -91,11 +92,15 @@ export function DcbhytTab() {
           sheet_count: data.sheet_count
         });
         log(`Đã phân tích thành công ${pts.length} hồ sơ.`);
+        showToast.success(`Đã phân tích thành công ${pts.length.toLocaleString('vi-VN')} hồ sơ XML 3176!`);
       } else {
-        log(`Lỗi phân tích: ${data.error}`);
+        const err = data.error || 'Không thể đọc nội dung XML';
+        log(`Lỗi phân tích: ${err}`);
+        showToast.error(`Lỗi phân tích XML: ${err}`);
       }
-    } catch (e) {
+    } catch (e: any) {
       log(`Lỗi kết nối API: ${e}`);
+      showToast.error(`Lỗi kết nối API XML 3176: ${e?.message || e}`);
     } finally {
       setIsProcessing(false);
       stopGlobalLoading('dcbhyt-parse');
@@ -130,11 +135,15 @@ export function DcbhytTab() {
         link.click();
         document.body.removeChild(link);
         log(`Đã xuất Excel: ${data.filename}`);
+        showToast.success(`Đã xuất thành công file Excel 01BH (${data.filename || 'export.xlsx'})!`);
       } else {
-        log(`Lỗi xuất Excel: ${data.error}`);
+        const err = data.error || 'Lỗi tạo file Excel';
+        log(`Lỗi xuất Excel: ${err}`);
+        showToast.error(`Lỗi xuất Excel: ${err}`);
       }
-    } catch (e) {
+    } catch (e: any) {
       log(`Lỗi kết nối API: ${e}`);
+      showToast.error(`Lỗi kết nối API khi xuất Excel: ${e?.message || e}`);
     } finally {
       setIsProcessing(false);
       stopGlobalLoading('dcbhyt-export');

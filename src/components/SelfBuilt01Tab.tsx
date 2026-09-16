@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FileText, CheckCircle, AlertTriangle, Code, Play, Download } from 'lucide-react';
+import { showToast } from '../utils/notificationSystem';
 
 export function SelfBuilt01Tab() {
   const [xmlStructure, setXmlStructure] = useState<string>('');
@@ -96,8 +97,10 @@ export function SelfBuilt01Tab() {
           });
         }
         setXmlStructure(structure);
+        showToast.success(`Đã phân tích cấu trúc XML của "${file.name}"!`);
       } catch (err) {
         setXmlStructure('Lỗi đọc file XML: ' + String(err));
+        showToast.error('Lỗi khi đọc file XML mẫu: ' + String(err));
       }
     };
     reader.readAsText(file, 'utf-8');
@@ -138,6 +141,7 @@ export function SelfBuilt01Tab() {
   const generateXML = () => {
     if (!validateData()) {
       setGeneratedXml('');
+      showToast.warning('Vui lòng kiểm tra lại các trường thông tin chưa hợp lệ!');
       return;
     }
 
@@ -180,8 +184,10 @@ export function SelfBuilt01Tab() {
       xmlString = xmlString.replace(/></g, '>\n<');
 
       setGeneratedXml('<?xml version="1.0" encoding="UTF-8"?>\n' + xmlString);
+      showToast.success('Đã khởi tạo dữ liệu hồ sơ XML 01/BH thành công!');
     } catch (err) {
       setValidationErrors(['Lỗi tạo XML: ' + String(err)]);
+      showToast.error('Lỗi tạo XML: ' + String(err));
     }
   };
 
@@ -191,9 +197,11 @@ export function SelfBuilt01Tab() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `01_BH_${formData.taxCode || 'export'}.xml`;
+    const fileName = `01_BH_${formData.taxCode || 'export'}.xml`;
+    a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
+    showToast.success(`Đã tải tệp ${fileName} về máy thành công!`);
   };
 
   return (

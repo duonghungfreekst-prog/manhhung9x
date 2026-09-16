@@ -4,6 +4,8 @@ import {
   Database, RefreshCw, Wifi, WifiOff, Bell, Users, Clock, CheckCircle, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { normalizeVietnameseForSpeech } from '../utils/vietnameseTtsNormalizer';
+import { registerTabRefreshHandler } from '../utils/autoRefreshManager';
+import { showToast } from '../utils/notificationSystem';
 
 interface HisConfig {
   ip: string; port: number; displayCode: string;
@@ -196,6 +198,7 @@ export function HisCallTab() {
     }
     localStorage.setItem(LS_PWD_KEY, cpNew);
     setCpMsg({ text: '✅ Đổi mật khẩu thành công!', ok: true });
+    showToast.success('Đổi mật khẩu cài đặt thành công!');
     setCpOld(''); setCpNew(''); setCpNew2('');
     setTimeout(() => { setCpMsg(null); setChangePwdMode(false); }, 2000);
   };
@@ -309,6 +312,13 @@ export function HisCallTab() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [config.autoRefreshSec, fetchPatientsFromDB]);
 
+  // Đăng ký làm mới thông minh với AutoRefreshManager toàn app
+  useEffect(() => {
+    return registerTabRefreshHandler('hiscall', async ({ silent }) => {
+      await fetchPatientsFromDB(silent);
+    });
+  }, [fetchPatientsFromDB]);
+
   // ── Sync danh sách BN lên float window mỗi khi patients thay đổi ────────────
   useEffect(() => {
     if (!floatOpen) return;
@@ -332,6 +342,7 @@ export function HisCallTab() {
   const handleSaveConfig = () => {
     localStorage.setItem(LS_KEY, JSON.stringify(config));
     addLog(`Đã lưu cấu hình: ${config.ip}:${config.port} | Phòng: ${config.roomCode}`);
+    showToast.success(`Đã lưu cấu hình phòng khám (Phòng: ${config.roomCode})!`);
     syncQueueDisplay(calledPt, patients);
     fetchPatientsFromDB();
   };
@@ -340,10 +351,22 @@ export function HisCallTab() {
   const testTcp = async () => {
     addLog(`Kiểm tra kết nối TCP ${config.ip}:${config.port}...`);
     const api = eAPI();
-    if (!api?.sendTcpCommand) { addLog('Kiểm tra giả lập: TCP kết nối thành công', 'success'); setTcpStatus('ok'); return; }
+    if (!api?.sendTcpCommand) {
+      addLog('Kiểm tra giả lập: TCP kết nối thành công', 'success');
+      setTcpStatus('ok');
+      showToast.info('Kiểm tra giả lập: TCP kết nối thành công');
+      return;
+    }
     const r = await api.sendTcpCommand(config.ip, config.port, 'PING');
-    if (r.ok) { addLog('✓ Kết nối TCP thành công!'); setTcpStatus('ok'); }
-    else { addLog(`✗ Kết nối TCP thất bại: ${r.error}`, 'error'); setTcpStatus('err'); }
+    if (r.ok) {
+      addLog('✓ Kết nối TCP thành công!');
+      setTcpStatus('ok');
+      showToast.success('Kết nối TCP tới bảng LED/màn hình hiển thị thành công!');
+    } else {
+      addLog(`✗ Kết nối TCP thất bại: ${r.error}`, 'error');
+      setTcpStatus('err');
+      showToast.error(`Kết nối TCP thất bại: ${r.error}`);
+    }
   };
 
   // ── Test CSDL ────────────────────────────────────────────────────────────────

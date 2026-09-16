@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Existing ──────────────────────────────────────────────────────────────
   invoke:           (channel, ...args) => ipcRenderer.invoke(channel, ...args),
   convertPdfNative: (inputPath) => ipcRenderer.invoke('convert-pdf', inputPath),
+  htmlToPdf:        (options)   => ipcRenderer.invoke('html-to-pdf', options),
   runPowershell:    (script)    => ipcRenderer.invoke('run-powershell', script),
   getHWID:          ()          => ipcRenderer.invoke('system:get-hwid'),
   checkLicenseRevocation: (rawKey) => ipcRenderer.invoke('license:check-revocation', rawKey),
@@ -187,7 +188,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Printer Repair & LAN Share Suite ──────────────────────────────────────
   printer: {
     fixShareError:     () => ipcRenderer.invoke('printer:fix-share-error'),
-    fixError0x40:      () => ipcRenderer.invoke('printer:fix-error-0x40'),
+    fixError0x40:      (params) => ipcRenderer.invoke('printer:fix-error-0x40', params),
+    clearSmbCache:     () => ipcRenderer.invoke('printer:clear-smb-cache'),
+    openCredentialManager: () => ipcRenderer.invoke('printer:open-credential-manager'),
     getShareRpcStatus: () => ipcRenderer.invoke('printer:get-share-rpc-status'),
     restartSpooler:    () => ipcRenderer.invoke('printer:restart-spooler'),
     restartPc:         () => ipcRenderer.invoke('printer:restart-pc'),
@@ -203,12 +206,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openWindowsTool:   (tool) => ipcRenderer.invoke('printer:open-windows-tool', tool),
     diagnoseAll:       () => ipcRenderer.invoke('printer:diagnose-all'),
     fixAllIssues:      () => ipcRenderer.invoke('printer:fix-all-issues'),
+    diagnose709:       () => ipcRenderer.invoke('printer:diagnose-709'),
+    fixError709AZ:     () => ipcRenderer.invoke('printer:fix-error-709-az'),
+    fixDefaultPrinter709: (name) => ipcRenderer.invoke('printer:fix-default-printer-709', name),
+    exportFix709Script:   () => ipcRenderer.invoke('printer:export-fix-709-script'),
+    saveWindowsCredential: (params) => ipcRenderer.invoke('printer:save-windows-credential', params),
     getJobs:           (name) => ipcRenderer.invoke('printer:get-jobs', name),
     deleteJob:         (name, jobId) => ipcRenderer.invoke('printer:delete-job', name, jobId),
     clearQueue:        (name) => ipcRenderer.invoke('printer:clear-queue', name),
     uninstallPrinter:  (name, driverName) => ipcRenderer.invoke('printer:uninstall-printer', name, driverName),
     getDrivers:        () => ipcRenderer.invoke('printer:get-drivers'),
     addLocalPortPrinter: (params) => ipcRenderer.invoke('printer:add-local-port-printer', params),
+    autoInstallDriver:   (params) => ipcRenderer.invoke('printer:auto-install-driver', params),
+    selectDriverFile:    () => ipcRenderer.invoke('printer:select-driver-file'),
+    onDriverInstallProgress: (cb) => {
+      ipcRenderer.on('printer:driver-install-progress', (_e, data) => cb(data));
+    },
+    removeDriverInstallProgressListener: () => {
+      ipcRenderer.removeAllListeners('printer:driver-install-progress');
+    },
   },
 
   // ── Endoscopy Direct Bridge ───────────────────────────────────────────────
@@ -220,5 +236,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getImages:     (session_id) => ipcRenderer.invoke('endoscopy:get-images', session_id),
   toggleFav:     (image_id) => ipcRenderer.invoke('endoscopy:toggle-fav', image_id),
   saveCapture:   (session_id, b64, res) => ipcRenderer.invoke('endoscopy:save-capture', session_id, b64, res),
+
+  // ── Smart In-App Refresh (Làm Mới Thông Minh Bảo Tồn Vị Trí) ─────────────
+  onSmartRefresh: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('app:trigger-smart-refresh', handler);
+    return () => ipcRenderer.removeListener('app:trigger-smart-refresh', handler);
+  },
 });
 

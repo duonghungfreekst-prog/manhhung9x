@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { Filter, Search, Download, AlertCircle, List, Hash } from 'lucide-react';
 import { UploadCard } from './UploadCard';
 import { readAnyFile } from '../utils/excelProcessor';
+import { showToast } from '../utils/notificationSystem';
+import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 import type { FileFormat } from '../types';
 import * as XLSX from 'xlsx';
 
@@ -154,6 +156,8 @@ export function DataFilterTab() {
     if (!f) return;
 
     setIsProcessing(true);
+    const taskId = `filter-load-${f.name}`;
+    startGlobalLoading(taskId, `Đang phân tích & đọc dữ liệu tệp "${f.name}"...`);
     try {
       const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
       let parsedData: Record<string, unknown>[];
@@ -180,6 +184,7 @@ export function DataFilterTab() {
           setPrimaryField(cols[0]);
           setDisplayFields(cols.slice(1, 6));
         }
+        showToast.success('Tải tệp thành công', `Đã tải ${parsedData.length} dòng dữ liệu từ ${f.name}`);
       }
     } catch (err) {
       console.error(err);
@@ -188,6 +193,7 @@ export function DataFilterTab() {
       setFile(null);
     } finally {
       setIsProcessing(false);
+      stopGlobalLoading(taskId);
     }
   };
 
@@ -197,6 +203,8 @@ export function DataFilterTab() {
     setDetectedHeaderRow(rowIdx);
     setShowHeaderPicker(false);
     setIsProcessing(true);
+    const taskId = 'filter-change-header';
+    startGlobalLoading(taskId, `Đang nạp lại dữ liệu theo hàng tiêu đề ${rowIdx + 1}...`);
     try {
       const result = await smartReadExcel(currentFileRef.current, rowIdx);
       setData(result.data);
@@ -208,6 +216,7 @@ export function DataFilterTab() {
       }
     } finally {
       setIsProcessing(false);
+      stopGlobalLoading(taskId);
     }
   };
 
@@ -382,12 +391,17 @@ export function DataFilterTab() {
       });
     }
 
-    if (exportData.length === 0) return;
+    if (exportData.length === 0) {
+      showToast.warning('Không có dữ liệu', 'Không có bản ghi nào thỏa mãn điều kiện lọc để xuất.');
+      return;
+    }
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'KetQua');
     const date = new Date().toISOString().slice(0, 10);
-    XLSX.writeFile(wb, `KetQuaLoc_${date}.xlsx`);
+    const fileName = `KetQuaLoc_${date}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    showToast.success('Xuất Excel thành công', `Đã xuất ${exportData.length} dòng kết quả lọc ra tệp: ${fileName}`);
   };
 
   const hasResults = filterMode === 'duplicate'

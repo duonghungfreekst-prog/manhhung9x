@@ -8,6 +8,7 @@ import {
   Zap, Activity, Eye, Crosshair, Sparkles
 } from 'lucide-react';
 import * as API from '../utils/endoscopyApi';
+import { showToast } from '../utils/notificationSystem';
 
 type Tab = 'live' | 'patients' | 'images';
 type SourceType = 'camera' | 'desktop';
@@ -294,10 +295,12 @@ export function EndoscopyTab() {
       if (r?.ok) {
         setCaptureLog(prev => [`[${new Date().toLocaleTimeString('vi-VN')}] 📸 [${label}${tagFilter}] Đã lưu ảnh ${res} vào hồ sơ phiên khám`, ...prev].slice(0,60));
         setImages(prev => [...prev, r.image]);
+        showToast.success(`Đã chụp & lưu ảnh ${res} vào hồ sơ phiên khám!`);
       }
     } else {
       setLightbox(b64.split(',')[1] || b64);
       setCaptureLog(prev => [`[${new Date().toLocaleTimeString('vi-VN')}] 📸 [${label}${tagFilter}] Đã chụp ảnh nhanh ${res} (Chưa gán BN)`, ...prev].slice(0,60));
+      showToast.info(`Đã chụp ảnh nhanh (${res})`);
     }
   }, [streaming, selSess, opticalFilter, showCaliper, caliperDiameter]);
 
@@ -435,8 +438,10 @@ export function EndoscopyTab() {
 
   const addPt = async () => {
     if (!newPt.full_name) return;
+    const name = newPt.full_name;
     await API.addPatient(newPt);
     setNewPt({ full_name:'', birth_year:'', gender:'Nam', phone:'' });
+    showToast.success(`Đã thêm bệnh nhân "${name}" vào danh sách!`);
     loadPts();
   };
 
@@ -452,6 +457,7 @@ export function EndoscopyTab() {
     setSelSess(r.session);
     const imgs = await API.getImages(r.session.id);
     setImages(imgs.images);
+    showToast.success(`Đã tạo phiên khám mới cho bệnh nhân "${selPt.full_name}"!`);
     choosePt(selPt);
   };
 
@@ -481,12 +487,16 @@ export function EndoscopyTab() {
       const r = await eAPI()?.installCameraDriver?.();
       if (r?.ok) {
         setDriverLog(prev => [...prev, '[HOÀN TẤT] Cài đặt và phục hồi driver thành công! Đang quét lại thiết bị...']);
+        showToast.success('Cài đặt và phục hồi driver camera / card capture thành công!');
         await scanCameras();
       } else {
-        setDriverLog(prev => [...prev, `[LƯU Ý] ${r?.message || r?.error || 'Đã kiểm tra hệ thống'}`]);
+        const msg = r?.message || r?.error || 'Đã kiểm tra hệ thống';
+        setDriverLog(prev => [...prev, `[LƯU Ý] ${msg}`]);
+        showToast.info(msg);
       }
     } catch (err: any) {
       setDriverLog(prev => [...prev, `[LỖI] ${err.message}`]);
+      showToast.error(`Lỗi phục hồi driver: ${err.message}`);
     } finally {
       setInstallingDriver(false);
       eAPI()?.removeDriverLogListener?.();

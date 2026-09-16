@@ -5,8 +5,9 @@ import {
   X
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-// JSZip bundled inside xlsx package – used for DOCX manipulation
 import JSZip from 'jszip';
+import { showToast } from '../utils/notificationSystem';
+import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 
 type RepairStatus = 'idle' | 'processing' | 'done' | 'error';
 
@@ -869,11 +870,17 @@ export function FileRepairTab() {
   };
 
   const repairOne = async (idx: number) => {
+    const file = items[idx]?.file;
+    if (!file) return;
+    const taskId = `repair-${file.name}`;
+    startGlobalLoading(taskId, `Đang sửa lỗi tệp "${file.name}"...`);
     setItems(prev => prev.map((it, i) => i === idx ? { ...it, status: 'processing' } : it));
     try {
-      const result = await repairFile(items[idx].file);
+      const result = await repairFile(file);
       setItems(prev => prev.map((it, i) => i === idx ? { ...it, status: 'done', result } : it));
+      showToast.success('Sửa tệp thành công', `${result.fileName}: Đã khắc phục ${result.fixed.length} vấn đề cấu trúc.`);
     } catch (e) {
+      const errMsg = (e as Error).message || 'Lỗi xử lý file';
       setItems(prev => prev.map((it, i) => i === idx ? {
         ...it,
         status: 'error',
@@ -881,37 +888,57 @@ export function FileRepairTab() {
           fileName: it.file.name,
           originalSize: it.file.size,
           repairedSize: 0,
-          issues: [(e as Error).message],
+          issues: [errMsg],
           fixed: [],
         }
       } : it));
+      showToast.error('Sửa tệp thất bại', `${file.name}: ${errMsg}`);
+    } finally {
+      stopGlobalLoading(taskId);
     }
   };
 
   const repairAll = async () => {
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].status === 'idle') {
-        await repairOne(i);
+    startGlobalLoading('repair-all', 'Đang tự động sửa toàn bộ các tệp tin trong danh sách...');
+    try {
+      let count = 0;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].status === 'idle') {
+          await repairOne(i);
+          count++;
+        }
       }
+      if (count > 0) {
+        showToast.success('Hoàn tất sửa toàn bộ', `Đã xử lý xong toàn bộ ${count} tệp tin.`);
+      }
+    } finally {
+      stopGlobalLoading('repair-all');
     }
   };
 
   const alignOne = async (idx: number) => {
     const item = items[idx];
+    if (!item) return;
     const ext = item.file.name.split('.').pop()?.toLowerCase() || '';
     if (!['xlsx', 'xls'].includes(ext)) return;
+    const taskId = `align-${item.file.name}`;
+    startGlobalLoading(taskId, `Đang tự động căn chỉnh văn bản & chuẩn in ấn cho "${item.file.name}"...`);
     setAligningIdx(idx);
     try {
       const result = await alignExcel(item.file);
       result.printCheck = await checkPrintability(item.file);
       setItems(prev => prev.map((it, i) => i === idx ? { ...it, status: 'done', result } : it));
+      showToast.success('Căn chỉnh hoàn tất', `Đã tự động tối ưu cột, font chữ và chuẩn in ấn cho ${item.file.name}`);
     } catch (e) {
+      const errMsg = (e as Error).message || 'Không thể căn chỉnh';
       setItems(prev => prev.map((it, i) => i === idx ? {
         ...it, status: 'error',
-        result: { fileName: it.file.name, originalSize: it.file.size, repairedSize: 0, issues: [(e as Error).message], fixed: [] }
+        result: { fileName: it.file.name, originalSize: it.file.size, repairedSize: 0, issues: [errMsg], fixed: [] }
       } : it));
+      showToast.error('Căn chỉnh thất bại', errMsg);
     } finally {
       setAligningIdx(null);
+      stopGlobalLoading(taskId);
     }
   };
 
@@ -925,26 +952,35 @@ export function FileRepairTab() {
     a.download = `${baseName}_repaired.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
+    showToast.success('Tải tệp thành công', `Đã lưu: ${baseName}_repaired.${ext}`);
   };
 
   const convertOne = async (idx: number, targetFmt: string) => {
+    const item = items[idx];
+    if (!item) return;
     setConvertMenuIdx(null);
     setConvertingIdx(idx);
+    const taskId = `convert-${item.file.name}`;
+    startGlobalLoading(taskId, `Đang chuyển đổi "${item.file.name}" sang định dạng ${targetFmt.toUpperCase()}...`);
     // Xóa kết quả convert cũ trước khi chạy
     setItems(prev => prev.map((it, i) => i === idx ? { ...it, convertResult: undefined, convertError: undefined } : it));
     try {
-      const { blob, fileName } = await convertFile(items[idx].file, targetFmt);
+      const { blob, fileName } = await convertFile(item.file, targetFmt);
       // Lỗi #11 fix: lưu kết quả convert vào state thay vì tự động tải — cho user chủ động tải
       setItems(prev => prev.map((it, i) =>
         i === idx ? { ...it, convertResult: { targetFmt, blob, fileName, status: 'done' } } : it
       ));
+      showToast.success('Chuyển đổi hoàn tất', `Đã chuyển đổi sang ${targetFmt.toUpperCase()}: ${fileName}`);
     } catch (e) {
+      const errMsg = (e as Error).message || 'Lỗi chuyển đổi';
       // Lỗi #11 fix: hiển thị lỗi inline thay vì alert()
       setItems(prev => prev.map((it, i) =>
-        i === idx ? { ...it, convertResult: { targetFmt, blob: new Blob(), fileName: '', status: 'error', errorMsg: (e as Error).message } } : it
+        i === idx ? { ...it, convertResult: { targetFmt, blob: new Blob(), fileName: '', status: 'error', errorMsg: errMsg } } : it
       ));
+      showToast.error('Lỗi chuyển đổi', errMsg);
     } finally {
       setConvertingIdx(null);
+      stopGlobalLoading(taskId);
     }
   };
 
@@ -956,6 +992,7 @@ export function FileRepairTab() {
     a.download = item.convertResult.fileName;
     a.click();
     URL.revokeObjectURL(url);
+    showToast.success('Tải tệp thành công', `Đã lưu: ${item.convertResult.fileName}`);
   };
 
   const clearConvertResult = (idx: number) => {

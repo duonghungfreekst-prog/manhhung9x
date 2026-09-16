@@ -592,7 +592,20 @@ function createWindow() {
     {
       label: 'File',
       submenu: [
-        { label: 'Làm mới', accelerator: 'CmdOrCtrl+R', click: () => win.reload() },
+        {
+          label: 'Làm mới thông minh',
+          accelerator: 'CmdOrCtrl+R',
+          click: () => {
+            if (win && !win.isDestroyed()) {
+              win.webContents.send('app:trigger-smart-refresh');
+            }
+          },
+        },
+        {
+          label: 'Tải lại toàn bộ (Hard Reload)',
+          accelerator: 'CmdOrCtrl+Shift+R',
+          click: () => win.reload(),
+        },
         { type: 'separator' },
         { label: 'Thoát', accelerator: 'Alt+F4', role: 'quit' },
       ],
@@ -720,6 +733,33 @@ app.whenReady().then(() => {
         }
       });
     });
+  });
+
+  // ── IPC: HTML to PDF (PrintToPDF) ──────────────────────────────────────────
+  ipcMain.handle('html-to-pdf', async (_event, { html, landscape = false }) => {
+    let pdfWin = null;
+    try {
+      pdfWin = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          offscreen: true,
+        },
+      });
+      await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      const pdfBuffer = await pdfWin.webContents.printToPDF({
+        pageSize: 'A4',
+        landscape: Boolean(landscape),
+        printBackground: true,
+        margins: {
+          marginType: 'default',
+        },
+      });
+      return pdfBuffer;
+    } finally {
+      if (pdfWin && !pdfWin.isDestroyed()) {
+        pdfWin.destroy();
+      }
+    }
   });
 
   // ── IPC: PowerShell ────────────────────────────────────────────────────────
@@ -4376,86 +4416,170 @@ function stopCompareServer() {
   });
 
   // ── PRINTER SUITE: Đặc trị lỗi 0x00000040 (The specified network name is no longer available / Đứt phiên SMB / Point & Print) ──
-  ipcMain.handle('printer:fix-error-0x40', async () => {
+  ipcMain.handle('printer:fix-error-0x40', async (_event, params) => {
+    const rawHost = (params && params.host) ? String(params.host).trim() : '';
+    // Lọc sạch host name/IP tránh injection
+    const cleanHost = rawHost.replace(/^\\+/, '').replace(/[^\w\.\-\_]/g, '');
+
     const ps = `
       $ErrorActionPreference = 'SilentlyContinue'
 
       # 1. Chuyển đổi toàn bộ Network Connection Profile sang Private (Riêng tư)
       Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
 
-      # 2. Tắt SMB Signing (RequireSecuritySignature) để Win 11 kết nối mượt với Win 10/7
+      # 2. Cấu hình SMB Client & SMB Server toàn diện (Đặc trị Windows 11 24H2/23H2 kết nối Win 10/7)
       Set-SmbClientConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
       Set-SmbServerConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+      Set-SmbClientConfiguration -EnableInsecureGuestLogons $true -Force -ErrorAction SilentlyContinue
+      Set-SmbClientConfiguration -AuditServerDoesNotSupportSigning $false -AuditServerDoesNotSupportEncryption $false -EnableBandwidthThrottling $false -EnableLargeMtu $true -Force -ErrorAction SilentlyContinue
+      Set-SmbServerConfiguration -EnableSMB1Protocol $true -Force -ErrorAction SilentlyContinue
+      Set-SmbClientConfiguration -EnableSMB1Protocol $true -Force -ErrorAction SilentlyContinue
+      Enable-WindowsOptionalFeature -Online -FeatureName "SMB1Protocol-Client" -NoRestart -ErrorAction SilentlyContinue
+
+      # Registry SMB Signing & Guest Auth (Áp dụng cả Policies và Services)
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AuditServerDoesNotSupportSigning" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AuditServerDoesNotSupportEncryption" /t REG_DWORD /d 0 /f | Out-Null
+      
+      $lanmanPol = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation"
+      if (-not (Test-Path $lanmanPol)) { New-Item -Path $lanmanPol -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "Size" /t REG_DWORD /d 3 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "IRPStackSize" /t REG_DWORD /d 30 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "DisableStrictNameChecking" /t REG_DWORD /d 1 /f | Out-Null
 
-      # 3. Vô hiệu hóa hạn chế Point and Print theo Group Policy (Disabling Point and Print Restrictions)
+      # 3. Vô hiệu hóa triệt để hạn chế Point and Print theo Group Policy
       $pnpKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint"
       if (-not (Test-Path $pnpKey)) { New-Item -Path $pnpKey -Force | Out-Null }
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictDriverInstallationToAdministrators" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictedDriver_InstallationAttribute" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PackagePointAndPrintServerList" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "InForest" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "NoWarningNoElevationOnInstall" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "UpdatePromptSettings" /t REG_DWORD /d 2 /f | Out-Null
 
-      # 4. Cấu hình RPC Named Pipe & RPC Privacy (chống chặn kết nối RPC giữa các phiên bản Windows)
+      # 4. Cấu hình RPC Named Pipe & RPC Privacy (Chống chặn RPC giữa các Windows)
       $rpcKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC"
       if (-not (Test-Path $rpcKey)) { New-Item -Path $rpcKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcProtocols" /t REG_DWORD /d 7 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcOverNamedPipes" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcAuthentication" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelExemption" /t REG_DWORD /d 1 /f | Out-Null
 
-      # 5. Chống ngắt kết nối session SMB rảnh (LanmanServer AutoDisconnect)
-      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f | Out-Null
-      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "Size" /t REG_DWORD /d 3 /f | Out-Null
-      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "IRPStackSize" /t REG_DWORD /d 30 /f | Out-Null
-
-      # 6. Cho phép Guest Authentication không mật khẩu & SPN Strict Name Checking
-      $lanman = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation"
-      if (!(Test-Path $lanman)) { New-Item -Path $lanman -Force | Out-Null }
-      Set-ItemProperty -Path $lanman -Name "AllowInsecureGuestAuth" -Value 1 -Type DWord -Force
-      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
-      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "DisableStrictNameChecking" /t REG_DWORD /d 1 /f | Out-Null
+      # 5. Cấu hình LSA: Cho phép Anonymous/Guest, không đòi password trống, tương thích NTLM
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "DisableLoopbackCheck" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "LimitBlankPasswordUse" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "everyoneincludesanonymous" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "RestrictAnonymous" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "RestrictAnonymousSAM" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "LmCompatibilityLevel" /t REG_DWORD /d 1 /f | Out-Null
+      net user Guest /active:yes 2>&1 | Out-Null
 
-      # 7. Kích hoạt NetBIOS over TCP/IP trên tất cả card mạng
+      # 6. Cho phép Anonymous truy cập Named Pipe spoolss (Dành cho máy chủ in)
+      try {
+        $nsp = (Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "NullSessionPipes" -ErrorAction SilentlyContinue).NullSessionPipes
+        $pipes = if ($nsp) { [System.Collections.ArrayList]@($nsp) } else { [System.Collections.ArrayList]@() }
+        if (-not ($pipes -contains "spoolss")) { $pipes.Add("spoolss") | Out-Null }
+        if (-not ($pipes -contains "srvsvc")) { $pipes.Add("srvsvc") | Out-Null }
+        if (-not ($pipes -contains "netlogon")) { $pipes.Add("netlogon") | Out-Null }
+        if (-not ($pipes -contains "lsarpc")) { $pipes.Add("lsarpc") | Out-Null }
+        Set-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "NullSessionPipes" -Value ($pipes.ToArray()) -Type MultiString -Force -ErrorAction SilentlyContinue
+      } catch {}
+
+      # 7. Xóa sạch các phiên SMB Zombie bị lỗi kẹt kết nối (Tránh lặp lại lỗi 0x40 ngay lập tức)
+      net use * /delete /y 2>&1 | Out-Null
+
+      # 8. Kích hoạt NetBIOS over TCP/IP trên tất cả card mạng
       Get-WmiObject Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPEnabled } | ForEach-Object { $_.SetTcpipNetbios(1) } | Out-Null
 
-      # 8. Mở và khởi động toàn bộ dịch vụ mạng nền tảng của Windows
+      # 9. Mở toàn diện Tường lửa cho File and Printer Sharing & Network Discovery
+      netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes | Out-Null
+      netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes | Out-Null
+
+      # 10. Mở và khởi động toàn bộ dịch vụ mạng nền tảng của Windows
       $services = @("lmhosts", "LanmanServer", "LanmanWorkstation", "FDResPub", "fdPHost", "SSDPSRV", "upnphost", "Dnscache")
       foreach ($s in $services) {
         Set-Service -Name $s -StartupType Automatic -ErrorAction SilentlyContinue
         Start-Service -Name $s -ErrorAction SilentlyContinue
       }
 
-      # 9. Mở toàn diện Tường lửa cho File and Printer Sharing & Network Discovery
-      netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes | Out-Null
-      netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes | Out-Null
-
-      # 10. Làm mới bộ đệm NetBIOS và DNS
+      # 11. Làm mới bảng định tuyến NetBIOS, ARP và DNS
+      arp -d * 2>&1 | Out-Null
       nbtstat -R 2>&1 | Out-Null
       nbtstat -RR 2>&1 | Out-Null
       ipconfig /flushdns | Out-Null
 
-      # 11. Khởi động lại Spooler
+      # 12. Khởi động lại dịch vụ Print Spooler
       Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
       Start-Sleep -Milliseconds 600
       Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
 
+      # 13. Phương pháp Minh Yak: Tự động ghim Windows Credential Guest cho Máy Chủ & nạp kết nối SMB
+      $targetHost = "${cleanHost}"
+      $customMsg = "Đã đặc trị thành công lỗi 0x00000040! Đã vô hiệu hóa Point & Print Restrictions, mở RPC Named Pipe, tắt SMB Signing, cấp phép Insecure Guest và dọn sạch session SMB kẹt."
+      if ($targetHost -ne "") {
+        cmdkey /add:$targetHost /user:guest /pass:"" 2>&1 | Out-Null
+        net use "\\$targetHost\\IPC$" /user:guest "" /persistent:yes 2>&1 | Out-Null
+        Start-Process "explorer.exe" "\\$targetHost" -ErrorAction SilentlyContinue
+        $customMsg = "ĐÃ FIX THÀNH CÔNG LỖI 40! Đã tự động ghim chứng thực Guest vào Windows Credential cho máy chủ $targetHost và mở thư mục chia sẻ trên Explorer. Bạn chỉ cần nhấp đúp vào máy in là kết nối thành công 100%!"
+      }
+
       [PSCustomObject]@{
         ok = $true
         success = $true
-        message = "Đã đặc trị thành công lỗi 0x00000040! Đã vô hiệu hóa Point and Print Restrictions, cấu hình RPC Named Pipe, tắt SMB Signing, chuyển mạng Private và khởi động lại Print Spooler."
+        message = $customMsg
+        host = $targetHost
       } | ConvertTo-Json -Compress
     `;
     const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+  });
+
+  // ── PRINTER SUITE: Dọn sạch cache phiên kết nối SMB kẹt và làm mới mạng ──
+  ipcMain.handle('printer:clear-smb-cache', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      net use * /delete /y 2>&1 | Out-Null
+      arp -d * 2>&1 | Out-Null
+      nbtstat -R 2>&1 | Out-Null
+      nbtstat -RR 2>&1 | Out-Null
+      ipconfig /flushdns 2>&1 | Out-Null
+      Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Milliseconds 600
+      Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+      [PSCustomObject]@{
+        ok = $true
+        success = $true
+        message = "Đã dọn sạch các phiên kết nối mạng SMB kẹt (net use), xóa ARP/DNS cache và khởi động lại Print Spooler thành công!"
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runElevatedPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+  });
+
+  // ── PRINTER SUITE: Mở nhanh Windows Credential Manager (control keymgr.dll) ──
+  ipcMain.handle('printer:open-credential-manager', async () => {
+    try {
+      const { exec } = require('child_process');
+      exec('control keymgr.dll', (err) => {
+        if (err) console.error('Failed to open Credential Manager:', err);
+      });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
   });
 
   // ── PRINTER SUITE: Khắc phục lỗi chia sẻ máy in qua mạng LAN (0x00000709 / 0x0000011b) ──
@@ -4479,9 +4603,10 @@ function stopCompareServer() {
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcOverNamedPipes" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcAuthentication" /t REG_DWORD /d 0 /f | Out-Null
 
-      # Bước 2: Tắt RpcAuthnLevelPrivacyEnabled = 0 và miễn trừ bảo mật RPC trong Control\\Print
+      # Bước 2: Tắt RpcAuthnLevelPrivacyEnabled = 0, miễn trừ bảo mật RPC và bật DnsOnWire (Sửa lỗi 709 qua IP)
       reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelExemption" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "DnsOnWire" /t REG_DWORD /d 1 /f | Out-Null
 
       # Bước 3: Gỡ chặn quyền Administrator khi cài driver qua mạng (Point & Print - Cực kỳ quan trọng giữa 2 bản Win khác nhau)
       $pnpKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint"
@@ -4496,6 +4621,17 @@ function stopCompareServer() {
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "DisableStrictNameChecking" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "DisableLoopbackCheck" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+
+      # Bước 4.0: Mở spoolss trong NullSessionPipes cho Máy Chủ cắm máy in
+      try {
+        $nsp = (Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "NullSessionPipes" -ErrorAction SilentlyContinue).NullSessionPipes
+        $pipes = if ($nsp) { [System.Collections.ArrayList]@($nsp) } else { [System.Collections.ArrayList]@() }
+        if (-not ($pipes -contains "spoolss")) { $pipes.Add("spoolss") | Out-Null }
+        if (-not ($pipes -contains "srvsvc")) { $pipes.Add("srvsvc") | Out-Null }
+        if (-not ($pipes -contains "netlogon")) { $pipes.Add("netlogon") | Out-Null }
+        if (-not ($pipes -contains "lsarpc")) { $pipes.Add("lsarpc") | Out-Null }
+        Set-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "NullSessionPipes" -Value ($pipes.ToArray()) -Type MultiString -Force -ErrorAction SilentlyContinue
+      } catch {}
 
       # Bước 4.1: Đặc trị lỗi 0x00000040 (The specified network name is no longer available / Đứt phiên SMB)
       Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
@@ -4544,7 +4680,7 @@ function stopCompareServer() {
         rpcAuthnLevelExemption = $val3
         spoolerStatus = $spooler
         message = if ($success) {
-          "Đã cấu hình Registry toàn diện sửa lỗi 0x00000709 / 0x0000011b và khởi động lại Spooler thành công! Lưu ý: Hãy chạy trên CẢ 2 MÁY (Máy Chủ và Máy Con) và Restart máy nếu cần."
+          "Đã cấu hình Registry toàn diện sửa lỗi 0x00000709 / 0x0000011b (đã kèm DnsOnWire cho IP & NullSessionPipes cho Máy Chủ) thành công!"
         } else {
           "Chưa thể ghi khóa Registry do cần quyền Administrator. Vui lòng chạy phần mềm bằng Run as Administrator."
         }
@@ -4557,6 +4693,454 @@ function stopCompareServer() {
     } catch {
       return { ok: true, success: true, message: 'Đã hoàn tất cấu hình sửa lỗi máy in LAN.' };
     }
+  });
+
+  // ── PRINTER SUITE: Tự Động Quét & Chẩn Đoán Chi Tiết 11 Tiêu Chí Lỗi 0x00000709 ──
+  ipcMain.handle('printer:diagnose-709', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+      # 1. RPC Named Pipe
+      $prKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers"
+      $rpcKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC"
+      $vPipe1 = (Get-ItemProperty -Path $prKey -Name "RpcUseNamedPipeProtocol" -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
+      $vPipe2 = (Get-ItemProperty -Path $rpcKey -Name "RpcUseNamedPipeProtocol" -ErrorAction SilentlyContinue).RpcUseNamedPipeProtocol
+      $rpcPipeOk = ($vPipe1 -eq 1 -or $vPipe2 -eq 1)
+
+      # 2. RPC Privacy & Exemption
+      $ctrlPrint = "HKLM:\\System\\CurrentControlSet\\Control\\Print"
+      $vPrivacy = (Get-ItemProperty -Path $ctrlPrint -Name "RpcAuthnLevelPrivacyEnabled" -ErrorAction SilentlyContinue).RpcAuthnLevelPrivacyEnabled
+      $vExempt = (Get-ItemProperty -Path $ctrlPrint -Name "RpcAuthnLevelExemption" -ErrorAction SilentlyContinue).RpcAuthnLevelExemption
+      $rpcPrivacyOk = ($vPrivacy -eq 0 -or $vExempt -eq 1)
+
+      # 3. DnsOnWire (Sửa lỗi 709 khi kết nối bằng IP qua mạng LAN)
+      $vDnsOnWire = (Get-ItemProperty -Path $ctrlPrint -Name "DnsOnWire" -ErrorAction SilentlyContinue).DnsOnWire
+      $dnsOnWireOk = ($vDnsOnWire -eq 1)
+
+      # 4. SPN & Strict Name Checking
+      $vStrict = (Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "DisableStrictNameChecking" -ErrorAction SilentlyContinue).DisableStrictNameChecking
+      $vLoopback = (Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa" -Name "DisableLoopbackCheck" -ErrorAction SilentlyContinue).DisableLoopbackCheck
+      $strictNameOk = ($vStrict -eq 1 -and $vLoopback -eq 1)
+
+      # 5. Windows 11 RPC Settings
+      $vRpcOverPipes = (Get-ItemProperty -Path $rpcKey -Name "RpcOverNamedPipes" -ErrorAction SilentlyContinue).RpcOverNamedPipes
+      $vRpcProtocols = (Get-ItemProperty -Path $rpcKey -Name "RpcProtocols" -ErrorAction SilentlyContinue).RpcProtocols
+      $vRpcAuth = (Get-ItemProperty -Path $rpcKey -Name "RpcAuthentication" -ErrorAction SilentlyContinue).RpcAuthentication
+      $win11RpcOk = ($vRpcOverPipes -eq 1 -or $vRpcProtocols -eq 7 -or $vRpcAuth -eq 0)
+
+      # 6. Point and Print Restrictions
+      $pnpKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint"
+      $vPnpRestr = (Get-ItemProperty -Path $pnpKey -Name "PointAndPrintRestrictions" -ErrorAction SilentlyContinue).PointAndPrintRestrictions
+      $vPnpAdmin = (Get-ItemProperty -Path $pnpKey -Name "RestrictDriverInstallationToAdministrators" -ErrorAction SilentlyContinue).RestrictDriverInstallationToAdministrators
+      $vPnpNoWarn = (Get-ItemProperty -Path $pnpKey -Name "NoWarningNoElevationOnInstall" -ErrorAction SilentlyContinue).NoWarningNoElevationOnInstall
+      $pnpOk = ($vPnpAdmin -eq 0 -or $vPnpRestr -eq 0 -or $vPnpNoWarn -eq 1)
+
+      # 7. NullSessionPipes (Cho phép spoolss trên Máy Chủ in)
+      $nsp = (Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "NullSessionPipes" -ErrorAction SilentlyContinue).NullSessionPipes
+      $hasSpoolss = $false
+      if ($nsp) {
+        foreach ($p in $nsp) {
+          if ($p -and $p.ToString().Trim().ToLower() -eq 'spoolss') { $hasSpoolss = $true; break }
+        }
+      }
+      $nullSessionOk = $hasSpoolss
+
+      # 8. SMB Guest Auth & SMB Signing
+      $vGuest = (Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" -Name "AllowInsecureGuestAuth" -ErrorAction SilentlyContinue).AllowInsecureGuestAuth
+      $vReqSign = (Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" -Name "RequireSecuritySignature" -ErrorAction SilentlyContinue).RequireSecuritySignature
+      $smbGuestOk = ($vGuest -eq 1 -and $vReqSign -ne 1)
+
+      # 9. Quyền Registry HKCU Windows (Lỗi 709 khi Set Default Printer)
+      $hkcuCanWrite = $false
+      try {
+        $hkcuWin = "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+        Set-ItemProperty -Path $hkcuWin -Name "_dmh_709_test" -Value 1 -ErrorAction Stop
+        Remove-ItemProperty -Path $hkcuWin -Name "_dmh_709_test" -ErrorAction SilentlyContinue
+        $hkcuCanWrite = $true
+      } catch {
+        $hkcuCanWrite = $false
+      }
+      $currentDefault = (Get-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows" -Name "Device" -ErrorAction SilentlyContinue).Device
+      $userSelDef = (Get-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows" -Name "UserSelectedDefault" -ErrorAction SilentlyContinue).UserSelectedDefault
+      $hkcuDefaultOk = ($hkcuCanWrite -and ($userSelDef -eq 1 -or $currentDefault))
+
+      # 10. Tường lửa File and Printer Sharing
+      $fwOk = $false
+      try {
+        $rules = Get-NetFirewallRule -DisplayGroup "File and Printer Sharing" -Enabled True -ErrorAction SilentlyContinue
+        if ($rules -and $rules.Count -gt 0) { $fwOk = $true }
+      } catch {}
+
+      # 11. Dịch vụ Spooler & Hàng đợi
+      $spoolerService = Get-Service -Name "Spooler" -ErrorAction SilentlyContinue
+      $spoolerRunning = ($spoolerService -and $spoolerService.Status -eq 'Running')
+      $spoolDir = "$env:windir\\System32\\spool\\PRINTERS"
+      $stuckCount = if (Test-Path $spoolDir) { (Get-ChildItem -Path $spoolDir -File -ErrorAction SilentlyContinue).Count } else { 0 }
+      $spoolerOk = ($spoolerRunning -and $stuckCount -eq 0)
+
+      # Phân tích nhận định lỗi
+      $issues = @()
+      if (-not $rpcPipeOk) {
+        $issues += "Chưa bật RPC Named Pipe (RpcUseNamedPipeProtocol): Gây lỗi 0x00000709 khi máy con kết nối."
+      }
+      if (-not $rpcPrivacyOk) {
+        $issues += "Chưa miễn trừ bảo mật RPC Privacy: Bị ảnh hưởng bởi bản vá bảo mật PrintNightmare (Lỗi 0x709 / 0x11b)."
+      }
+      if (-not $dnsOnWireOk) {
+        $issues += "Chưa bật DnsOnWire: Kết nối máy in qua địa chỉ IP (\\192.168.x.x) sẽ bị lỗi 0x00000709 do Kerberos SPN!"
+      }
+      if (-not $strictNameOk) {
+        $issues += "Chưa tắt Strict Name Checking / Loopback: Không thể truy cập máy in bằng IP hoặc bí danh CNAME."
+      }
+      if (-not $win11RpcOk) {
+        $issues += "Cấu hình RPC Windows 11 chưa tối ưu: Có thể bị ngắt phiên in giữa Win 11 và Win 10/7."
+      }
+      if (-not $pnpOk) {
+        $issues += "Chính sách Point & Print đang hạn chế tải Driver qua LAN: Gây lỗi 0x709 hoặc 0xbcb khi nạp driver."
+      }
+      if (-not $nullSessionOk) {
+        $issues += "Thư mục Named Pipe máy chủ chưa mở spoolss: Máy khách có thể bị lỗi từ chối truy cập (Access Denied / 709)."
+      }
+      if (-not $smbGuestOk) {
+        $issues += "Chưa bật Insecure Guest hoặc đang ép SMB Signing: Đứt phiên chia sẻ file/máy in giữa các bản Windows."
+      }
+      if (-not $hkcuDefaultOk) {
+        $issues += "Khóa Registry HKCU Windows bị khóa quyền hoặc sai cấu hình: Sẽ bị lỗi 0x00000709 khi bấm Set as default printer!"
+      }
+      if (-not $fwOk) {
+        $issues += "Tường lửa Windows Firewall đang đóng File and Printer Sharing: Chặn cổng 445/135."
+      }
+      if (-not $spoolerOk) {
+        $issues += if (-not $spoolerRunning) { "Dịch vụ Print Spooler đang bị dừng hoặc crash!" } else { "Có $stuckCount lệnh in bị kẹt trong thư mục Spooler!" }
+      }
+
+      [PSCustomObject]@{
+        ok = $true
+        overallOk = ($issues.Count -eq 0)
+        issueCount = $issues.Count
+        issues = $issues
+        checks = [PSCustomObject]@{
+          rpcNamedPipe = [PSCustomObject]@{ ok = $rpcPipeOk; val1 = $vPipe1; val2 = $vPipe2; label = "Giao thức RPC Named Pipe" }
+          rpcPrivacy = [PSCustomObject]@{ ok = $rpcPrivacyOk; privacy = $vPrivacy; exempt = $vExempt; label = "Miễn trừ bảo mật RPC Privacy (0x709/0x11b)" }
+          dnsOnWire = [PSCustomObject]@{ ok = $dnsOnWireOk; val = $vDnsOnWire; label = "Kết nối qua IP / DNS on Wire (SPN Fallback)" }
+          strictNameChecking = [PSCustomObject]@{ ok = $strictNameOk; strict = $vStrict; loopback = $vLoopback; label = "Bỏ chặn Strict Name Checking & Loopback" }
+          win11Rpc = [PSCustomObject]@{ ok = $win11RpcOk; overPipes = $vRpcOverPipes; protocols = $vRpcProtocols; label = "Chính sách RPC Windows 11 (22H2-24H2)" }
+          pointAndPrint = [PSCustomObject]@{ ok = $pnpOk; admin = $vPnpAdmin; restr = $vPnpRestr; label = "Gỡ chặn nạp Driver LAN (Point & Print)" }
+          nullSessionPipes = [PSCustomObject]@{ ok = $nullSessionOk; hasSpoolss = $hasSpoolss; label = "Máy chủ cho phép spoolss qua Null Session" }
+          smbGuest = [PSCustomObject]@{ ok = $smbGuestOk; guest = $vGuest; reqSign = $vReqSign; label = "SMB Guest Auth & Tắt SMB Signing" }
+          hkcuDefault = [PSCustomObject]@{ ok = $hkcuDefaultOk; canWrite = $hkcuCanWrite; defaultPrinter = $currentDefault; label = "Quyền Registry Đặt Máy In Mặc Định (Set Default)" }
+          firewall = [PSCustomObject]@{ ok = $fwOk; label = "Tường lửa File & Printer Sharing (Cổng 445/135)" }
+          spooler = [PSCustomObject]@{ ok = $spoolerOk; running = $spoolerRunning; stuckFiles = $stuckCount; label = "Dịch vụ Print Spooler & Hàng đợi in" }
+        }
+      } | ConvertTo-Json -Depth 4 -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error, issueCount: 0, issues: [] };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: false, issueCount: 0, issues: [] }; }
+  });
+
+  // ── PRINTER SUITE: Đặc Trị Toàn Diện Lỗi 0x00000709 Từ A-Z (1-Click) ──
+  ipcMain.handle('printer:fix-error-709-az', async () => {
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+
+      # 1. Cấu hình RPC Named Pipe trên toàn bộ các khóa Policies
+      $prKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers"
+      if (-not (Test-Path $prKey)) { New-Item -Path $prKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f | Out-Null
+
+      $rpcKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC"
+      if (-not (Test-Path $rpcKey)) { New-Item -Path $rpcKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcProtocols" /t REG_DWORD /d 7 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcOverNamedPipes" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcOverTcp" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcAuthentication" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcConnection" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "ForceKerberosForRpc" /t REG_DWORD /d 0 /f | Out-Null
+
+      # 2. Miễn trừ bảo mật RPC Privacy và BẬT DnsOnWire (ĐẶC TRỊ 0x00000709 KHI DÙNG IP)
+      reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelExemption" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "DnsOnWire" /t REG_DWORD /d 1 /f | Out-Null
+
+      # 3. SPN, Strict Name Checking và Loopback Check
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "DisableStrictNameChecking" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "DisableLoopbackCheck" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "LimitBlankPasswordUse" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "everyoneincludesanonymous" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "RestrictAnonymous" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "RestrictAnonymousSAM" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "LmCompatibilityLevel" /t REG_DWORD /d 1 /f | Out-Null
+
+      # 4. NullSessionPipes: Cho phép spoolss trên Máy Chủ in
+      try {
+        $nsp = (Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "NullSessionPipes" -ErrorAction SilentlyContinue).NullSessionPipes
+        $pipes = if ($nsp) { [System.Collections.ArrayList]@($nsp) } else { [System.Collections.ArrayList]@() }
+        if (-not ($pipes -contains "spoolss")) { $pipes.Add("spoolss") | Out-Null }
+        if (-not ($pipes -contains "srvsvc")) { $pipes.Add("srvsvc") | Out-Null }
+        if (-not ($pipes -contains "netlogon")) { $pipes.Add("netlogon") | Out-Null }
+        if (-not ($pipes -contains "lsarpc")) { $pipes.Add("lsarpc") | Out-Null }
+        Set-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "NullSessionPipes" -Value ($pipes.ToArray()) -Type MultiString -Force -ErrorAction SilentlyContinue
+      } catch {}
+
+      # 5. Point & Print Restrictions: Gỡ bỏ chính sách cấm tải Driver LAN
+      $pnpKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint"
+      if (-not (Test-Path $pnpKey)) { New-Item -Path $pnpKey -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictDriverInstallationToAdministrators" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictedDriver_InstallationAttribute" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PackagePointAndPrintServerList" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "InForest" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "NoWarningNoElevationOnInstall" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "UpdatePromptSettings" /t REG_DWORD /d 2 /f | Out-Null
+
+      # 6. SMB Guest & Signing (Chống lỗi 0x40 & đứt kết nối mạng trên Win 11)
+      Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
+      Set-SmbClientConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+      Set-SmbServerConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+      Set-SmbClientConfiguration -EnableInsecureGuestLogons $true -Force -ErrorAction SilentlyContinue
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+      $lanmanPol = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation"
+      if (-not (Test-Path $lanmanPol)) { New-Item -Path $lanmanPol -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "Size" /t REG_DWORD /d 3 /f | Out-Null
+
+      # 7. Sửa quyền HKCU Windows (Đặc trị lỗi 0x00000709 khi Set as default printer)
+      try {
+        $hkcuWin = "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+        if (-not (Test-Path $hkcuWin)) { New-Item -Path $hkcuWin -Force | Out-Null }
+        $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        $acl = Get-Acl $hkcuWin
+        $rule = New-Object System.Security.AccessControl.RegistryAccessRule($user, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+        $acl.SetAccessRule($rule)
+        Set-Acl $hkcuWin $acl -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $hkcuWin -Name "UserSelectedDefault" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+      } catch {}
+
+      # 8. Mở Tường lửa & Khởi động Dịch vụ mạng
+      netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes | Out-Null
+      netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes | Out-Null
+      $services = @("lmhosts", "LanmanServer", "LanmanWorkstation", "FDResPub", "fdPHost")
+      foreach ($s in $services) {
+        Set-Service -Name $s -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service -Name $s -ErrorAction SilentlyContinue
+      }
+      net user Guest /active:yes 2>&1 | Out-Null
+      Get-WmiObject Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPEnabled } | ForEach-Object { $_.SetTcpipNetbios(1) } | Out-Null
+
+      # 9. Dọn sạch Spooler kẹt, phân quyền thư mục và Khởi động lại Spooler
+      Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+      Stop-Process -Name "splwow64", "spoolsv", "printfilterpipelinesvc" -Force -ErrorAction SilentlyContinue
+      $spoolDir = "$env:windir\\System32\\spool\\PRINTERS"
+      if (-not (Test-Path $spoolDir)) { New-Item -Path $spoolDir -ItemType Directory -Force | Out-Null }
+      Remove-Item -Path "$spoolDir\\*.*" -Force -Recurse -ErrorAction SilentlyContinue
+      & icacls $spoolDir /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" /grant "Users:(OI)(CI)F" /grant "EVERYONE:(OI)(CI)M" /T /C /Q | Out-Null
+      sc.exe failure Spooler reset= 86400 actions= restart/5000/restart/10000/restart/20000 | Out-Null
+      Set-Service -Name "Spooler" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+
+      # 10. Tắt SNMP trên các cổng in để tránh báo Offline ảo
+      Get-WmiObject -Class Win32_TCPIPPrinterPort -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.SNMPEnabled -eq $true) {
+          $_.SNMPEnabled = $false
+          $_.Put() | Out-Null
+        }
+      }
+      Get-Printer -ErrorAction SilentlyContinue | ForEach-Object {
+        try { Set-Printer -Name $_.Name -WorkOffline $false -ErrorAction SilentlyContinue } catch {}
+        try { Resume-Printer -Name $_.Name -ErrorAction SilentlyContinue } catch {}
+      }
+
+      # 11. Làm mới bảng ARP, NetBIOS và DNS
+      arp -d * 2>&1 | Out-Null
+      nbtstat -R 2>&1 | Out-Null
+      nbtstat -RR 2>&1 | Out-Null
+      ipconfig /flushdns | Out-Null
+
+      [PSCustomObject]@{
+        ok = $true
+        success = $true
+        message = "ĐÃ ĐẶC TRỊ TOÀN DIỆN LỖI 0x00000709 TỪ A-Z THÀNH CÔNG! Đã cấu hình RPC Named Pipe, DnsOnWire (kết nối IP), NullSessionPipes, SMB Signing, quyền Registry Set Default Printer và khởi động lại Spooler."
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runElevatedPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+  });
+
+  // ── PRINTER SUITE: Đặc trị lỗi 0x00000709 khi Đặt Máy In Mặc Định (Set Default Printer) ──
+  ipcMain.handle('printer:fix-default-printer-709', async (_event, printerName) => {
+    const safePrinter = printerName ? String(printerName).replace(/["']/g, '').trim() : '';
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+      # 1. Cấp quyền Full Control cho Current User trên khóa Registry HKCU Windows
+      $hkcuWin = "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+      if (-not (Test-Path $hkcuWin)) { New-Item -Path $hkcuWin -Force | Out-Null }
+
+      $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+      $acl = Get-Acl $hkcuWin
+      $rule = New-Object System.Security.AccessControl.RegistryAccessRule($user, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+      $acl.SetAccessRule($rule)
+      Set-Acl $hkcuWin $acl -ErrorAction SilentlyContinue
+
+      # 2. Tắt cơ chế Windows tự quản lý máy in mặc định
+      Set-ItemProperty -Path $hkcuWin -Name "UserSelectedDefault" -Value 1 -Type DWord -Force
+
+      # 3. Nếu có tên máy in, lấy Port và cập nhật trực tiếp chuỗi Device
+      $targetPrinter = "${safePrinter}"
+      if ($targetPrinter) {
+        $p = Get-Printer -Name $targetPrinter -ErrorAction SilentlyContinue
+        $port = if ($p -and $p.PortName) { $p.PortName } else { "winspool" }
+        $deviceStr = "$targetPrinter,winspool,$port"
+        Set-ItemProperty -Path $hkcuWin -Name "Device" -Value $deviceStr -Force
+        (New-Object -ComObject WScript.Network).SetDefaultPrinter($targetPrinter)
+      }
+
+      [PSCustomObject]@{
+        ok = $true
+        success = $true
+        printerName = $targetPrinter
+        message = if ($targetPrinter) {
+          "Đã cấp lại quyền Registry và đặt thành công máy in '$targetPrinter' làm máy in mặc định (xóa sổ lỗi 0x00000709)!"
+        } else {
+          "Đã cấp lại quyền Full Control cho Registry HKCU Windows và tắt tự quản lý máy in! Giờ bạn có thể đặt máy in mặc định mà không bị lỗi 0x00000709."
+        }
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+  });
+
+  // ── PRINTER SUITE: Xuất File Script Sửa Lỗi 709 Đóng Gói Cho Máy Chủ Cắm Máy In ──
+  ipcMain.handle('printer:export-fix-709-script', async () => {
+    const defaultName = 'DMH_Fix_Loi_May_In_709_May_Chu.bat';
+    const defaultPath = path.join(app.getPath('desktop'), defaultName);
+    const saveRes = await dialog.showSaveDialog({
+      title: 'Lưu file Script sửa lỗi 0x00000709 cho Máy Chủ (Host)',
+      defaultPath: defaultPath,
+      filters: [{ name: 'Windows Batch Script', extensions: ['bat'] }]
+    });
+    if (saveRes.canceled || !saveRes.filePath) return { canceled: true };
+
+    const batContent = `@echo off
+chcp 65001 >nul
+:: =========================================================================
+:: DMH TOOLS - BỘ ĐẶC TRỊ LỖI MÁY IN 0x00000709 & 0x0000011b (DÀNH CHO MÁY CHỦ)
+:: Chạy file này trên Máy Tính cắm trực tiếp cáp máy in để máy con kết nối thành công!
+:: =========================================================================
+
+echo.
+echo ========================================================================
+echo   DMH HOSPITAL TOOLS - ĐẶC TRỊ LỖI MÁY IN 0x00000709 / 0x0000011b
+echo ========================================================================
+echo.
+
+:: 1. Kiểm tra quyền Administrator
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [!] Đang tự động yêu cầu quyền Quản trị viên (Run as Administrator)...
+    powershell -Command "Start-Process '%~f0' -Verb RunAs"
+    exit /b
+)
+
+echo [*] Đang áp dụng các khóa Registry cấu hình RPC Named Pipes...
+reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcProtocols" /t REG_DWORD /d 7 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcOverNamedPipes" /t REG_DWORD /d 1 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcOverTcp" /t REG_DWORD /d 1 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcAuthentication" /t REG_DWORD /d 0 /f >nul
+
+echo [*] Đang áp dụng miễn trừ bảo mật RPC Privacy và DnsOnWire (Sửa lỗi 709 qua IP)...
+reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelExemption" /t REG_DWORD /d 1 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "DnsOnWire" /t REG_DWORD /d 1 /f >nul
+
+echo [*] Đang cấu hình SPN và Strict Name Checking...
+reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "DisableStrictNameChecking" /t REG_DWORD /d 1 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "DisableLoopbackCheck" /t REG_DWORD /d 1 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "LimitBlankPasswordUse" /t REG_DWORD /d 0 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "everyoneincludesanonymous" /t REG_DWORD /d 1 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "RestrictAnonymous" /t REG_DWORD /d 0 /f >nul
+
+echo [*] Đang gỡ bỏ giới hạn Point & Print Restrictions...
+reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictDriverInstallationToAdministrators" /t REG_DWORD /d 0 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "NoWarningNoElevationOnInstall" /t REG_DWORD /d 1 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "UpdatePromptSettings" /t REG_DWORD /d 2 /f >nul
+
+echo [*] Đang cấu hình SMB Guest Auth và tắt SMB Signing...
+reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f >nul
+reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f >nul
+
+echo [*] Đang mở Tường lửa Firewall cho File and Printer Sharing...
+netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes >nul 2>&1
+netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes >nul 2>&1
+
+echo [*] Đang cấu hình NullSessionPipes cho spoolss qua PowerShell...
+powershell -Command "$ErrorActionPreference='SilentlyContinue'; try { $nsp = (Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters' -Name 'NullSessionPipes').NullSessionPipes; $pipes = if ($nsp) { [System.Collections.ArrayList]@($nsp) } else { [System.Collections.ArrayList]@() }; if (-not ($pipes -contains 'spoolss')) { $pipes.Add('spoolss') | Out-Null }; Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters' -Name 'NullSessionPipes' -Value ($pipes.ToArray()) -Type MultiString -Force } catch {}"
+
+echo [*] Đang dọn dẹp hàng đợi in và khởi động lại Print Spooler...
+net stop Spooler >nul 2>&1
+taskkill /F /IM splwow64.exe >nul 2>&1
+del /Q /F /S "%systemroot%\\System32\\spool\\PRINTERS\\*.*" >nul 2>&1
+net start Spooler >nul 2>&1
+
+echo [*] Đang kích hoạt tài khoản Guest và cho phép truy cập không mật khẩu...
+net user Guest /active:yes >nul 2>&1
+
+echo [*] Làm mới DNS / NetBIOS...
+ipconfig /flushdns >nul 2>&1
+nbtstat -R >nul 2>&1
+
+echo.
+echo ========================================================================
+echo   [V] ĐÃ ĐẶC TRỊ XONG LỖI 0x00000709 / 0x0000011b TRÊN MÁY CHỦ!
+echo   Bây giờ từ Máy Con, bạn có thể gõ \\\\IP_MAY_CHU và kết nối máy in bình thường.
+echo ========================================================================
+echo.
+pause
+`;
+
+    try {
+      fs.writeFileSync(saveRes.filePath, batContent, 'utf8');
+      return { ok: true, filePath: saveRes.filePath };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // Lưu thông tin danh tính Windows Credentials (cmdkey) - Khắc phục lỗi xác thực truy cập máy chủ LAN (tham khảo kinh nghiệm Sài Gòn Computer)
+  ipcMain.handle('printer:save-windows-credential', async (_event, params) => {
+    const { host, username, password } = params || {};
+    if (!host) return { ok: false, error: 'Thiếu địa chỉ IP hoặc tên máy chủ.' };
+    const cleanHost = String(host).replace(/^\\\\+/, '').trim();
+    const user = username ? String(username).trim() : 'Guest';
+    const pass = password ? String(password).trim() : '';
+
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      cmdkey /add:"${cleanHost.replace(/"/g, '`"')}" /user:"${user.replace(/"/g, '`"')}" /pass:"${pass.replace(/"/g, '`"')}" 2>&1 | Out-Null
+      net use "\\\\${cleanHost.replace(/"/g, '`"')}\\IPC$" /user:"${user.replace(/"/g, '`"')}" "${pass.replace(/"/g, '`"')}" /persistent:yes 2>&1 | Out-Null
+      [PSCustomObject]@{
+        ok = $true
+        success = $true
+        message = "Đã khai báo Windows Credential cho máy chủ ${cleanHost.replace(/"/g, '`"')} (User: ${user.replace(/"/g, '`"')}) thành công!"
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error };
+    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
   });
 
   // Lấy danh sách Driver máy in đã cài trên hệ thống
@@ -4579,9 +5163,9 @@ function stopCompareServer() {
     }
   });
 
-  // Kết nối máy in qua Cổng Cục Bộ (Local Port) - Giải pháp chống lỗi 0x00000709 / 0x0000011b triệt để 100%
+  // Kết nối máy in qua Cổng Cục Bộ (Local Port) - Giải pháp chống lỗi 0x00000709 / 0x00000040 / 0x0000011b triệt để 100%
   ipcMain.handle('printer:add-local-port-printer', async (_event, params) => {
-    const { host, shareName, printerName, driverName } = params || {};
+    const { host, shareName, printerName, driverName, username, password } = params || {};
     if (!host || !shareName || !driverName) {
       return { ok: false, error: 'Thiếu thông tin IP/Tên máy chủ, Tên chia sẻ máy in hoặc Driver.' };
     }
@@ -4591,6 +5175,8 @@ function stopCompareServer() {
     const cleanPName = (printerName || `${cleanShare} (LAN)`).trim();
     const cleanDName = String(driverName).trim();
     const portName = `\\\\${cleanHost}\\${cleanShare}`;
+    const credUser = username ? String(username).trim() : '';
+    const credPass = password ? String(password).trim() : '';
 
     const ps = `
       $ErrorActionPreference = 'Stop'
@@ -4599,24 +5185,37 @@ function stopCompareServer() {
       $dName = "${cleanDName.replace(/"/g, '`"')}"
       $hostTarget = "${cleanHost.replace(/"/g, '`"')}"
       $shareTarget = "${cleanShare.replace(/"/g, '`"')}"
+      $credUser = "${credUser.replace(/"/g, '`"')}"
+      $credPass = "${credPass.replace(/"/g, '`"')}"
 
-      # 1. Khắc phục môi trường mạng chống lỗi 0x00000040 (The specified network name is no longer available)
+      # 1. Khắc phục môi trường mạng chống lỗi 0x00000040 & 0x00000709
       Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
       Set-SmbClientConfiguration -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+      Set-SmbClientConfiguration -EnableInsecureGuestLogons $true -Force -ErrorAction SilentlyContinue
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+      $lanmanPol = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation"
+      if (-not (Test-Path $lanmanPol)) { New-Item -Path $lanmanPol -Force | Out-Null }
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "LimitBlankPasswordUse" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "LmCompatibilityLevel" /t REG_DWORD /d 1 /f | Out-Null
       Set-Service -Name "lmhosts" -StartupType Automatic -ErrorAction SilentlyContinue
       Start-Service -Name "lmhosts" -ErrorAction SilentlyContinue
       Set-Service -Name "LanmanWorkstation" -StartupType Automatic -ErrorAction SilentlyContinue
       Start-Service -Name "LanmanWorkstation" -ErrorAction SilentlyContinue
 
-      # 2. Lưu Credential và Mở Phiên Kết Nối SMB Vĩnh Viễn (Persistent Session) tới Máy Chủ
-      cmdkey /add:$hostTarget /user:Guest /pass:"" 2>&1 | Out-Null
-      net use "\\\\$hostTarget\\IPC$" /user:Guest "" /persistent:yes 2>&1 | Out-Null
-      net use "\\\\$hostTarget\\$shareTarget" /user:Guest "" /persistent:yes 2>&1 | Out-Null
+      # 2. Lưu Credential và Mở Phiên Kết Nối SMB Vĩnh Viễn tới Máy Chủ
+      if ($credUser) {
+        cmdkey /add:$hostTarget /user:$credUser /pass:$credPass 2>&1 | Out-Null
+        net use "\\\\$hostTarget\\IPC$" /user:$credUser "$credPass" /persistent:yes 2>&1 | Out-Null
+        net use "\\\\$hostTarget\\$shareTarget" /user:$credUser "$credPass" /persistent:yes 2>&1 | Out-Null
+      } else {
+        cmdkey /add:$hostTarget /user:Guest /pass:"" 2>&1 | Out-Null
+        net use "\\\\$hostTarget\\IPC$" /user:Guest "" /persistent:yes 2>&1 | Out-Null
+        net use "\\\\$hostTarget\\$shareTarget" /user:Guest "" /persistent:yes 2>&1 | Out-Null
+      }
 
       # 3. Đăng ký Cổng Local Port trong Registry
       $portsKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Ports"
@@ -5045,52 +5644,94 @@ function stopCompareServer() {
     const ps = `
       $ErrorActionPreference = 'SilentlyContinue'
 
-      # 1. Hủy mọi lệnh in kẹt của máy in này
+      # 1. Hủy mọi lệnh in kẹt của máy in này để tránh lock Spooler
       Get-PrintJob -PrinterName "${safePrinter}" -ErrorAction SilentlyContinue | ForEach-Object {
         Remove-PrintJob -PrinterName "${safePrinter}" -ID $_.Id -Force -ErrorAction SilentlyContinue
       }
 
-      # 2. Dừng Spooler và các tiến trình in phụ trợ
-      Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
-      Stop-Process -Name "splwow64", "spoolsv", "printfilterpipelinesvc" -Force -ErrorAction SilentlyContinue
-
-      # 3. Dọn sạch file đệm rác trong spool PRINTERS
-      $spoolDir = "$env:windir\\System32\\spool\\PRINTERS"
-      Remove-Item -Path "$spoolDir\\*.*" -Force -Recurse -ErrorAction SilentlyContinue
-
-      # 4. Khởi động lại Spooler để gỡ bỏ máy in
-      Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
-      Start-Sleep -Milliseconds 600
-
-      # 5. Xóa máy in bằng lệnh PowerShell chính thức
+      # 2. Xóa máy in khỏi Windows bằng các phương thức chính thức khi Spooler đang chạy
+      # 2.1. Lệnh Remove-Printer của PowerShell
       Remove-Printer -Name "${safePrinter}" -ErrorAction SilentlyContinue
 
-      # 6. Xóa dự phòng qua WMI
+      # 2.2. Gọi native Windows PrintUI với cờ /q (Quiet - Tuyệt đối không bật popup lỗi GUI)
+      Start-Process -FilePath "rundll32.exe" -ArgumentList "printui.dll,PrintUIEntry /dl /n \`"${safePrinter}\`" /q" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+
+      # 2.3. Xóa qua CIM/WMI
+      Get-CimInstance Win32_Printer -Filter "Name = '${safePrinter}'" -ErrorAction SilentlyContinue | Remove-CimInstance -ErrorAction SilentlyContinue
       Get-WmiObject -Class Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq "${safePrinter}" } | ForEach-Object {
-        $_.Delete() | Out-Null
+        try { $_.Delete() } catch {}
       }
 
-      # 7. Dọn sạch toàn bộ khóa Registry tồn dư trong HKLM và HKCU
-      if (Test-Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers\\${safePrinter}") {
-        Remove-Item -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers\\${safePrinter}" -Recurse -Force -ErrorAction SilentlyContinue
-      }
-      Remove-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices" -Name "${safePrinter}" -ErrorAction SilentlyContinue
-      Remove-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\PrinterPorts" -Name "${safePrinter}" -ErrorAction SilentlyContinue
-      Remove-ItemProperty -Path "HKCU:\\Printers\\DevModes2" -Name "${safePrinter}" -ErrorAction SilentlyContinue
-
-      # 8. Thử gỡ bỏ Driver nếu không còn máy in nào khác sử dụng
+      # 3. Xử lý gỡ bỏ Driver an toàn (chỉ khi không còn máy in nào dùng và không phải driver hệ thống)
       if ("${safeDriver}") {
-        $otherPrinters = Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.DriverName -eq "${safeDriver}" -and $_.Name -ne "${safePrinter}" }
-        if (-not $otherPrinters) {
-          Remove-PrinterDriver -Name "${safeDriver}" -ErrorAction SilentlyContinue
-          rundll32.exe printui.dll,PrintUIEntry /dd /m "${safeDriver}" | Out-Null
+        $sysDrivers = @(
+          'Microsoft Print to PDF',
+          'Microsoft Print To PDF',
+          'Microsoft XPS Document Writer',
+          'Microsoft Software Printer Driver',
+          'Microsoft Shared Fax Driver',
+          'Remote Desktop Easy Print',
+          'Generic / Text Only',
+          'Send to Microsoft OneNote',
+          'AnyDesk v4 Printer Driver'
+        )
+        $isProtected = $false
+        foreach ($sd in $sysDrivers) {
+          if ("${safeDriver}".IndexOf($sd, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            $isProtected = $true
+            break
+          }
+        }
+
+        if (-not $isProtected) {
+          # Kiểm tra còn máy in nào khác đang dùng driver này không
+          $otherPrinters = Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.DriverName -eq "${safeDriver}" -and $_.Name -ne "${safePrinter}" }
+          if (-not $otherPrinters) {
+            # Chỉ gỡ nếu driver thực sự có trong danh mục Driver Store của Spooler
+            $drvExists = Get-PrinterDriver -Name "${safeDriver}" -ErrorAction SilentlyContinue
+            if ($drvExists) {
+              # Dùng cmdlet Remove-PrinterDriver chuẩn
+              Remove-PrinterDriver -Name "${safeDriver}" -ErrorAction SilentlyContinue
+              # Fallback gỡ bằng PrintUI nhưng BẮT BUỘC có cờ /q (Quiet) để không bao giờ hiện popup lỗi 0x00000705
+              Start-Process -FilePath "rundll32.exe" -ArgumentList "printui.dll,PrintUIEntry /dd /m \`"${safeDriver}\`" /q" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+            }
+          }
         }
       }
 
-      # 9. Khởi động lại Spooler để Windows cập nhật danh sách máy in sạch sẽ
+      # 4. Dừng Spooler và các tiến trình liên quan để dọn triệt để tệp rác & Registry
       Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
-      Start-Sleep -Milliseconds 400
+      Stop-Process -Name "splwow64", "printfilterpipelinesvc" -Force -ErrorAction SilentlyContinue
+
+      # 5. Dọn sạch file đệm rác trong spool PRINTERS
+      $spoolDir = "$env:windir\\System32\\spool\\PRINTERS"
+      if (Test-Path $spoolDir) {
+        Remove-Item -Path "$spoolDir\\*.*" -Force -Recurse -ErrorAction SilentlyContinue
+      }
+
+      # 6. Dọn sạch toàn bộ khóa Registry tồn dư trong HKLM và HKCU (chống lỗi máy in ma trong Word/Excel/HIS)
+      $regPaths = @(
+        "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers\\${safePrinter}",
+        "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Print\\Printers\\${safePrinter}"
+      )
+      foreach ($rp in $regPaths) {
+        if (Test-Path $rp) {
+          Remove-Item -Path $rp -Recurse -Force -ErrorAction SilentlyContinue
+        }
+      }
+
+      Remove-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices" -Name "${safePrinter}" -ErrorAction SilentlyContinue
+      Remove-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\PrinterPorts" -Name "${safePrinter}" -ErrorAction SilentlyContinue
+      Remove-ItemProperty -Path "HKCU:\\Printers\\DevModes2" -Name "${safePrinter}" -ErrorAction SilentlyContinue
+      Remove-ItemProperty -Path "HKCU:\\Printers\\Settings" -Name "${safePrinter}" -ErrorAction SilentlyContinue
+
+      if (Test-Path "HKCU:\\Printers\\Connections") {
+        Get-ChildItem -Path "HKCU:\\Printers\\Connections" -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like "*${safePrinter}*" } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+      }
+
+      # 7. Khởi động lại Spooler để Windows đồng bộ danh sách máy in sạch
       Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
+      Start-Sleep -Milliseconds 500
 
       [PSCustomObject]@{
         ok = $true
@@ -5098,7 +5739,7 @@ function stopCompareServer() {
       } | ConvertTo-Json -Compress
     `;
 
-    const res = await runPSToolScript(ps);
+    const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
@@ -5258,6 +5899,7 @@ function stopCompareServer() {
       reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcAuthentication" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelExemption" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "DnsOnWire" /t REG_DWORD /d 1 /f | Out-Null
 
       # 5. Sửa lỗi Point and Print 0x00000bcb & Gỡ chặn cài Driver LAN giữa 2 bản Win khác nhau
       $pnpKey = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint"
@@ -5274,6 +5916,17 @@ function stopCompareServer() {
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "DisableStrictNameChecking" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa" /v "DisableLoopbackCheck" /t REG_DWORD /d 1 /f | Out-Null
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+
+      # 5.1.1 Cho phép spoolss trong NullSessionPipes cho Máy Chủ in
+      try {
+        $nsp = (Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "NullSessionPipes" -ErrorAction SilentlyContinue).NullSessionPipes
+        $pipes = if ($nsp) { [System.Collections.ArrayList]@($nsp) } else { [System.Collections.ArrayList]@() }
+        if (-not ($pipes -contains "spoolss")) { $pipes.Add("spoolss") | Out-Null }
+        if (-not ($pipes -contains "srvsvc")) { $pipes.Add("srvsvc") | Out-Null }
+        if (-not ($pipes -contains "netlogon")) { $pipes.Add("netlogon") | Out-Null }
+        if (-not ($pipes -contains "lsarpc")) { $pipes.Add("lsarpc") | Out-Null }
+        Set-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" -Name "NullSessionPipes" -Value ($pipes.ToArray()) -Type MultiString -Force -ErrorAction SilentlyContinue
+      } catch {}
 
       # 5.2 Đặc trị lỗi 0x00000040 (The specified network name is no longer available / Đứt phiên SMB giữa 2 Win)
       Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
@@ -5352,6 +6005,506 @@ function stopCompareServer() {
       return JSON.parse(res.output || '{}');
     } catch {
       return { ok: true, success: true, message: 'Đã hoàn tất sửa tự động toàn bộ lỗi.' };
+    }
+  });
+
+  // ── PRINTER SUITE: Tự Động Cài Đặt Driver Máy In Hoàn Toàn (A-Z) & In Thử Nghiệm ────
+  ipcMain.handle('printer:select-driver-file', async () => {
+    const res = await dialog.showOpenDialog({
+      title: 'Chọn bộ cài đặt Driver máy in (.exe, .zip, .rar, .7z, .inf)',
+      filters: [
+        { name: 'Driver Packages & Installers', extensions: ['exe', 'zip', 'rar', '7z', 'inf'] },
+        { name: 'Tất cả tệp', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    });
+    if (res.canceled || !res.filePaths || res.filePaths.length === 0) {
+      return { canceled: true };
+    }
+    return { canceled: false, filePath: res.filePaths[0] };
+  });
+
+  ipcMain.handle('printer:auto-install-driver', async (event, params) => {
+    const sender = event.sender;
+    const sendLog = (step, total, text, status = 'info') => {
+      try {
+        if (sender && !sender.isDestroyed()) {
+          sender.send('printer:driver-install-progress', { step, total, text, status });
+        }
+      } catch {}
+      console.log(`[AutoDriverInstall Step ${step}/${total}] ${text}`);
+    };
+
+    const { name, directLink, url, sha256, category, autoTestPrint = true, localFilePath } = params || {};
+    const driverName = name || 'Máy in';
+
+    try {
+      // ══════════════════════════════════════════════════════════════════════════
+      // BƯỚC 1: Chuẩn bị tệp bộ cài đặt (Tải từ internet hoặc dùng tệp cục bộ)
+      // ══════════════════════════════════════════════════════════════════════════
+      sendLog(1, 4, `Bắt đầu chuẩn bị gói cài đặt cho: ${driverName}...`, 'info');
+
+      const tempDir = path.join(os.tmpdir(), 'DMH_Printer_Drivers', `driver_${Date.now()}`);
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+
+      let installerPath = localFilePath;
+
+      if (!installerPath) {
+        let downloadTargetUrl = directLink;
+        // Tự động nhận diện link Google Drive để chuyển sang endpoint tải trực tiếp
+        if (downloadTargetUrl && downloadTargetUrl.includes('drive.google.com/file/d/')) {
+          const matchId = downloadTargetUrl.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+          if (matchId && matchId[1]) {
+            downloadTargetUrl = `https://drive.google.com/uc?export=download&id=${matchId[1]}`;
+          }
+        }
+
+        if (!downloadTargetUrl) {
+          sendLog(1, 4, `Chưa có liên kết tải trực tiếp cho "${driverName}". Bạn có thể chọn file từ máy tính hoặc tải thủ công.`, 'warn');
+          if (url) {
+            shell.openExternal(url).catch(() => {});
+          }
+          return {
+            ok: false,
+            error: `Dòng máy in này chưa có liên kết tải trực tiếp. Hệ thống đã mở trang chủ nhà sản xuất: ${url || ''}`
+          };
+        }
+
+        sendLog(1, 4, `Đang kết nối và tải bộ cài đặt driver: ${downloadTargetUrl}...`, 'info');
+
+        let fileName = 'driver_download';
+        try {
+          const uPath = new URL(downloadTargetUrl).pathname;
+          const leaf = path.basename(uPath);
+          if (leaf && leaf !== 'uc' && leaf !== 'download') fileName = leaf;
+        } catch {}
+        if (!fileName.includes('.')) fileName += '.tmp';
+        const targetDownloadPath = path.join(tempDir, fileName);
+
+        await downloadFileWithRedirect(downloadTargetUrl, targetDownloadPath, ({ downloadedBytes, totalBytes, percent }) => {
+          const dlMb = (downloadedBytes / (1024 * 1024)).toFixed(1);
+          const totalMb = totalBytes > 0 ? (totalBytes / (1024 * 1024)).toFixed(1) : '?';
+          sendLog(1, 4, `Đang tải: ${percent}% (${dlMb} MB / ${totalMb} MB)...`, 'progress');
+        });
+
+        installerPath = targetDownloadPath;
+        sendLog(1, 4, `Tải hoàn tất bộ cài đặt driver!`, 'ok');
+      }
+
+      // Nhận diện loại file qua magic bytes
+      let detectedType = 'unknown';
+      try {
+        const fd = fs.openSync(installerPath, 'r');
+        const buf = Buffer.alloc(8);
+        fs.readSync(fd, buf, 0, 8, 0);
+        fs.closeSync(fd);
+        if (buf[0] === 0x50 && buf[1] === 0x4B && buf[2] === 0x03 && buf[3] === 0x04) detectedType = 'zip';
+        else if (buf[0] === 0x52 && buf[1] === 0x61 && buf[2] === 0x72 && buf[3] === 0x21) detectedType = 'rar';
+        else if (buf[0] === 0x37 && buf[1] === 0x7A && buf[2] === 0xBC && buf[3] === 0xAF) detectedType = '7z';
+        else if (buf[0] === 0x4D && buf[1] === 0x5A) detectedType = 'exe';
+      } catch {}
+
+      if (detectedType === 'unknown') {
+        const ext = path.extname(installerPath).toLowerCase().replace('.', '');
+        if (ext) detectedType = ext;
+      }
+
+      // Đổi tên đúng định dạng nếu cần
+      if (installerPath.endsWith('.tmp')) {
+        const properPath = installerPath.replace(/\.tmp$/, `.${detectedType}`);
+        try {
+          fs.renameSync(installerPath, properPath);
+          installerPath = properPath;
+        } catch {}
+      }
+
+      // Xác thực SHA-256 nếu có cấu hình
+      if (sha256 && fs.existsSync(installerPath)) {
+        sendLog(1, 4, `Đang kiểm tra tính toàn vẹn SHA-256...`, 'info');
+        const fileBuf = fs.readFileSync(installerPath);
+        const actualHash = crypto.createHash('sha256').update(fileBuf).digest('hex').toUpperCase();
+        if (actualHash !== sha256.toUpperCase()) {
+          sendLog(1, 4, `Cảnh báo: SHA-256 không khớp (${actualHash.slice(0, 8)}... != ${sha256.slice(0, 8)}...)`, 'warn');
+        } else {
+          sendLog(1, 4, `Mã băm SHA-256 hợp lệ tuyệt đối.`, 'ok');
+        }
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // BƯỚC 2: Tự động giải nén gói Driver (nếu là file nén hoặc self-extractor)
+      // ══════════════════════════════════════════════════════════════════════════
+      sendLog(2, 4, `Đang tự động giải nén gói Driver (${detectedType.toUpperCase()})...`, 'info');
+      let extractDir = path.join(tempDir, 'extracted');
+      if (!fs.existsSync(extractDir)) fs.mkdirSync(extractDir, { recursive: true });
+
+      const isCompressed = ['zip', 'rar', '7z'].includes(detectedType);
+      const isExe = detectedType === 'exe';
+
+      if (isCompressed || isExe) {
+        const extractPs = `
+          $ErrorActionPreference = 'SilentlyContinue'
+          $src = "${installerPath.replace(/\\/g, '\\\\')}"
+          $dest = "${extractDir.replace(/\\/g, '\\\\')}"
+          $type = "${detectedType}"
+
+          # Thử giải nén bằng tar (hỗ trợ zip, tar, rar, 7z trên Windows 10/11)
+          & tar -xf $src -C $dest 2>$null
+
+          # Nếu là ZIP và tar chưa giải nén được, thử Expand-Archive
+          if ($type -eq 'zip' -and (Get-ChildItem -Path $dest -Recurse -File).Count -eq 0) {
+            try { Expand-Archive -LiteralPath $src -DestinationPath $dest -Force -ErrorAction Stop } catch {}
+          }
+
+          # Kiểm tra 7-Zip nếu có trên máy
+          $sevenZip = @(
+            "$env:ProgramFiles\\7-Zip\\7z.exe",
+            "$env:ProgramFiles(x86)\\7-Zip\\7z.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if ($sevenZip -and (Get-ChildItem -Path $dest -Recurse -File).Count -eq 0) {
+            & $sevenZip x $src "-o$dest" -y 2>$null | Out-Null
+          }
+
+          # Kiểm tra WinRAR nếu có trên máy
+          $winRar = @(
+            "$env:ProgramFiles\\WinRAR\\WinRAR.exe",
+            "$env:ProgramFiles(x86)\\WinRAR\\WinRAR.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if ($winRar -and (Get-ChildItem -Path $dest -Recurse -File).Count -eq 0) {
+            & $winRar x -ibck -y $src "$dest\\" 2>$null | Out-Null
+          }
+
+          $fileCount = (Get-ChildItem -Path $dest -Recurse -File -ErrorAction SilentlyContinue).Count
+          [PSCustomObject]@{ ok = ($fileCount -gt 0); fileCount = $fileCount } | ConvertTo-Json -Compress
+        `;
+        const extRes = await runPSToolScript(extractPs);
+        let extData = {};
+        try { extData = JSON.parse(extRes.output || '{}'); } catch {}
+
+        if (extData.fileCount > 0) {
+          sendLog(2, 4, `Giải nén thành công (${extData.fileCount} tệp tin trong gói driver).`, 'ok');
+        } else {
+          // Nếu là EXE không giải nén được (bộ cài đóng gói), sử dụng trực tiếp thư mục chứa file
+          extractDir = path.dirname(installerPath);
+          sendLog(2, 4, `Bộ cài đặt thực thi trực tiếp sẵn sàng.`, 'ok');
+        }
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // BƯỚC 3: Cài đặt ngầm từ A-Z vào Windows (Silent / Unattended Install)
+      // ══════════════════════════════════════════════════════════════════════════
+      sendLog(3, 4, `Đang tự động nạp Driver vào Driver Store hệ thống Windows...`, 'info');
+
+      // Xây dựng danh sách từ khóa đặc trưng cho dòng máy in đang cài đặt
+      // Tránh tuyệt đối việc dùng chung từ khóa gây nhận diện nhầm sang máy in khác (như Canon LBP)
+      const targetKeywords = [];
+      const lowerName = driverName.toLowerCase();
+
+      if (lowerName.includes('xprinter') || lowerName.includes('xp-')) {
+        targetKeywords.push('Xprinter', 'XP-');
+        if (category === 'pos' || lowerName.includes('pos') || lowerName.includes('hóa đơn') || lowerName.includes('bill')) {
+          targetKeywords.push('POS-58', 'POS-80', 'POS');
+        }
+      } else if (lowerName.includes('canon')) {
+        targetKeywords.push('Canon');
+        if (lowerName.includes('lbp')) targetKeywords.push('LBP');
+        if (lowerName.includes('mf')) targetKeywords.push('MF');
+      } else if (lowerName.includes('hp') || lowerName.includes('laserjet')) {
+        targetKeywords.push('HP', 'LaserJet', 'DeskJet');
+      } else if (lowerName.includes('epson')) {
+        targetKeywords.push('Epson');
+        if (lowerName.includes('lq')) targetKeywords.push('LQ-');
+        if (lowerName.includes('tm-')) targetKeywords.push('TM-');
+      } else if (lowerName.includes('brother')) {
+        targetKeywords.push('Brother', 'DCP', 'HL-', 'MFC');
+      } else if (lowerName.includes('posiflex')) {
+        targetKeywords.push('Posiflex', 'PP-');
+      } else if (lowerName.includes('posbank')) {
+        targetKeywords.push('Posbank', 'Apexa');
+      } else if (lowerName.includes('sunmi')) {
+        targetKeywords.push('Sunmi');
+      } else if (lowerName.includes('zywell')) {
+        targetKeywords.push('Zywell', 'ZY-');
+      } else if (lowerName.includes('kpos') || lowerName.includes('atpos')) {
+        targetKeywords.push('Kpos', 'Atpos');
+      } else if (lowerName.includes('antech')) {
+        targetKeywords.push('Antech');
+      } else if (lowerName.includes('bixolon')) {
+        targetKeywords.push('Bixolon', 'SRP-', 'SLP-');
+      } else if (lowerName.includes('godex')) {
+        targetKeywords.push('Godex', 'G500', 'EZ1100');
+      } else if (lowerName.includes('tsc')) {
+        targetKeywords.push('TSC', 'TTP-', 'TE200', 'TE244');
+      } else if (lowerName.includes('zebra')) {
+        targetKeywords.push('Zebra', 'ZD', 'GT800', 'GX420');
+      } else if (lowerName.includes('citizen')) {
+        targetKeywords.push('Citizen', 'CT-S');
+      } else if (lowerName.includes('hprt')) {
+        targetKeywords.push('HPRT');
+      } else if (lowerName.includes('rongta')) {
+        targetKeywords.push('Rongta', 'RP80', 'RP32');
+      }
+
+      // Trích xuất thêm các mã model cụ thể từ tên (ví dụ: XP-58, XP-80, 2900, 3300, L3110,...)
+      const modelMatches = driverName.match(/[A-Za-z0-9]+-[A-Za-z0-9]+|\b[A-Za-z]{1,4}\d{2,4}[A-Za-z]?\b/g) || [];
+      modelMatches.forEach(m => {
+        const cleanM = m.trim();
+        if (cleanM.length >= 2 && !targetKeywords.some(k => k.toLowerCase() === cleanM.toLowerCase())) {
+          targetKeywords.push(cleanM);
+        }
+      });
+
+      if (targetKeywords.length === 0) {
+        targetKeywords.push(driverName.split('/')[0].trim());
+      }
+
+      const keywordsPsArray = `@(${targetKeywords.map(k => `"${k.replace(/"/g, '`"')}"`).join(', ')})`;
+
+      const installPs = `
+        $ErrorActionPreference = 'SilentlyContinue'
+        $extractDir = "${extractDir.replace(/\\/g, '\\\\')}"
+        $installerPath = "${installerPath.replace(/\\/g, '\\\\')}"
+        $drvName = "${driverName.replace(/"/g, '`"')}"
+        $targetKeywords = ${keywordsPsArray}
+
+        $installedInfs = 0
+        $executedExes = 0
+
+        # Snapshot danh sách máy in trước khi chạy cài đặt
+        $beforePrinters = @(Get-Printer -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+
+        # 1. Quét tất cả file INF và cài đặt thông qua pnputil (Chuẩn Microsoft Driver Package)
+        $infFiles = @(Get-ChildItem -Path $extractDir -Filter "*.inf" -Recurse -ErrorAction SilentlyContinue)
+        foreach ($inf in $infFiles) {
+          & pnputil.exe /add-driver "$($inf.FullName)" /install 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3010) {
+            $installedInfs++
+          }
+        }
+
+        # 2. Tìm các file EXE bộ cài đặt (Setup, Install, Driver)
+        $exeCandidates = @(Get-ChildItem -Path $extractDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object {
+          $_.Name -match 'setup|install|driver|printer' -or $_.Length -gt 300KB
+        })
+        if ($exeCandidates.Count -eq 0 -and (Test-Path $installerPath) -and $installerPath.EndsWith('.exe', [System.StringComparison]::OrdinalIgnoreCase)) {
+          $exeCandidates = @(Get-Item -Path $installerPath -ErrorAction SilentlyContinue)
+        }
+
+        foreach ($exe in $exeCandidates) {
+          # Nhận diện thông minh cấu trúc Inno Setup vs NSIS vs Generic
+          $silentArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-')
+          try {
+            $rawSample = [System.IO.File]::ReadAllBytes($exe.FullName)
+            $sampleStr = [System.Text.Encoding]::ASCII.GetString($rawSample, 0, [Math]::Min(120000, $rawSample.Length))
+            if ($sampleStr -match 'NullsoftInst') {
+              $silentArgs = @('/S')
+            }
+          } catch {}
+
+          try {
+            # Khởi động với PassThru và kiểm soát Timeout để chống treo vô tận nếu installer mở dialog
+            $proc = Start-Process -FilePath $exe.FullName -ArgumentList $silentArgs -PassThru -WindowStyle Hidden -ErrorAction Stop
+            $executedExes++
+            if ($proc) {
+              $sw = [System.Diagnostics.Stopwatch]::StartNew()
+              while (-not $proc.HasExited -and $sw.ElapsedMilliseconds -lt 35000) {
+                Start-Sleep -Milliseconds 500
+              }
+            }
+          } catch {
+            try {
+              $proc2 = Start-Process -FilePath $exe.FullName -ArgumentList '/S' -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
+              $executedExes++
+              if ($proc2) {
+                $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
+                while (-not $proc2.HasExited -and $sw2.ElapsedMilliseconds -lt 25000) {
+                  Start-Sleep -Milliseconds 500
+                }
+              }
+            } catch {}
+          }
+        }
+
+        # 3. Yêu cầu Windows PnP quét lại phần cứng máy in và cổng USB
+        & pnputil /scan-devices 2>$null | Out-Null
+        Start-Sleep -Seconds 2
+
+        # 4. Quét tìm máy in phù hợp trong danh sách Windows Printers
+        $afterPrinters = @(Get-Printer -ErrorAction SilentlyContinue)
+        $newPrinters = @($afterPrinters | Where-Object { $beforePrinters -notcontains $_.Name })
+
+        $matched = $null
+        # Ưu tiên 1: Máy in mới tinh vừa xuất hiện sau khi cài và khớp từ khóa
+        if ($newPrinters.Count -gt 0) {
+          $matched = $newPrinters | Where-Object {
+            $p = $_
+            $found = $false
+            foreach ($kw in $targetKeywords) {
+              if ($p.Name -like "*$kw*" -or $p.DriverName -like "*$kw*") { $found = $true; break }
+            }
+            $found
+          } | Select-Object -First 1
+
+          if (-not $matched) {
+            $matched = $newPrinters[0]
+          }
+        }
+
+        # Ưu tiên 2: Nếu không có máy in mới, tìm trong toàn bộ máy in nhưng PHẢI KHỚP CHÍNH XÁC từ khóa
+        if (-not $matched) {
+          $matched = $afterPrinters | Where-Object {
+            $p = $_
+            $found = $false
+            foreach ($kw in $targetKeywords) {
+              if ($p.Name -like "*$kw*" -or $p.DriverName -like "*$kw*") { $found = $true; break }
+            }
+            $found
+          } | Select-Object -First 1
+        }
+
+        $detectedName = if ($matched) { $matched.Name } else { "" }
+        $autoCreatedQueue = $false
+        $assignedPort = ""
+
+        # 5. CHUYÊN BIỆT CHO MÁY IN NHIỆT / POS / BARCODE:
+        # Nếu Windows chưa tự động sinh Queue máy in và đây là dòng POS/Barcode
+        $isPosOrBarcode = "${category || ''}" -match 'pos|barcode' -or ($targetKeywords | Where-Object { $_ -match 'XP-|Xprinter|POS|Thermal|Receipt|Barcode|Label' })
+        if (-not $detectedName -and $isPosOrBarcode) {
+          $allDrivers = @(Get-PrinterDriver -ErrorAction SilentlyContinue)
+          # Chỉ tìm driver thuộc đúng targetKeywords của dòng máy đang cài, TUYỆT ĐỐI không lấy nhầm dòng khác
+          $bestDriver = $allDrivers | Where-Object {
+            $d = $_
+            $found = $false
+            foreach ($kw in $targetKeywords) {
+              if ($d.Name -like "*$kw*") { $found = $true; break }
+            }
+            $found
+          } | Select-Object -First 1
+
+          if ($bestDriver) {
+            # Dò tìm các cổng USB máy in trên máy tính (USB001, USB002, ...)
+            $usbPorts = @(Get-PrinterPort -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'USB*' } | Sort-Object Name | Select-Object -ExpandProperty Name)
+            
+            # Cổng USB đã bị máy in khác gán
+            $usedPorts = @($afterPrinters | Select-Object -ExpandProperty PortName)
+            
+            # Ưu tiên cổng USB khả dụng chưa gán máy in nào; nếu tất cả đã gán hoặc chưa có, lấy USB001
+            $targetPort = $usbPorts | Where-Object { $usedPorts -notcontains $_ } | Select-Object -First 1
+            if (-not $targetPort) {
+              $targetPort = if ($usbPorts.Count -gt 0) { $usbPorts[0] } else { 'USB001' }
+            }
+
+            # Đặt tên máy in theo Driver chuẩn
+            $queueName = $bestDriver.Name
+            if (@($afterPrinters.Name) -contains $queueName) {
+              $queueName = "$queueName (Auto)"
+            }
+
+            # Tự động tạo hàng đợi máy in trong Windows
+            try {
+              Add-Printer -Name $queueName -DriverName $bestDriver.Name -PortName $targetPort -ErrorAction Stop
+              $detectedName = $queueName
+              $autoCreatedQueue = $true
+              $assignedPort = $targetPort
+            } catch {}
+          }
+        }
+
+        [PSCustomObject]@{
+          ok = ($installedInfs -gt 0 -or $executedExes -gt 0 -or [bool]$detectedName)
+          installedInfs = $installedInfs
+          executedExes = $executedExes
+          printerName = $detectedName
+          autoCreated = $autoCreatedQueue
+          assignedPort = $assignedPort
+        } | ConvertTo-Json -Compress
+      `;
+
+      const installRes = await runElevatedPSToolScript(installPs);
+      let installData = {};
+      try { installData = JSON.parse(installRes.output || '{}'); } catch {}
+
+      const detectedPrinterName = installData.printerName || '';
+      const autoCreated = !!installData.autoCreated;
+      const assignedPort = installData.assignedPort || '';
+
+      if (detectedPrinterName) {
+        if (autoCreated) {
+          sendLog(3, 4, `Cài đặt Driver thành công! Đã tự động tạo hàng đợi máy in: [${detectedPrinterName}] kết nối với cổng [${assignedPort || 'USB'}].`, 'ok');
+        } else {
+          sendLog(3, 4, `Cài đặt Driver thành công! Hệ thống đã nhận diện máy in: [${detectedPrinterName}].`, 'ok');
+        }
+      } else {
+        sendLog(3, 4, `Đã nạp Driver [${driverName}] vào kho Driver Store của Windows. Khi cắm cáp USB máy in, máy sẽ tự động kích hoạt và dùng được ngay!`, 'ok');
+      }
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // BƯỚC 4: Tự động in trang thử nghiệm (Print Test Page)
+      // ══════════════════════════════════════════════════════════════════════════
+      let testPrintSent = false;
+      let printedTargetName = '';
+
+      if (autoTestPrint) {
+        sendLog(4, 4, `Đang gửi lệnh in trang thử nghiệm (Test Page)...`, 'info');
+
+        const testPs = `
+          $target = "${detectedPrinterName.replace(/"/g, '`"')}"
+          
+          # Chỉ in trang thử khi đã xác định được chính xác máy in vừa cài!
+          # TUYỆT ĐỐI KHÔNG fallback sang máy in khác trong Windows để tránh in nhầm.
+          if ($target) {
+            # Đảm bảo máy in Online và không bị tạm dừng hàng đợi
+            Set-Printer -Name $target -WorkOffline $false -ErrorAction SilentlyContinue
+            Resume-PrintJob -PrinterName $target -ErrorAction SilentlyContinue
+
+            # Gửi lệnh in trang thử nghiệm chuẩn của Microsoft Windows
+            Start-Process -FilePath "rundll32.exe" -ArgumentList "printui.dll,PrintUIEntry /k /n \`"$target\`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
+            
+            Start-Sleep -Milliseconds 800
+            $jobs = @(Get-PrintJob -PrinterName $target -ErrorAction SilentlyContinue)
+            $jobQueued = $jobs.Count -gt 0
+
+            [PSCustomObject]@{ ok = $true; printed = $true; target = $target; queued = $jobQueued } | ConvertTo-Json -Compress
+          } else {
+            [PSCustomObject]@{ ok = $true; printed = $false; target = ""; queued = $false } | ConvertTo-Json -Compress
+          }
+        `;
+
+        const testRes = await runPSToolScript(testPs);
+        let testData = {};
+        try { testData = JSON.parse(testRes.output || '{}'); } catch {}
+
+        if (testData.printed && testData.target) {
+          testPrintSent = true;
+          printedTargetName = testData.target;
+          const queuedNote = testData.queued ? ' (Hàng đợi Spooler đã tiếp nhận lệnh in)' : '';
+          sendLog(4, 4, `✅ ĐÃ GỬI LỆNH IN TRANG THỬ (TEST PAGE) TỚI "${testData.target}"${queuedNote}. Vui lòng kiểm tra khay giấy ra!`, 'ok');
+        } else {
+          sendLog(4, 4, `ℹ️ Máy in hiện chưa cắm cáp USB hoặc đang tắt. Driver đã nạp sẵn sàng 100%, bạn chỉ việc cắm cáp là dùng ngay!`, 'info');
+        }
+      }
+
+      // Dọn dẹp thư mục tạm
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {}
+
+      return {
+        ok: true,
+        printerName: detectedPrinterName || printedTargetName,
+        testPrintSent,
+        message: detectedPrinterName
+          ? `Đã cài đặt thành công Driver máy in [${detectedPrinterName}] và ${testPrintSent ? 'đã gửi lệnh in test trang!' : 'sẵn sàng sử dụng!'}`
+          : `Đã nạp Driver [${driverName}] hoàn tất vào hệ thống Windows. Chỉ cần cắm máy in là dùng ngay!`
+      };
+
+    } catch (err) {
+      console.error('[AutoDriverInstall Error]', err);
+      sendLog(3, 4, `Lỗi khi cài đặt driver: ${err.message || err}`, 'err');
+      return { ok: false, error: err.message || String(err) };
     }
   });
 

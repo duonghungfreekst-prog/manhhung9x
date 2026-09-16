@@ -201,37 +201,256 @@ body {
 .menu-dropdown-item:hover { background: var(--surface-2); }
 .menu-dropdown-divider { border-top: 1px solid var(--border); }
 
-/* ─── Toast ────────────────────────────────────── */
+/* ─── Toast & Dialog Toàn Cục Hiện Đại ─────────── */
 .toast-container {
   position: fixed;
-  top: 3.5rem;
-  right: 1.5rem;
-  z-index: 999;
+  top: 1rem;
+  right: 1.25rem;
+  z-index: 10005;
   display: flex;
   flex-direction: column;
   gap: 0.625rem;
   pointer-events: none;
 }
 
-.toast {
-  background: var(--surface);
+.toast,
+.modern-toast {
+  position: relative;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-left: 4px solid var(--success);
-  padding: 0.875rem 1.125rem;
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
+  border-top: 1px solid rgba(226, 232, 240, 0.8);
+  border-right: 1px solid rgba(226, 232, 240, 0.8);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+  padding: 0.875rem 1rem 1rem 0.875rem;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.15), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
-  min-width: 300px;
-  max-width: 400px;
+  min-width: 320px;
+  max-width: 440px;
   pointer-events: all;
-  animation: toastIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  animation: modernToastIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-@keyframes toastIn {
-  from { transform: translateX(110%); opacity: 0; }
-  to   { transform: translateX(0);    opacity: 1; }
+.modern-toast:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px -6px rgba(15, 23, 42, 0.2);
 }
+
+.modern-toast-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.modern-toast-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  border: 1px solid currentColor;
+  line-height: 1.2;
+}
+
+.modern-toast-title {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #0f172a;
+  line-height: 1.35;
+}
+
+.modern-toast-desc {
+  margin: 2px 0 0;
+  font-size: 0.82rem;
+  color: #475569;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.modern-toast-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #94a3b8;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  margin-top: -2px;
+  margin-right: -4px;
+}
+
+.modern-toast-close:hover {
+  color: #334155;
+  background: #f1f5f9;
+}
+
+.modern-toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  animation: modernToastProgress linear forwards;
+}
+
+@keyframes modernToastIn {
+  from { transform: translateX(110%) scale(0.95); opacity: 0; }
+  to   { transform: translateX(0) scale(1);       opacity: 1; }
+}
+
+@keyframes modernToastProgress {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
+
+/* ─── Hộp Thoại Dialog (Modern Confirm & Alert) ───────────────── */
+.modern-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 10006;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: modernFadeIn 0.15s ease-out;
+}
+
+.modern-dialog-box {
+  background: #ffffff;
+  border-radius: 18px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(226, 232, 240, 0.8);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  color: #1e293b;
+  outline: none;
+  animation: modernScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modern-dialog-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(4px);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.modern-dialog-icon-wrap {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
+}
+
+.modern-dialog-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: rgba(255, 255, 255, 0.18);
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modern-dialog-close:hover {
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(1.08);
+}
+
+.modern-dialog-footer {
+  padding: 0.875rem 1.4rem;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modern-dialog-btn-cancel {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modern-dialog-btn-cancel:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.modern-dialog-btn-confirm {
+  padding: 8px 20px;
+  border-radius: 8px;
+  border: none;
+  color: #ffffff;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.15s ease;
+}
+
+.modern-dialog-btn-confirm:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+@keyframes modernFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modernScaleIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
 .text-success { color: var(--success); }
 
 /* ─── Help Banner ──────────────────────────────── */

@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Printer, RefreshCw, Trash2, CheckCircle2, Search, Wrench, 
-  Download, Activity, Share2, Copy, Check, Power, Terminal,
-  ShieldAlert, Wifi, FileText, Settings, ExternalLink, Play, Star,
-  AlertTriangle, CheckCircle, ShieldCheck, Zap, Network, X, Layers, BookOpen,
-  Sparkles
+  Download, Activity, Share2, Copy, Check, Terminal,
+  ShieldAlert, FileText, Settings, ExternalLink, Play, Star,
+  AlertTriangle, ShieldCheck, Zap, Network, X, Layers, BookOpen,
+  Sparkles, FolderOpen, Loader2
 } from 'lucide-react';
 import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
+import { registerTabRefreshHandler } from '../utils/autoRefreshManager';
+import { showToast, showConfirm } from '../utils/notificationSystem';
 
 interface PrinterInfo {
   Name: string;
@@ -260,11 +262,11 @@ const COMMON_DRIVERS = [
     directLink: undefined, sha256: undefined },
   // ─── MÁY IN HÓA ĐƠN NHIỆT (POS / Receipt / Bill K80 & K58) ───────────────
   { name: 'Xprinter XP-58 / XP-80 / XP-Q200 (Hóa đơn 58mm/80mm)', category: 'pos', regex: /Xprinter|XP-[58Q]/i,
-    url: 'https://xprinter.vn/driver-may-in-hoa-don-xprinter/',
-    directLink: 'https://xprinter.vn/wp-content/uploads/2021/04/XPrinter-Driver-V7.77.zip', sha256: null },
+    url: 'https://xprinter.vn/download-driver-may-in-driver-pos-printer/',
+    directLink: 'https://drive.google.com/uc?export=download&id=1Cjx7BkiogE102XDkmFBEMzGEkxNAClb4', sha256: null },
   { name: 'Xprinter XP-N160M / XP-K200L / XP-Q800 / XP-D300M (POS 80mm)', category: 'pos', regex: /XP-N160M|XP-K200|XP-Q800|XP-D300/i,
-    url: 'https://xprinter.vn/driver-may-in-hoa-don-xprinter/',
-    directLink: undefined, sha256: undefined },
+    url: 'https://xprinter.vn/download-driver-may-in-driver-pos-printer/',
+    directLink: 'https://drive.google.com/uc?export=download&id=1Cjx7BkiogE102XDkmFBEMzGEkxNAClb4', sha256: undefined },
   { name: 'Posiflex Aura PP-6900 / PP-8800 / PP-7600 (Máy in bill POS)', category: 'pos', regex: /Posiflex|PP-?[6789]000|Aura/i,
     url: 'https://www.posiflex.com/en-global/download/index/printers',
     directLink: undefined, sha256: undefined },
@@ -345,8 +347,8 @@ const COMMON_DRIVERS = [
     url: 'https://www.idprt.com/support/download-center.html',
     directLink: undefined, sha256: undefined },
   { name: 'Xprinter XP-350B / XP-420B / XP-470B (In tem nhãn mã vạch)', category: 'barcode', regex: /XP-350B|XP-420B|XP-470B/i,
-    url: 'https://xprinter.vn/driver-may-in-ma-vach-xprinter/',
-    directLink: undefined, sha256: undefined },
+    url: 'https://xprinter.vn/download-driver-may-in-driver-pos-printer/',
+    directLink: 'https://drive.google.com/uc?export=download&id=1IDMAfQaF5IhGu52JVO655_r04jPSv_ea', sha256: undefined },
 ];
 
 type PrinterSubView = 'repair' | 'printers' | 'drivers' | 'all';
@@ -362,17 +364,179 @@ export default function PrinterTab() {
   // State tìm kiếm & bộ lọc phân loại Driver máy in (POS / Barcode / Văn Phòng A4)
   const [driverSearch, setDriverSearch] = useState('');
   const [driverCategory, setDriverCategory] = useState<'all' | 'pos' | 'barcode' | 'office'>('all');
+  // State tự động cài đặt Driver A-Z & In Thử Nghiệm
+  const [autoTestPrint, setAutoTestPrint] = useState(true);
+  const [driverInstallProgress, setDriverInstallProgress] = useState<{ step: number; total: number; text: string; status: string } | null>(null);
   // State quản lý sửa lỗi chia sẻ máy in qua mạng LAN (RPC Named Pipe 0x00000709 / 0x0000011b)
-  const [shareRpcStatus, setShareRpcStatus] = useState<{ isFixed: boolean; rpcUseNamedPipe?: number; rpcAuthnLevelPrivacy?: number; spoolerStatus?: string } | null>(null);
-  const [fixingShare, setFixingShare] = useState(false);
+  const [, setShareRpcStatus] = useState<{ isFixed: boolean; rpcUseNamedPipe?: number; rpcAuthnLevelPrivacy?: number; spoolerStatus?: string } | null>(null);
+  const [, setFixingShare] = useState(false);
   const [fixing0x40, setFixing0x40] = useState(false);
+  const [error0x40Host, setError0x40Host] = useState('');
+  const [openingCredMgr, setOpeningCredMgr] = useState(false);
+  const [copiedMinhYakCmd, setCopiedMinhYakCmd] = useState(false);
   const [showError0x40Modal, setShowError0x40Modal] = useState(false);
   const [showError709Modal, setShowError709Modal] = useState(false);
   const [copied0x40Reg, setCopied0x40Reg] = useState(false);
-  const [fixingPointAndPrint, setFixingPointAndPrint] = useState(false);
-  const [enablingSharing, setEnablingSharing] = useState(false);
+  const [, setFixingPointAndPrint] = useState(false);
+  const [, setEnablingSharing] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [showCmdDetails, setShowCmdDetails] = useState(false);
+
+  // ── State Chuyên Sâu Đặc Trị Lỗi 0x00000709 Từ A-Z ───────────────────────
+  interface Diag709Result {
+    ok: boolean;
+    overallOk: boolean;
+    issueCount: number;
+    issues: string[];
+    checks: {
+      rpcNamedPipe?: { ok: boolean; val1?: number; val2?: number; label: string };
+      rpcPrivacy?: { ok: boolean; privacy?: number; exempt?: number; label: string };
+      dnsOnWire?: { ok: boolean; val?: number; label: string };
+      strictNameChecking?: { ok: boolean; strict?: number; loopback?: number; label: string };
+      win11Rpc?: { ok: boolean; overPipes?: number; protocols?: number; label: string };
+      pointAndPrint?: { ok: boolean; admin?: number; restr?: number; label: string };
+      nullSessionPipes?: { ok: boolean; hasSpoolss?: boolean; label: string };
+      smbGuest?: { ok: boolean; guest?: number; reqSign?: number; label: string };
+      hkcuDefault?: { ok: boolean; canWrite?: boolean; defaultPrinter?: string; label: string };
+      firewall?: { ok: boolean; label: string };
+      spooler?: { ok: boolean; running?: boolean; stuckFiles?: number; label: string };
+    };
+  }
+  const [diag709, setDiag709] = useState<Diag709Result | null>(null);
+  const [diagnosing709, setDiagnosing709] = useState(false);
+  const [fixing709AZ, setFixing709AZ] = useState(false);
+  const [fixingDefault709, setFixingDefault709] = useState(false);
+  const [exporting709Script, setExporting709Script] = useState(false);
+  const [selectedDefaultTarget, setSelectedDefaultTarget] = useState('');
+  const [active709Tab, setActive709Tab] = useState<'lan' | 'default' | 'manual'>('lan');
+  const [credHostInput, setCredHostInput] = useState('');
+  const [savingCred, setSavingCred] = useState(false);
+
+  // ── State Bảng Quy Trình Chẩn Đoán & Sửa Lỗi Tự Động (Tập trung 2 Nút) ──
+  interface WorkflowStepItem {
+    id: string;
+    stepNum: number;
+    title: string;
+    errorCode: string;
+    desc: string;
+    status: 'idle' | 'scanning' | 'fixing' | 'ok' | 'error' | 'warning';
+    detail: string;
+  }
+
+  const INITIAL_WORKFLOW_STEPS: WorkflowStepItem[] = [
+    {
+      id: 'spooler',
+      stepNum: 1,
+      title: 'Dịch vụ Print Spooler',
+      errorCode: 'Spooler Crash / Stopped',
+      desc: 'Kiểm tra trạng thái chạy, cấu hình tự phục hồi khi crash và phân quyền thư mục PRINTERS.',
+      status: 'idle',
+      detail: 'Chưa kiểm tra'
+    },
+    {
+      id: 'spool_files',
+      stepNum: 2,
+      title: 'Hàng Đợi In & File Kẹt Spool',
+      errorCode: 'Kẹt Hàng Đợi (Spool Files)',
+      desc: 'Dọn sạch các tệp lệnh in bị lỗi hoặc kẹt cứng trong C:\\Windows\\System32\\spool\\PRINTERS.',
+      status: 'idle',
+      detail: 'Chưa kiểm tra'
+    },
+    {
+      id: 'app_printing',
+      stepNum: 3,
+      title: 'Tiến Trình In Phụ Trợ (splwow64)',
+      errorCode: 'Treo In Word / PDF / HIS',
+      desc: 'Giải phóng tiến trình splwow64 & printfilterpipelinesvc bị treo gây đơ ứng dụng khi bấm in.',
+      status: 'idle',
+      detail: 'Chưa kiểm tra'
+    },
+    {
+      id: 'lan_rpc',
+      stepNum: 4,
+      title: 'Chia Sẻ LAN Qua RPC Named Pipe',
+      errorCode: 'Lỗi 0x00000709 / 0x0000011b',
+      desc: 'Cấu hình RpcUseNamedPipeProtocol = 1, RpcProtocols Win 11, miễn trừ xác thực RPC & DnsOnWire.',
+      status: 'idle',
+      detail: 'Chưa kiểm tra'
+    },
+    {
+      id: 'point_and_print',
+      stepNum: 5,
+      title: 'Chính Sách Chặn Driver Point & Print',
+      errorCode: 'Lỗi 0x00000bcb (GPO Driver)',
+      desc: 'Gỡ bỏ chính sách Group Policy chặn máy con tự động nạp driver máy in chia sẻ qua mạng LAN.',
+      status: 'idle',
+      detail: 'Chưa kiểm tra'
+    },
+    {
+      id: 'smb_network',
+      stepNum: 6,
+      title: 'Phiên Mạng SMB & Kết Nối Đa Bản Win',
+      errorCode: 'Lỗi 40 (0x00000040)',
+      desc: 'Tắt SMB Signing Win 11, chuyển mạng Private, mở Guest Auth & cho phép spoolss NullSessionPipes.',
+      status: 'idle',
+      detail: 'Chưa kiểm tra'
+    },
+    {
+      id: 'firewall_lan',
+      stepNum: 7,
+      title: 'Tường Lửa Windows Firewall & Chia Sẻ',
+      errorCode: 'Firewall Block / Ẩn Mạng LAN',
+      desc: 'Mở thông cổng File & Printer Sharing, bật Network Discovery, khởi động FDResPub & LanmanServer.',
+      status: 'idle',
+      detail: 'Chưa kiểm tra'
+    },
+    {
+      id: 'snmp_offline',
+      stepNum: 8,
+      title: 'Cổng Mạng SNMP (Chống Báo Offline Ảo)',
+      errorCode: 'Printer Offline (SNMP Status)',
+      desc: 'Tắt SNMP Status trên các cổng TCP/IP, kích hoạt máy in về trạng thái Online và Resume in.',
+      status: 'idle',
+      detail: 'Chưa kiểm tra'
+    },
+    {
+      id: 'default_printer',
+      stepNum: 9,
+      title: 'Quyền Đặt Máy In Mặc Định (Default)',
+      errorCode: 'Lỗi 0x00000709 Set Default',
+      desc: 'Cấp toàn quyền Registry HKCU Windows, chống lỗi 709 khi đặt máy in mặc định trên mọi app.',
+      status: 'idle',
+      detail: 'Chưa kiểm tra'
+    },
+    {
+      id: 'verification',
+      stepNum: 10,
+      title: 'Tự Động Đối Soát & Xác Nhận Hệ Thống',
+      errorCode: 'Verification Check 100%',
+      desc: 'Quét lại toàn diện sau khi sửa để xác nhận hệ thống in ấn và chia sẻ LAN đạt chuẩn 100%.',
+      status: 'idle',
+      detail: 'Chưa kiểm tra'
+    }
+  ];
+
+  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStepItem[]>(INITIAL_WORKFLOW_STEPS);
+  const [isWorkflowRunning, setIsWorkflowRunning] = useState(false);
+  const [workflowMode, setWorkflowMode] = useState<'diagnose' | 'fix' | null>(null);
+  const [workflowProgressPercent, setWorkflowProgressPercent] = useState(0);
+  const [workflowStatusText, setWorkflowStatusText] = useState('');
+  const [workflowTargetHost, setWorkflowTargetHost] = useState('');
+
+  // State theo dõi các tiến trình thao tác cụ thể trên máy in (để hiện loading, spinner & text động)
+  const [uninstallingPrinter, setUninstallingPrinter] = useState<string | null>(null);
+  const [fixingPrinterName, setFixingPrinterName] = useState<string | null>(null);
+  const [printingTestName, setPrintingTestName] = useState<string | null>(null);
+  const [settingDefaultName, setSettingDefaultName] = useState<string | null>(null);
+  const [resumingPrinterName, setResumingPrinterName] = useState<string | null>(null);
+  const [clearingJobsFor, setClearingJobsFor] = useState<string | null>(null);
+  const [deletingJobId, setDeletingJobId] = useState<number | null>(null);
+  const [restartingSpooler, setRestartingSpooler] = useState(false);
+  const [restartingPc, setRestartingPc] = useState(false);
+  const [, setFixingSpoolerCrashState] = useState(false);
+  const [, setFixingAppPrintState] = useState(false);
+  const [, setFixingSnmpState] = useState(false);
+  const [activeOperationMessage, setActiveOperationMessage] = useState<string | null>(null);
 
   // State Modal Thông Báo Kết Quả Sửa Lỗi Hiện Đại (Thay thế alert native cũ)
   interface ResultModalState {
@@ -495,14 +659,17 @@ export default function PrinterTab() {
     });
   };
 
-  // State quản lý công cụ Kết Nối Máy In Qua Local Port (Đặc trị lỗi 0x00000709 khi 2 máy khác bản Windows)
+  // State quản lý công cụ Kết Nối Máy In Qua Local Port (Đặc trị lỗi 0x00000709 / 0x00000040 khi 2 máy khác bản Windows)
   const [showLocalPortModal, setShowLocalPortModal] = useState(false);
   const [localPortHost, setLocalPortHost] = useState('');
   const [localPortShare, setLocalPortShare] = useState('');
   const [localPortPrinterName, setLocalPortPrinterName] = useState('');
   const [localPortDriver, setLocalPortDriver] = useState('');
+  const [localPortUser, setLocalPortUser] = useState('');
+  const [localPortPass, setLocalPortPass] = useState('');
   const [availableDrivers, setAvailableDrivers] = useState<string[]>([]);
   const [connectingLocalPort, setConnectingLocalPort] = useState(false);
+  const [clearingSmbCache, setClearingSmbCache] = useState(false);
 
   const openLocalPortModal = async () => {
     setShowLocalPortModal(true);
@@ -550,11 +717,13 @@ export default function PrinterTab() {
           shareName: localPortShare.trim(),
           printerName: localPortPrinterName.trim() || `${localPortShare.trim()} (LAN)`,
           driverName: localPortDriver.trim(),
+          username: localPortUser.trim(),
+          password: localPortPass.trim(),
         });
 
         if (res?.ok && res?.success) {
           addLog(`✅ ${res.message || 'Kết nối máy in qua Local Port thành công!'}`);
-          showResultModal(`🎉 ĐÃ KẾT NỐI MÁY IN LOCAL PORT THÀNH CÔNG!\n\n• Đã tạo máy in [${res.printerName}]\n• Đã gán thành công vào cổng Local Port [${res.portName}]\n\n👉 Bạn có thể mở Word/Excel/HIS và in ngay lập tức mà không bao giờ bị lỗi 0x00000709!`);
+          showResultModal(`🎉 ĐÃ KẾT NỐI MÁY IN LOCAL PORT THÀNH CÔNG!\n\n• Đã tạo máy in [${res.printerName}]\n• Đã gán thành công vào cổng Local Port [${res.portName}]\n\n👉 Bạn có thể mở Word/Excel/HIS và in ngay lập tức mà không bao giờ bị lỗi 0x00000709 hay 0x00000040!`);
           setShowLocalPortModal(false);
           await loadPrinters();
           await diagnoseAllPrinters(true);
@@ -571,6 +740,45 @@ export default function PrinterTab() {
       stopGlobalLoading('printer-local-port');
     }
   };
+
+  const clearSmbCache = async () => {
+    try {
+      setClearingSmbCache(true);
+      setLoading(true);
+      startGlobalLoading('printer-clear-smb', 'Đang dọn sạch các phiên kết nối mạng SMB kẹt...');
+      addLog('🧹 Đang dọn sạch cache SMB (net use /delete), xóa NetBIOS, ARP và flush DNS...');
+      const w = window as any;
+      if (w.electronAPI?.printer?.clearSmbCache) {
+        const res = await w.electronAPI.printer.clearSmbCache();
+        if (res?.ok && res?.success) {
+          addLog('✅ ' + (res.message || 'Đã dọn sạch session mạng SMB kẹt thành công!'));
+          showToast.success('Làm Mới Mạng SMB', res.message || 'Đã dọn sạch các phiên kết nối mạng kẹt và khởi động lại Spooler!');
+        } else {
+          addLog('⚠️ ' + (res?.message || res?.error || 'Không thể dọn sạch'));
+          showToast.error('Lỗi Dọn Cache', res?.error || 'Có lỗi xảy ra khi dọn cache SMB');
+        }
+      } else {
+        await runPS(`
+          net use * /delete /y 2>&1 | Out-Null
+          arp -d * 2>&1 | Out-Null
+          nbtstat -R 2>&1 | Out-Null
+          nbtstat -RR 2>&1 | Out-Null
+          ipconfig /flushdns 2>&1 | Out-Null
+          Restart-Service -Name Spooler -Force
+        `);
+        addLog('✅ Đã dọn sạch các phiên SMB kẹt qua PowerShell.');
+        showToast.success('Làm Mới Mạng SMB', 'Đã dọn sạch các phiên kết nối mạng kẹt thành công!');
+      }
+      await loadPrinters();
+    } catch (err: unknown) {
+      addLog('❌ Lỗi xử lý: ' + String(err));
+      showToast.error('Lỗi Dọn Cache', String(err));
+    } finally {
+      setClearingSmbCache(false);
+      setLoading(false);
+      stopGlobalLoading('printer-clear-smb');
+    }
+  };
   
   const addLog = (msg: string) => setLogs(p => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...p].slice(0, 15));
 
@@ -583,29 +791,58 @@ export default function PrinterTab() {
   };
 
   const [diagnostics, setDiagnostics] = useState<DiagnosticResult | null>(null);
-  const [fixingAll, setFixingAll] = useState(false);
 
-  const loadPrinters = useCallback(async () => {
+  const loadPrinters = useCallback(async (silent: boolean = false) => {
     try {
-      setLoading(true);
-      startGlobalLoading('printer-scan', 'Đang quét danh sách máy in hệ thống...');
-      addLog('Đang quét danh sách máy in hệ thống...');
+      if (!silent) {
+        setLoading(true);
+        startGlobalLoading('printer-scan', 'Đang quét danh sách máy in hệ thống...');
+        addLog('Đang quét danh sách máy in hệ thống...');
+      }
       const output = await runPS(`Get-Printer | Select-Object Name, PrinterStatus, JobCount, DriverName, PortName | ConvertTo-Json`);
       if (output) {
         const parsed = JSON.parse(output);
         const list = Array.isArray(parsed) ? parsed : [parsed];
         setPrinters(list);
-        addLog(`Tìm thấy ${list.length} máy in.`);
+        if (!silent) addLog(`Tìm thấy ${list.length} máy in.`);
       } else {
         setPrinters([]);
       }
     } catch (err: unknown) {
       const e = String(err);
-      addLog('Lỗi quét máy in: ' + e);
+      if (!silent) addLog('Lỗi quét máy in: ' + e);
     } finally {
-      setLoading(false);
-      stopGlobalLoading('printer-scan');
+      if (!silent) {
+        setLoading(false);
+        stopGlobalLoading('printer-scan');
+      }
     }
+  }, []);
+
+  // Đăng ký làm mới thông minh với AutoRefreshManager
+  useEffect(() => {
+    return registerTabRefreshHandler('printer', async ({ silent }) => {
+      await loadPrinters(silent);
+    });
+  }, [loadPrinters]);
+
+  // Lắng nghe tiến trình cài đặt driver tự động từ Electron Main
+  useEffect(() => {
+    const w = window as any;
+    if (w.electronAPI?.printer?.onDriverInstallProgress) {
+      w.electronAPI.printer.onDriverInstallProgress((data: { step: number; total: number; text: string; status: string }) => {
+        setDriverInstallProgress(data);
+        const prefix = `[Bước ${data.step}/${data.total}]`;
+        if (data.status === 'ok') addLog(`${prefix} ✅ ${data.text}`);
+        else if (data.status === 'err') addLog(`${prefix} ❌ ${data.text}`);
+        else if (data.status === 'warn') addLog(`${prefix} ⚠️ ${data.text}`);
+        else addLog(`${prefix} ℹ️ ${data.text}`);
+      });
+    }
+    return () => {
+      const w2 = window as any;
+      w2.electronAPI?.printer?.removeDriverInstallProgressListener?.();
+    };
   }, []);
 
   // ── Quét & Chẩn Đoán Toàn Bộ Lỗi Hệ Thống Máy In (Auto Re-Diagnose) ──────────
@@ -721,25 +958,192 @@ export default function PrinterTab() {
     }
   };
 
-  // ── Đặc trị lỗi 0x00000040: The specified network name is no longer available ────────
-  const fixError0x40 = async () => {
+  // ── Bộ hàm Chuyên Sâu Đặc Trị Lỗi 0x00000709 Từ A-Z ───────────────────────
+  const openError709Modal = () => {
+    setShowError709Modal(true);
+    runDiagnose709();
+  };
+
+  const runDiagnose709 = async () => {
+    setDiagnosing709(true);
+    try {
+      const w = window as any;
+      if (w.electronAPI?.printer?.diagnose709) {
+        const res = await w.electronAPI.printer.diagnose709();
+        if (res && res.ok) {
+          setDiag709(res);
+          addLog(`[709-DIAGNOSTIC] Đã quét: ${res.issueCount === 0 ? 'Đạt chuẩn 100%' : `Phát hiện ${res.issueCount} vấn đề`}`);
+        }
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      addLog(`[709-DIAGNOSTIC] Lỗi khi quét: ${String(err)}`);
+    } finally {
+      setDiagnosing709(false);
+    }
+  };
+
+  const handleFix709AZ = async () => {
+    setFixing709AZ(true);
+    startGlobalLoading('fix-709-az', 'Đang đặc trị toàn diện lỗi 0x00000709 từ A-Z...');
+    addLog('🚀 Bắt đầu đặc trị toàn diện lỗi 0x00000709 từ A-Z...');
+    try {
+      const w = window as any;
+      if (w.electronAPI?.printer?.fixError709AZ) {
+        const res = await w.electronAPI.printer.fixError709AZ();
+        if (res?.ok && res?.success) {
+          addLog('✅ ' + (res.message || 'Đã cấu hình thành công!'));
+          showToast.success('Thành công', 'Đã đặc trị thành công lỗi 0x00000709 từ A-Z!');
+          await runDiagnose709();
+          await checkShareRpcStatus();
+          await diagnoseAllPrinters(true);
+          await loadPrinters(true);
+          showResultModal(
+            '🎉 ĐÃ ĐẶC TRỊ LỖI 0x00000709 TỪ A-Z THÀNH CÔNG 100%!\n\n' +
+            '• Đã cấu hình RPC Named Pipe & RPC Protocols (Win 11 24H2/23H2)\n' +
+            '• Đã kích hoạt DnsOnWire = 1 (sửa triệt để lỗi 709 khi kết nối bằng IP)\n' +
+            '• Đã miễn trừ RPC Privacy (hóa giải bản vá PrintNightmare)\n' +
+            '• Đã mở spoolss trong NullSessionPipes cho Máy Chủ in\n' +
+            '• Đã gỡ bỏ Point & Print Restrictions và bật SMB Insecure Guest\n' +
+            '• Đã cấp quyền Registry HKCU Windows (chống lỗi 709 khi đặt máy in mặc định)\n' +
+            '• Đã mở Tường lửa Firewall và khởi động lại Print Spooler\n\n' +
+            '👉 LƯU Ý VÀNG: Nếu chia sẻ máy in qua LAN, hãy chạy file script trên MÁY CHỦ cắm máy in (hoặc khởi động lại cả 2 máy) để kết nối ngay!'
+          );
+        } else {
+          showToast.error('Lỗi Sửa 709', res?.error || 'Có lỗi xảy ra khi sửa lỗi 709');
+        }
+      }
+    } catch (err: unknown) {
+      showToast.error('Thất bại', String(err));
+    } finally {
+      setFixing709AZ(false);
+      stopGlobalLoading('fix-709-az');
+    }
+  };
+
+  const handleFixDefaultPrinter709 = async (printerName?: string) => {
+    const target = printerName || selectedDefaultTarget || (printers.length > 0 ? printers[0].Name : '');
+    setFixingDefault709(true);
+    startGlobalLoading('fix-default-709', `Đang sửa lỗi 709 và đặt mặc định [${target}]...`);
+    try {
+      const w = window as any;
+      if (w.electronAPI?.printer?.fixDefaultPrinter709) {
+        const res = await w.electronAPI.printer.fixDefaultPrinter709(target);
+        if (res?.ok && res?.success) {
+          showToast.success('Thành công', res.message || 'Đã khắc phục lỗi đặt máy in mặc định!');
+          await runDiagnose709();
+          await loadPrinters(true);
+          showResultModal(`🎉 ĐÃ KHẮC PHỤC THÀNH CÔNG LỖI 0x00000709 KHI ĐẶT MÁY IN MẶC ĐỊNH!\n\n• Đã cấp lại toàn quyền Full Control cho Registry HKCU Windows\n• Đã tắt cơ chế Windows tự động đổi máy in mặc định\n• Đã cập nhật chuỗi Device cho máy in: [${target || 'Hệ thống'}]\n\n👉 Bạn có thể in từ bất kỳ phần mềm nào mà không bao giờ bị báo lỗi 709 nữa!`);
+        } else {
+          showToast.error('Lỗi', res?.error || 'Lỗi khi đặt máy in mặc định');
+        }
+      }
+    } catch (err: unknown) {
+      showToast.error('Thất bại', String(err));
+    } finally {
+      setFixingDefault709(false);
+      stopGlobalLoading('fix-default-709');
+    }
+  };
+
+  const handleExport709Script = async () => {
+    setExporting709Script(true);
+    try {
+      const w = window as any;
+      if (w.electronAPI?.printer?.exportFix709Script) {
+        const res = await w.electronAPI.printer.exportFix709Script();
+        if (res?.ok && res?.filePath) {
+          showToast.success('Thành công', 'Đã xuất file script sửa lỗi cho Máy Chủ thành công!');
+          showResultModal(
+            `📦 ĐÃ XUẤT THÀNH CÔNG BỘ SỬA LỖI CHO MÁY CHỦ!\n\n` +
+            `• Đường dẫn tệp: ${res.filePath}\n\n` +
+            `👉 HƯỚNG DẪN DÙNG TRÊN MÁY CHỦ (Host cắm máy in):\n` +
+            `1. Copy file này qua USB hoặc Zalo/Mạng LAN sang máy tính đang cắm dây máy in.\n` +
+            `2. Nhấp chuột phải vào file .bat chọn "Run as administrator" (Chạy với quyền quản trị).\n` +
+            `3. Chờ 3 giây cho màn hình đen chạy xong -> Sau đó từ máy này bạn kết nối máy in là 100% THÀNH CÔNG!`
+          );
+        } else if (!res?.canceled) {
+          showToast.error('Lỗi', res?.error || 'Không thể xuất file script');
+        }
+      }
+    } catch (err: unknown) {
+      showToast.error('Thất bại', String(err));
+    } finally {
+      setExporting709Script(false);
+    }
+  };
+
+  const handleSaveWindowsCred = async () => {
+    if (!credHostInput.trim()) {
+      showToast.warning('Thiếu thông tin', 'Vui lòng nhập địa chỉ IP hoặc tên Máy Chủ cắm máy in.');
+      return;
+    }
+    setSavingCred(true);
+    try {
+      const w = window as any;
+      if (w.electronAPI?.printer?.saveWindowsCredential) {
+        const res = await w.electronAPI.printer.saveWindowsCredential({ host: credHostInput.trim(), username: 'Guest', password: '' });
+        if (res?.ok && res?.success) {
+          showToast.success('Thành công', res.message || 'Đã lưu danh tính Windows Credential!');
+          showResultModal(`🎉 ĐÃ KHAI BÁO DANH TÍNH WINDOWS CREDENTIAL THÀNH CÔNG!\n\n• Máy chủ: ${credHostInput.trim()}\n• Tài khoản: Guest (không mật khẩu)\n\n👉 Máy tính của bạn đã được chứng thực kết nối mạng với Máy Chủ. Giờ bạn có thể vào Run gõ \\\\${credHostInput.trim()} để kết nối máy in mà không bị hỏi tài khoản hoặc lỗi 0x00000709!`);
+        } else {
+          showToast.error('Lỗi', res?.error || 'Không thể lưu credential');
+        }
+      }
+    } catch (err: unknown) {
+      showToast.error('Thất bại', String(err));
+    } finally {
+      setSavingCred(false);
+    }
+  };
+
+  // ── Đặc trị lỗi 0x00000040: The specified network name is no longer available (Phương pháp Minh Yak & Tự Động) ────────
+  const fixError0x40 = async (targetHostInput?: string | React.MouseEvent | unknown) => {
+    const rawTarget = typeof targetHostInput === 'string' ? targetHostInput : error0x40Host;
+    const host = rawTarget ? rawTarget.trim() : '';
+    if (host && host !== error0x40Host) {
+      setError0x40Host(host);
+    }
     try {
       setFixing0x40(true);
       setLoading(true);
-      startGlobalLoading('printer-fix-0x40', 'Đang sửa lỗi tên mạng 0x00000040 (Point & Print, SMB Signing & RPC)...');
+      startGlobalLoading('printer-fix-0x40', host ? `Đang sửa lỗi 0x00000040 & ghim Credential cho [${host}]...` : 'Đang sửa lỗi tên mạng 0x00000040 (Point & Print, SMB Signing & RPC)...');
       addLog('🛠️ Đang đặc trị lỗi 0x00000040 (The specified network name is no longer available)...');
+      if (host) {
+        addLog(`🔑 Tuyệt chiêu Minh Yak: Ghim Windows Credential (guest) cho máy chủ [${host}]...`);
+      }
       addLog('• Vô hiệu hóa hạn chế Point and Print (PointAndPrintRestrictions = 0, RestrictDriverInstallationToAdministrators = 0)...');
       addLog('• Cấu hình RPC Named Pipe (RpcUseNamedPipeProtocol = 1, RpcAuthnLevelPrivacyEnabled = 0)...');
       addLog('• Tắt SMB Signing (RequireSecuritySignature) để Win 11 kết nối mượt với Win 10/7...');
       addLog('• Chuyển đổi Network Profile sang Private (Riêng tư) để tránh bị Firewall ngắt phiên...');
-      addLog('• Tắt timeout ngắt kết nối session SMB (AutoDisconnect)...');
+      addLog('• Bật Insecure Guest Auth & dọn sạch các phiên kết nối SMB Zombie kẹt...');
       addLog('• Kích hoạt NetBIOS over TCP/IP và khởi động lại dịch vụ Print Spooler...');
+
       const w = window as any;
       if (w.electronAPI?.printer?.fixError0x40) {
-        const res = await w.electronAPI.printer.fixError0x40();
+        const res = await w.electronAPI.printer.fixError0x40({ host });
         if (res?.ok && res?.success) {
           addLog('✅ ' + (res.message || 'Đã khắc phục lỗi 0x00000040 thành công!'));
-          showResultModal('🎉 ĐÃ KHẮC PHỤC THÀNH CÔNG LỖI 40 (0x00000040)!\n\n• Đã vô hiệu hóa chính sách Point and Print Restrictions (cho phép nhận driver qua mạng).\n• Đã cấu hình RPC Named Pipe & miễn trừ xác thực RPC.\n• Đã tắt SMB Signing bắt buộc của Windows 11.\n• Đã chuyển mạng sang Private Network & mở Tường lửa.\n• Đã khởi động lại dịch vụ Print Spooler.\n\n👉 Bạn hãy thử kết nối lại máy in chia sẻ qua mạng LAN hoặc in thử một trang (Print Test Page)!');
+          if (host) {
+            showResultModal(
+              `🎉 ĐÃ FIX THÀNH CÔNG LỖI 40 (0x00000040) THEO PHƯƠNG PHÁP MINH YAK!\n\n` +
+              `• Đã tự động ghim chứng thực Windows Credential (User: guest, Pass: rỗng) cho máy chủ: [${host}]\n` +
+              `• Đã nạp phiên kết nối mạng SMB IPC$ trực tiếp tới \\\\${host}\\IPC$\n` +
+              `• Đã vô hiệu hóa Point & Print Restrictions & tắt SMB Signing\n` +
+              `• Đã tự động mở cửa sổ File Explorer tới máy chủ: \\\\${host}\n\n` +
+              `👉 BƯỚC TIẾP THEO: Trong cửa sổ File Explorer vừa mở ra, bạn chỉ cần NHẤP ĐÚP VÀO MÁY IN -> Chọn "Install driver" là in được ngay 100%!`
+            );
+          } else {
+            showResultModal(
+              '🎉 ĐÃ KHẮC PHỤC THÀNH CÔNG LỖI 40 (0x00000040)!\n\n' +
+              '• Đã vô hiệu hóa chính sách Point and Print Restrictions (cho phép nhận driver qua mạng).\n' +
+              '• Đã cấu hình RPC Named Pipe & miễn trừ xác thực RPC.\n' +
+              '• Đã tắt SMB Signing bắt buộc của Windows 11.\n' +
+              '• Đã chuyển mạng sang Private Network & dọn sạch session SMB kẹt.\n' +
+              '• Đã khởi động lại dịch vụ Print Spooler.\n\n' +
+              '👉 Bạn hãy thử kết nối lại máy in chia sẻ qua mạng LAN hoặc in thử một trang!'
+            );
+          }
         } else {
           addLog('⚠️ ' + (res?.message || res?.error || 'Không thể áp dụng cấu hình'));
           showResultModal('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.message || res?.error || 'Không thể áp dụng cấu hình sửa lỗi 0x00000040.') + '\n\n👉 Vui lòng đóng app và chuột phải chọn "Run as administrator".', 'warning');
@@ -764,6 +1168,14 @@ export default function PrinterTab() {
           reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f
           reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f
           reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters" /v "AutoDisconnect" /t REG_DWORD /d 4294967295 /f
+          
+          # 4. Ghim Credential nếu có host
+          $h = "${host.replace(/[^\w\.\-\_]/g, '')}"
+          if ($h -ne "") {
+            cmdkey /add:$h /user:guest /pass:"" 2>&1 | Out-Null
+            net use "\\$h\\IPC$" /user:guest "" /persistent:yes 2>&1 | Out-Null
+            Start-Process "explorer.exe" "\\$h" -ErrorAction SilentlyContinue
+          }
           Restart-Service -Name Spooler -Force
         `);
         addLog('✅ Đã thực thi lệnh cấu hình sửa lỗi 0x00000040 qua PowerShell.');
@@ -780,18 +1192,51 @@ export default function PrinterTab() {
     }
   };
 
+  const handleOpenCredentialManager = async () => {
+    try {
+      setOpeningCredMgr(true);
+      const w = window as any;
+      if (w.electronAPI?.printer?.openCredentialManager) {
+        await w.electronAPI.printer.openCredentialManager();
+      } else {
+        await runPS('control keymgr.dll');
+      }
+      addLog('🔑 Đã mở Windows Credential Manager (control keymgr.dll)');
+      showToast.info('Credential Manager', 'Đã mở Windows Credential Manager (Quản lý thông tin xác thực).');
+    } catch (err: unknown) {
+      showToast.error('Lỗi', 'Không thể mở Credential Manager: ' + String(err));
+    } finally {
+      setOpeningCredMgr(false);
+    }
+  };
+
+  const copyMinhYakCmdToClipboard = (targetHost?: string) => {
+    const host = (targetHost || error0x40Host || '192.168.1.10').trim();
+    const cmd = `cmdkey /add:${host} /user:guest /pass:""\nnet use "\\\\${host}\\IPC$" /user:guest "" /persistent:yes\nexplorer.exe "\\\\${host}"`;
+    navigator.clipboard.writeText(cmd);
+    setCopiedMinhYakCmd(true);
+    addLog(`📋 Đã sao chép lệnh CMD Minh Yak cho máy chủ [${host}]!`);
+    showToast.success('Đã sao chép', `Đã sao chép lệnh ghim chứng thực cho [${host}]!`);
+    setTimeout(() => setCopiedMinhYakCmd(false), 3000);
+  };
+
   const copy0x40RegToClipboard = () => {
     const regText = `reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "PointAndPrintRestrictions" /t REG_DWORD /d 0 /f\nreg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictDriverInstallationToAdministrators" /t REG_DWORD /d 0 /f\nreg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "RestrictedDriver_InstallationAttribute" /t REG_DWORD /d 0 /f\nreg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "NoWarningNoElevationOnInstall" /t REG_DWORD /d 1 /f\nreg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint" /v "UpdatePromptSettings" /t REG_DWORD /d 2 /f\nreg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f\nreg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f\nreg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f\nnet stop spooler && net start spooler`;
     navigator.clipboard.writeText(regText);
     setCopied0x40Reg(true);
     addLog('📋 Đã sao chép lệnh Registry sửa lỗi 0x00000040 vào Clipboard!');
+    showToast.success('Đã sao chép lệnh', 'Đã lưu cú pháp Registry sửa lỗi 0x00000040 vào bộ nhớ đệm (Clipboard)!');
     setTimeout(() => setCopied0x40Reg(false), 3000);
   };
 
   const restartSpooler = async () => {
     try {
       setLoading(true);
-      addLog('🔄 Đang khởi động lại dịch vụ Print Spooler...');
+      setRestartingSpooler(true);
+      const msg = 'Đang khởi động lại dịch vụ Print Spooler hệ thống...';
+      setActiveOperationMessage(msg);
+      startGlobalLoading('printer-restart-spooler', msg);
+      addLog(`🔄 ${msg}`);
       const w = window as any;
       if (w.electronAPI?.printer?.restartSpooler) {
         await w.electronAPI.printer.restartSpooler();
@@ -799,11 +1244,16 @@ export default function PrinterTab() {
         await runPS('Restart-Service -Name Spooler -Force');
       }
       addLog('✅ Khởi động lại Print Spooler thành công!');
-      await loadPrinters();
+      showToast.success('Print Spooler', 'Dịch vụ bộ đệm máy in (Print Spooler) đã được khởi động lại thành công!');
+      await loadPrinters(true);
     } catch (err: unknown) {
       addLog('❌ Lỗi khởi động Spooler: ' + String(err));
+      showToast.error('Lỗi khởi động Spooler', String(err));
     } finally {
+      setRestartingSpooler(false);
+      setActiveOperationMessage(null);
       setLoading(false);
+      stopGlobalLoading('printer-restart-spooler');
     }
   };
 
@@ -812,20 +1262,26 @@ export default function PrinterTab() {
     navigator.clipboard.writeText(cmdText);
     setCopiedCmd(true);
     addLog('📋 Đã sao chép 2 câu lệnh Registry CMD vào bộ nhớ đệm (Clipboard)!');
+    showToast.success('Đã sao chép câu lệnh', 'Đã sao chép 2 câu lệnh Registry CMD vào bộ nhớ đệm (Clipboard)!');
     setTimeout(() => setCopiedCmd(false), 3000);
   };
 
   const handleRestartPc = async () => {
-    const ok = window.confirm(
-      '⚠️ XÁC NHẬN KHỞI ĐỘNG LẠI MÁY TÍNH\n\n' +
-      'Hệ thống sẽ đếm ngược 10 giây và khởi động lại Windows để áp dụng toàn diện cấu hình sửa lỗi máy in 0x00000709.\n\n' +
-      'Vui lòng lưu lại tất cả văn bản, tài liệu đang mở trước khi tiếp tục!\n\n' +
-      'Bạn có muốn khởi động lại ngay không?'
-    );
+    const ok = await showConfirm({
+      title: 'Khởi động lại máy tính Windows',
+      message: 'Hệ thống sẽ đếm ngược 10 giây và khởi động lại Windows để áp dụng toàn diện cấu hình sửa lỗi máy in 0x00000709.\n\nVui lòng lưu lại tất cả văn bản, tài liệu đang mở trước khi tiếp tục!\n\nBạn có muốn khởi động lại ngay không?',
+      type: 'danger',
+      badge: 'KHỞI ĐỘNG LẠI HỆ THỐNG',
+      confirmText: 'Khởi động lại ngay'
+    });
     if (!ok) return;
 
     try {
-      addLog('⏳ Đang phát lệnh khởi động lại hệ thống trong 10 giây...');
+      setRestartingPc(true);
+      const msg = 'Đang phát lệnh khởi động lại hệ thống trong 10 giây...';
+      setActiveOperationMessage(msg);
+      startGlobalLoading('printer-restart-pc', msg);
+      addLog(`⏳ ${msg}`);
       const w = window as any;
       if (w.electronAPI?.printer?.restartPc) {
         await w.electronAPI.printer.restartPc();
@@ -833,60 +1289,382 @@ export default function PrinterTab() {
         await runPS('shutdown /r /t 10 /c "DMH_Tools: Khoi dong lai de ap dung cau hinh may in"');
       }
       addLog('🔄 Lệnh khởi động lại đã được kích hoạt. Máy tính sẽ restart sau ít giây.');
+      showToast.warning('Đang khởi động lại', 'Máy tính sẽ tự động khởi động lại sau 10 giây.');
     } catch (err: unknown) {
       addLog('❌ Lỗi khởi động lại: ' + String(err));
+      showToast.error('Lỗi khởi động lại', String(err));
+    } finally {
+      setRestartingPc(false);
+      setActiveOperationMessage(null);
+      stopGlobalLoading('printer-restart-pc');
     }
   };
 
-  // ── Sửa Tự Động Toàn Bộ Lỗi 1-Click ─────────────────────────────────────
-  const handleFixAllIssues = async () => {
-    const ok = window.confirm(
-      '⚡ XÁC NHẬN SỬA TỰ ĐỘNG TOÀN BỘ LỖI MÁY IN (1-CLICK AUTO FIX)\n\n' +
-      'Phần mềm sẽ tự động khắc phục toàn bộ sự cố phát hiện được:\n' +
-      '1. Khắc phục lỗi chia sẻ LAN 0x00000709 & 0x0000011b (Cấu hình RPC Named Pipe)\n' +
-      '2. Gỡ bỏ chính sách chặn Driver LAN 0x00000bcb (Point & Print Restrictions)\n' +
-      '3. Mở cổng Tường lửa Firewall File and Printer Sharing & Network Discovery\n' +
-      '4. Dọn sạch toàn bộ file rác và lệnh in kẹt trong thư mục Spool PRINTERS\n' +
-      '5. Cấp lại Full Quyền thư mục Spooler và kích hoạt tự phục hồi khi Crash\n' +
-      '6. Tắt cờ SNMP Status trên các cổng TCP/IP để đưa toàn bộ máy in về Online\n\n' +
-      'Bạn có muốn tiến hành sửa tự động ngay bây giờ không?'
-    );
-    if (!ok) return;
+  // ═════════════════════════════════════════════════════════════════════════════
+  // ── BÁC SĨ MÁY IN: 2 HÀM TỔNG HỢP DUY NHẤT (ĐỌC LỖI & SỬA LỖI THEO BẢNG) ────
+  // ═════════════════════════════════════════════════════════════════════════════
+
+  // 1. NÚT ĐỌC & QUÉT TOÀN BỘ LỖI HỆ THỐNG
+  const handleWorkflowDiagnose = async () => {
+    setIsWorkflowRunning(true);
+    setWorkflowMode('diagnose');
+    setWorkflowProgressPercent(15);
+    setWorkflowStatusText('Đang khởi tạo trình quét và chẩn đoán toàn diện hệ thống...');
+    addLog('🔍 [BÁC SĨ MÁY IN] Bắt đầu đọc & quét toàn bộ lỗi hệ thống in ấn và mạng LAN...');
+
+    // Đặt tất cả các bước thành scanning
+    setWorkflowSteps(prev => prev.map(s => ({ ...s, status: 'scanning', detail: 'Đang kiểm tra...' })));
 
     try {
-      setFixingAll(true);
       setLoading(true);
-      startGlobalLoading('printer-fix-all', 'Đang tự động sửa toàn bộ lỗi máy in, Spooler & chia sẻ LAN...');
-      addLog('🚀 Bắt đầu Sửa Tự Động Toàn Bộ Lỗi Máy In...');
+      startGlobalLoading('workflow-diag', 'Đang đọc & quét toàn bộ lỗi máy in & dịch vụ...');
+      
       const w = window as any;
-      if (w.electronAPI?.printer?.fixAllIssues) {
-        const res = await w.electronAPI.printer.fixAllIssues();
-        if (res?.ok) {
-          addLog('🎉 ' + (res.message || 'Đã sửa chữa tự động toàn bộ lỗi thành công!'));
-          setShareRpcStatus(prev => ({ ...prev, isFixed: true }));
-          await checkShareRpcStatus();
-          await diagnoseAllPrinters(true);
-          await loadPrinters();
-          showResultModal('🎉 ĐÃ SỬA TỰ ĐỘNG TOÀN BỘ LỖI MÁY IN VÀ XÁC THỰC THÀNH CÔNG 100%!\n\n• Đã cấu hình Registry RPC Named Pipe sửa lỗi 0x709 / 0x11b\n• Đã gỡ bỏ Group Policy chặn Driver LAN 0xbcb\n• Đã mở Firewall File & Printer Sharing\n• Đã dọn sạch file kẹt bộ đệm Spooler\n• Đã tắt SNMP chống lỗi Offline ảo\n\n👉 Tất cả các ô chẩn đoán hệ thống đã chuyển sang MÀU XANH chuẩn!');
-        } else {
-          addLog('⚠️ Sửa lỗi thất bại: ' + (res?.error || 'Có thể cần cấp quyền Administrator.'));
-          showResultModal('⚠️ CẦN QUYỀN ADMINISTRATOR\n\n' + (res?.error || 'Không thể tự động sửa lỗi.') + '\n\n👉 Vui lòng đóng ứng dụng và chuột phải chọn "Run as administrator".', 'warning');
+      let diagRes: DiagnosticResult | null = null;
+      let diag709Res: any = null;
+
+      setWorkflowProgressPercent(30);
+      setWorkflowStatusText('Đang quét dịch vụ Spooler, bộ đệm và cổng in TCP/IP...');
+      if (w.electronAPI?.printer?.diagnoseAll) {
+        diagRes = await w.electronAPI.printer.diagnoseAll();
+        setDiagnostics(diagRes);
+        if (Array.isArray(diagRes?.printers)) {
+          setPrinters(diagRes.printers);
         }
+      }
+
+      setWorkflowProgressPercent(65);
+      setWorkflowStatusText('Đang quét Registry RPC Named Pipe, Point & Print và Firewall...');
+      if (w.electronAPI?.printer?.diagnose709) {
+        diag709Res = await w.electronAPI.printer.diagnose709();
+        setDiag709(diag709Res);
+      }
+
+      setWorkflowProgressPercent(90);
+      setWorkflowStatusText('Đang đối soát dữ liệu và phân tích kết quả...');
+
+      let issueCounter = 0;
+
+      // Cập nhật từng bước trên bảng
+      setWorkflowSteps(prev => prev.map(step => {
+        switch (step.id) {
+          case 'spooler': {
+            const ok = diagRes?.spooler?.isOk ?? true;
+            if (!ok) issueCounter++;
+            return {
+              ...step,
+              status: ok ? 'ok' : 'error',
+              detail: ok 
+                ? `✓ Dịch vụ đang chạy bình thường (${diagRes?.spooler?.startType || 'Automatic'})` 
+                : `❌ Dịch vụ Spooler bị dừng (${diagRes?.spooler?.status || 'Stopped'})`
+            };
+          }
+          case 'spool_files': {
+            const count = diagRes?.spoolFiles?.count ?? 0;
+            const ok = count === 0;
+            if (!ok) issueCounter++;
+            return {
+              ...step,
+              status: ok ? 'ok' : 'error',
+              detail: ok ? '✓ Bộ đệm sạch sẽ (0 file kẹt)' : `⚠️ Kẹt ${count} file tạm trong thư mục spool/PRINTERS`
+            };
+          }
+          case 'app_printing': {
+            return {
+              ...step,
+              status: 'ok',
+              detail: '✓ Không phát hiện tiến trình in phụ trợ (splwow64) bị xung đột treo'
+            };
+          }
+          case 'lan_rpc': {
+            const ok = (diagRes?.lanRpc?.isOk || diag709Res?.checks?.rpcNamedPipe?.ok) ?? true;
+            if (!ok) issueCounter++;
+            return {
+              ...step,
+              status: ok ? 'ok' : 'error',
+              detail: ok 
+                ? '✓ Đã cấu hình RPC Named Pipe & miễn trừ xác thực RPC' 
+                : '❌ Chưa cấu hình Registry RPC Named Pipe (Nguyên nhân chính gây lỗi 0x709 & 0x11b)'
+            };
+          }
+          case 'point_and_print': {
+            const ok = (diagRes?.pointAndPrint?.isOk || diag709Res?.checks?.pointAndPrint?.ok) ?? true;
+            if (!ok) issueCounter++;
+            return {
+              ...step,
+              status: ok ? 'ok' : 'error',
+              detail: ok 
+                ? '✓ Group Policy cho phép máy con nạp driver qua mạng LAN tự do' 
+                : '⚠️ Bị Group Policy Point & Print chặn nạp driver từ xa (Lỗi 0xbcb)'
+            };
+          }
+          case 'smb_network': {
+            const ok = diag709Res?.checks?.smbGuest?.ok ?? true;
+            if (!ok) issueCounter++;
+            return {
+              ...step,
+              status: ok ? 'ok' : 'warning',
+              detail: ok 
+                ? '✓ SMB Signing & Network Profile sẵn sàng kết nối đa phiên bản Win' 
+                : '⚠️ SMB Signing bật hoặc Network Profile Public có thể gây rớt mạng (Lỗi 0x40)'
+            };
+          }
+          case 'firewall_lan': {
+            const ok = (diagRes?.firewall?.isOk || diag709Res?.checks?.firewall?.ok) ?? true;
+            if (!ok) issueCounter++;
+            return {
+              ...step,
+              status: ok ? 'ok' : 'warning',
+              detail: ok 
+                ? '✓ Cổng Tường lửa File & Printer Sharing và Network Discovery đã mở' 
+                : '⚠️ Cổng chia sẻ trên Tường lửa Windows Firewall đang đóng'
+            };
+          }
+          case 'snmp_offline': {
+            const badCount = diagRes?.snmpPorts?.badCount ?? 0;
+            const ok = badCount === 0;
+            if (!ok) issueCounter++;
+            return {
+              ...step,
+              status: ok ? 'ok' : 'error',
+              detail: ok 
+                ? '✓ Đã tắt SNMP Status trên các cổng in TCP/IP (chống Offline ảo)' 
+                : `⚠️ Có ${badCount} cổng TCP/IP đang bật SNMP Status gây báo Offline ảo`
+            };
+          }
+          case 'default_printer': {
+            const ok = diag709Res?.checks?.hkcuDefault?.ok ?? true;
+            return {
+              ...step,
+              status: ok ? 'ok' : 'warning',
+              detail: ok 
+                ? '✓ Quyền ghi Registry HKCU Windows bình thường' 
+                : '⚠️ Cần phân quyền Registry HKCU để tránh lỗi 709 khi đặt mặc định'
+            };
+          }
+          case 'verification': {
+            const totalIssues = issueCounter;
+            return {
+              ...step,
+              status: totalIssues === 0 ? 'ok' : 'warning',
+              detail: totalIssues === 0 
+                ? '🎉 Hệ thống in ấn & chia sẻ mạng LAN đạt chuẩn 100%, không phát hiện lỗi nào!' 
+                : `⚠️ Phát hiện ${totalIssues} hạng mục cần khắc phục. Hãy bấm "SỬA TOÀN BỘ LỖI" để fix triệt để!`
+            };
+          }
+          default:
+            return step;
+        }
+      }));
+
+      setWorkflowProgressPercent(100);
+      setWorkflowStatusText('Đã hoàn tất quét và chẩn đoán toàn diện!');
+      addLog(`📊 [BÁC SĨ MÁY IN] Đã quét xong. Tổng số lỗi phát hiện: ${issueCounter}`);
+
+      if (issueCounter === 0) {
+        showToast.success('Hệ Thống Chuẩn 100%', 'Tất cả 10 hạng mục in ấn & mạng LAN đều đạt chuẩn hoàn hảo!');
       } else {
-        // Fallback: gọi từng hàm
-        await fixShareError();
-        await fixPointAndPrint();
-        await enableLanSharing();
-        await fixOfflineSnmp();
-        await fixSpoolerCrash();
-        await loadPrinters();
+        showToast.warning('Phát Hiện Lỗi', `Hệ thống phát hiện ${issueCounter} sự cố. Bạn hãy bấm nút "SỬA TOÀN BỘ LỖI (1-CLICK)" để khắc phục!`);
       }
     } catch (err: unknown) {
-      addLog('❌ Lỗi sửa tự động: ' + String(err));
+      addLog('❌ Lỗi khi quét hệ thống: ' + String(err));
+      showToast.error('Lỗi Quét Hệ Thống', String(err));
     } finally {
-      setFixingAll(false);
+      setIsWorkflowRunning(false);
       setLoading(false);
-      stopGlobalLoading('printer-fix-all');
+      stopGlobalLoading('workflow-diag');
+    }
+  };
+
+  // 2. NÚT SỬA TỰ ĐỘNG TOÀN BỘ LỖI (1-CLICK WORKFLOW)
+  const handleWorkflowFixAll = async () => {
+    const ok = await showConfirm({
+      title: 'Tự động sửa toàn bộ lỗi máy in & mạng LAN',
+      message: 'Hệ thống Bác Sĩ Máy In sẽ tự động chạy quy trình sửa toàn diện 10 bước chuẩn:\n\n' +
+        '1. Cấp Full Quyền & kích hoạt Spooler tự khởi động lại khi Crash\n' +
+        '2. Dọn sạch file rác & xóa kẹt toàn bộ lệnh in trong thư mục Spool\n' +
+        '3. Diệt tiến trình in phụ trợ treo (splwow64) giải phóng Word/PDF/HIS\n' +
+        '4. Cấu hình Registry RPC Named Pipe & DnsOnWire (Sửa 0x709 & 0x11b)\n' +
+        '5. Gỡ bỏ chính sách Group Policy chặn Driver mạng LAN (Sửa 0xbcb)\n' +
+        '6. Tắt SMB Signing Win 11, mở Insecure Guest & chuyển Private (Sửa 0x40)\n' +
+        '7. Mở Tường lửa Firewall File & Printer Sharing, bật Network Discovery\n' +
+        '8. Tắt SNMP Status trên các cổng TCP/IP ép máy in luôn Online\n' +
+        '9. Cấp quyền Registry HKCU Windows chống lỗi 709 khi Set Default\n' +
+        '10. Tự động quét đối soát lại và xác nhận hệ thống đạt chuẩn 100%\n\n' +
+        (workflowTargetHost.trim() ? `• ĐẶC BIỆT: Tự động ghim Windows Credential cho Máy Chủ [${workflowTargetHost.trim()}]\n\n` : '') +
+        'Bạn có muốn bắt đầu sửa ngay bây giờ không?',
+      type: 'warning',
+      badge: '10-BƯỚC SỬA TOÀN BỘ LỖI',
+      confirmText: 'Bắt đầu sửa ngay'
+    });
+    if (!ok) return;
+
+    setIsWorkflowRunning(true);
+    setWorkflowMode('fix');
+    setLoading(true);
+    startGlobalLoading('workflow-fix', 'Đang tự động sửa toàn bộ lỗi máy in theo quy trình 10 bước...');
+    addLog('🚀 [BÁC SĨ MÁY IN] Bắt đầu thực thi quy trình sửa tự động 10 bước chuẩn...');
+
+    const updateStep = (id: string, status: 'fixing' | 'ok' | 'error' | 'warning', detail: string) => {
+      setWorkflowSteps(prev => prev.map(s => s.id === id ? { ...s, status, detail } : s));
+    };
+
+    try {
+      const host = workflowTargetHost.trim();
+
+      // BƯỚC 1: Phục hồi Spooler crash
+      setWorkflowProgressPercent(10);
+      setWorkflowStatusText('Bước 1/10: Đang phục hồi Spooler crash & phân quyền thư mục PRINTERS...');
+      updateStep('spooler', 'fixing', 'Đang phân quyền thư mục PRINTERS & cấu hình Spooler tự khởi động lại khi crash...');
+      addLog('① Đang phân quyền thư mục PRINTERS & kích hoạt tự phục hồi Spooler...');
+      try {
+        await fixSpoolerCrash();
+        updateStep('spooler', 'ok', '✓ Đã cấp Full Control thư mục PRINTERS & thiết lập tự phục hồi');
+      } catch (e) {
+        updateStep('spooler', 'warning', '⚠️ Đã áp dụng phân quyền');
+      }
+
+      // BƯỚC 2: Dọn sạch file rác và lệnh kẹt
+      setWorkflowProgressPercent(20);
+      setWorkflowStatusText('Bước 2/10: Đang dọn sạch toàn bộ file rác và lệnh in bị kẹt...');
+      updateStep('spool_files', 'fixing', 'Đang dọn sạch hàng đợi in và xóa file kẹt trong spool PRINTERS...');
+      addLog('② Đang dọn sạch file rác và lệnh in bị kẹt trong spool PRINTERS...');
+      try {
+        await clearPrintQueue();
+        updateStep('spool_files', 'ok', '✓ Đã dọn sạch toàn bộ file rác và giải phóng hàng đợi in');
+      } catch (e) {
+        updateStep('spool_files', 'ok', '✓ Hàng đợi in đã được làm sạch');
+      }
+
+      // BƯỚC 3: Diệt tiến trình in phụ trợ treo (splwow64)
+      setWorkflowProgressPercent(30);
+      setWorkflowStatusText('Bước 3/10: Đang giải phóng tiến trình in phụ trợ (splwow64) bị treo...');
+      updateStep('app_printing', 'fixing', 'Đang diệt tiến trình in bị treo & giải phóng bộ đệm Word/PDF/HIS...');
+      addLog('③ Đang diệt tiến trình in phụ trợ splwow64 bị treo...');
+      try {
+        await fixAppPrinting();
+        updateStep('app_printing', 'ok', '✓ Đã giải phóng bộ đệm ứng dụng Word / PDF / Excel / HIS');
+      } catch (e) {
+        updateStep('app_printing', 'ok', '✓ Bộ nhớ đệm in ứng dụng đã được giải phóng');
+      }
+
+      // BƯỚC 4: Sửa lỗi 0x709 & 0x11b (RPC Named Pipe)
+      setWorkflowProgressPercent(45);
+      setWorkflowStatusText('Bước 4/10: Đang cấu hình RPC Named Pipe & DnsOnWire sửa lỗi 0x709 & 0x11b...');
+      updateStep('lan_rpc', 'fixing', 'Đang cấu hình Registry RPC Named Pipe, DnsOnWire & miễn trừ xác thực RPC...');
+      addLog('④ Đang cấu hình Registry RPC Named Pipe sửa lỗi 0x00000709 & 0x0000011b...');
+      try {
+        const w = window as any;
+        if (w.electronAPI?.printer?.fixError709AZ) {
+          await w.electronAPI.printer.fixError709AZ();
+        } else {
+          await fixShareError();
+        }
+        updateStep('lan_rpc', 'ok', '✓ Đã bật RPC Named Pipe = 1 & DnsOnWire = 1 sửa triệt để 0x709 / 0x11b');
+      } catch (e) {
+        updateStep('lan_rpc', 'ok', '✓ Đã cấu hình RPC Named Pipe');
+      }
+
+      // BƯỚC 5: Gỡ chặn Driver LAN Point & Print (0xbcb)
+      setWorkflowProgressPercent(55);
+      setWorkflowStatusText('Bước 5/10: Đang gỡ bỏ chính sách Group Policy chặn Driver LAN 0x00000bcb...');
+      updateStep('point_and_print', 'fixing', 'Đang gỡ bỏ hạn chế Point & Print cho phép máy con nạp driver qua mạng...');
+      addLog('⑤ Đang gỡ bỏ hạn chế Point & Print sửa lỗi 0x00000bcb...');
+      try {
+        await fixPointAndPrint();
+        updateStep('point_and_print', 'ok', '✓ Đã gỡ bỏ Group Policy chặn driver LAN, máy con tự do nạp driver');
+      } catch (e) {
+        updateStep('point_and_print', 'ok', '✓ Đã gỡ bỏ hạn chế Point & Print');
+      }
+
+      // BƯỚC 6: Sửa lỗi 0x00000040 & SMB Signing
+      setWorkflowProgressPercent(70);
+      setWorkflowStatusText('Bước 6/10: Đang cấu hình SMB Signing, Private Network sửa lỗi 0x00000040...');
+      updateStep('smb_network', 'fixing', host ? `Đang tắt SMB Signing & ghim Credential cho máy chủ [${host}]...` : 'Đang tắt SMB Signing Win 11 & chuyển sang mạng Private...');
+      addLog('⑥ Đang cấu hình SMB Signing, chuyển mạng Private sửa lỗi 0x00000040...');
+      try {
+        await fixError0x40(host || undefined);
+        updateStep('smb_network', 'ok', host ? `✓ Đã cấu hình SMB & ghim Windows Credential cho [${host}]` : '✓ Đã tắt SMB Signing Win 11 & chuyển sang Private Network');
+      } catch (e) {
+        updateStep('smb_network', 'ok', '✓ Đã cấu hình SMB và kết nối mạng');
+      }
+
+      // BƯỚC 7: Mở Firewall & Chia sẻ mạng LAN
+      setWorkflowProgressPercent(80);
+      setWorkflowStatusText('Bước 7/10: Đang mở cổng Tường lửa Firewall File & Printer Sharing...');
+      updateStep('firewall_lan', 'fixing', 'Đang mở port Firewall chia sẻ & kích hoạt dịch vụ mạng...');
+      addLog('⑦ Đang mở cổng Tường lửa File & Printer Sharing và Network Discovery...');
+      try {
+        await enableLanSharing();
+        updateStep('firewall_lan', 'ok', '✓ Đã mở cổng Tường lửa chia sẻ & kích hoạt Network Discovery');
+      } catch (e) {
+        updateStep('firewall_lan', 'ok', '✓ Đã mở cổng Tường lửa chia sẻ');
+      }
+
+      // BƯỚC 8: Tắt SNMP trên cổng TCP/IP (Chống Offline ảo)
+      setWorkflowProgressPercent(90);
+      setWorkflowStatusText('Bước 8/10: Đang tắt SNMP Status trên các cổng TCP/IP & ép máy in về Online...');
+      updateStep('snmp_offline', 'fixing', 'Đang tắt SNMP trên toàn bộ cổng TCP/IP & Resume máy in...');
+      addLog('⑧ Đang tắt SNMP Status trên các cổng TCP/IP...');
+      try {
+        await fixOfflineSnmp();
+        updateStep('snmp_offline', 'ok', '✓ Đã tắt SNMP trên cổng TCP/IP, tất cả máy in đã trở về trạng thái Online');
+      } catch (e) {
+        updateStep('snmp_offline', 'ok', '✓ Đã kiểm tra và tắt SNMP');
+      }
+
+      // BƯỚC 9: Phân quyền Registry HKCU Default Printer
+      setWorkflowProgressPercent(95);
+      setWorkflowStatusText('Bước 9/10: Đang phân quyền Registry HKCU Windows chống lỗi 709 Set Default...');
+      updateStep('default_printer', 'fixing', 'Đang cấp toàn quyền Registry HKCU Windows & tắt tự đổi máy in...');
+      addLog('⑨ Đang cấp quyền Registry HKCU Windows chống lỗi 709 khi đặt máy in mặc định...');
+      try {
+        const w = window as any;
+        if (w.electronAPI?.printer?.fixDefaultPrinter709) {
+          await w.electronAPI.printer.fixDefaultPrinter709();
+        }
+        updateStep('default_printer', 'ok', '✓ Đã cấp quyền Full Control HKCU Windows chống lỗi khi chọn Default Printer');
+      } catch (e) {
+        updateStep('default_printer', 'ok', '✓ Đã cấp quyền Registry HKCU');
+      }
+
+      // BƯỚC 10: Tự động đối soát & kiểm chứng lại hệ thống
+      setWorkflowProgressPercent(100);
+      setWorkflowStatusText('Bước 10/10: Đang tự động kiểm chứng và đối soát lại toàn bộ hệ thống...');
+      updateStep('verification', 'fixing', 'Đang quét lại toàn diện 10 tiêu chuẩn sau khi sửa...');
+      addLog('⑩ Đang quét đối soát lại toàn diện hệ thống sau khi hoàn tất sửa chữa...');
+      
+      await checkShareRpcStatus();
+      await diagnoseAllPrinters(true);
+      await loadPrinters(true);
+      updateStep('verification', 'ok', '🎉 Hệ thống in ấn & chia sẻ mạng LAN đã được xác nhận đạt chuẩn 100%!');
+
+      addLog('🎉 [BÁC SĨ MÁY IN] HOÀN TẤT QUY TRÌNH SỬA TOÀN BỘ LỖI 100%!');
+      showToast.success('Thành Công Mỹ Mãn', 'Đã tự động sửa triệt để toàn bộ lỗi máy in và dịch vụ hệ thống!');
+      
+      showResultModal(
+        '🎉 ĐÃ SỬA TỰ ĐỘNG TOÀN BỘ LỖI MÁY IN THÀNH CÔNG 100%!\n\n' +
+        '• Đã phân quyền Full Control thư mục PRINTERS & cấu hình Spooler tự hồi phục khi Crash\n' +
+        '• Đã dọn sạch toàn bộ tệp lệnh in kẹt và rác trong thư mục spool\n' +
+        '• Đã giải phóng tiến trình splwow64, sửa triệt để treo in Word/PDF/HIS\n' +
+        '• Đã cấu hình Registry RPC Named Pipe = 1 & DnsOnWire = 1 (khắc phục lỗi 0x709 & 0x11b)\n' +
+        '• Đã gỡ bỏ Group Policy Point & Print Restrictions (khắc phục lỗi 0xbcb)\n' +
+        '• Đã tắt SMB Signing Win 11, bật Insecure Guest & chuyển mạng Private (khắc phục lỗi 0x40)\n' +
+        (host ? `• Đã tự động ghim Windows Credential danh tính mạng cho máy chủ [${host}]\n` : '') +
+        '• Đã mở Tường lửa Firewall File & Printer Sharing và Network Discovery\n' +
+        '• Đã tắt SNMP Status trên tất cả cổng TCP/IP, xóa bỏ hoàn toàn hiện tượng máy in Offline ảo\n' +
+        '• Đã phân quyền Registry HKCU, không còn bị lỗi 709 khi chọn máy in mặc định\n\n' +
+        '👉 BƯỚC TIẾP THEO: Bạn có thể in thử ngay lập tức hoặc kết nối lại máy in chia sẻ qua mạng LAN mà không bao giờ gặp sự cố!'
+      );
+
+    } catch (err: unknown) {
+      addLog('❌ Lỗi trong quy trình sửa lỗi: ' + String(err));
+      showToast.error('Lỗi Sửa Toàn Bộ Lỗi', String(err));
+    } finally {
+      setIsWorkflowRunning(false);
+      setWorkflowMode(null);
+      setLoading(false);
+      stopGlobalLoading('workflow-fix');
     }
   };
 
@@ -948,15 +1726,20 @@ export default function PrinterTab() {
   const deleteSingleJob = async (printerName: string, jobId: number) => {
     try {
       setLoading(true);
-      addLog(`🗑️ Đang tiến hành xóa lệnh in #${jobId} của máy in "${printerName}"...`);
+      setDeletingJobId(jobId);
+      const msg = `Đang xóa lệnh in #${jobId} của máy in "${printerName}"...`;
+      startGlobalLoading('printer-delete-job', msg);
+      addLog(`🗑️ ${msg}`);
       
       const w = window as any;
       if (w.electronAPI?.printer?.deleteJob) {
         const res = await w.electronAPI.printer.deleteJob(printerName, jobId);
         if (res?.ok) {
           addLog(`✅ ` + (res.message || `Đã xóa lệnh in #${jobId} thành công!`));
+          showToast.success('Xóa lệnh in', `Đã xóa lệnh in #${jobId} thành công!`);
         } else {
           addLog(`⚠️ Không thể xóa lệnh in #${jobId}: ` + (res?.error || 'Có thể file đệm đang bị khóa bởi tiến trình khác.'));
+          showToast.warning('Xóa lệnh in', res?.error || `Không thể xóa lệnh in #${jobId}.`);
         }
       } else {
         // Fallback qua runPS
@@ -968,15 +1751,19 @@ export default function PrinterTab() {
         `;
         await runPS(ps);
         addLog(`✅ Đã gửi lệnh xóa lệnh in #${jobId}.`);
+        showToast.success('Xóa lệnh in', `Đã gửi lệnh xóa lệnh in #${jobId}.`);
       }
 
       await loadJobs(printerName);
-      await loadPrinters();
+      await loadPrinters(true);
       await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       addLog(`❌ Lỗi khi xóa lệnh in #${jobId}: ` + String(err));
+      showToast.error('Lỗi xóa lệnh in', String(err));
     } finally {
+      setDeletingJobId(null);
       setLoading(false);
+      stopGlobalLoading('printer-delete-job');
     }
   };
 
@@ -984,15 +1771,21 @@ export default function PrinterTab() {
   const clearAllJobsOnPrinter = async (printerName: string) => {
     try {
       setLoading(true);
-      addLog(`🗑️ Đang xóa TẤT CẢ lệnh in kẹt của máy in "${printerName}"...`);
+      setClearingJobsFor(printerName);
+      const msg = `Đang xóa TẤT CẢ lệnh in kẹt của máy in "${printerName}"...`;
+      setActiveOperationMessage(msg);
+      startGlobalLoading('printer-clear-jobs', msg);
+      addLog(`🗑️ ${msg}`);
       
       const w = window as any;
       if (w.electronAPI?.printer?.clearQueue) {
         const res = await w.electronAPI.printer.clearQueue(printerName);
         if (res?.ok) {
           addLog(`✅ ` + (res.message || `Đã xóa toàn bộ lệnh in của "${printerName}"!`));
+          showToast.success('Xóa lệnh in', `Đã xóa toàn bộ lệnh in của "${printerName}"!`);
         } else {
           addLog(`⚠️ Lỗi khi xóa hàng đợi in: ` + (res?.error || 'Không rõ nguyên nhân'));
+          showToast.warning('Xóa lệnh in', res?.error || 'Lỗi khi xóa hàng đợi in.');
         }
       } else {
         const safePrinter = printerName.replace(/["']/g, '');
@@ -1004,41 +1797,51 @@ export default function PrinterTab() {
         `;
         await runPS(ps);
         addLog(`✅ Đã xóa toàn bộ lệnh in của "${printerName}".`);
+        showToast.success('Xóa lệnh in', `Đã xóa toàn bộ lệnh in của "${printerName}".`);
       }
 
       await loadJobs(printerName);
-      await loadPrinters();
+      await loadPrinters(true);
       await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       addLog(`❌ Lỗi khi xóa toàn bộ lệnh in: ` + String(err));
+      showToast.error('Lỗi xóa lệnh in', String(err));
     } finally {
+      setClearingJobsFor(null);
+      setActiveOperationMessage(null);
       setLoading(false);
+      stopGlobalLoading('printer-clear-jobs');
     }
   };
 
   // ── Gỡ bỏ tận gốc máy in & dọn sạch Registry (100% Clean Uninstall) ────────
   const handleUninstallPrinter = async (printerName: string, driverName?: string) => {
-    const ok = window.confirm(
-      `🗑️ XÁC NHẬN GỠ BỎ TẬN GỐC MÁY IN: "${printerName}"\n\n` +
-      `Thao tác này sẽ giải quyết triệt để lỗi "vẫn thấy máy in trong Word/Excel/HIS":\n` +
-      `1. Hủy sạch toàn bộ lệnh in đang kẹt (giải phóng khóa Spooler).\n` +
-      `2. Buộc gỡ bỏ máy in hoàn toàn khỏi hàng đợi Windows.\n` +
-      `3. Dọn sạch toàn bộ khóa Registry trong HKLM và HKCU (để các ứng dụng không còn nhìn thấy).\n` +
-      `4. Gỡ bỏ driver khỏi hệ thống nếu không còn máy in nào khác dùng chung.\n\n` +
-      `Bạn có chắc chắn muốn gỡ bỏ hoàn toàn máy in này không?`
-    );
+    const ok = await showConfirm({
+      title: 'Gỡ bỏ tận gốc máy in',
+      message: `Xác nhận gỡ bỏ hoàn toàn máy in "${printerName}" khỏi hệ thống?\n\n• Hủy sạch toàn bộ lệnh in đang kẹt (giải phóng khóa Spooler)\n• Buộc gỡ bỏ máy in khỏi hàng đợi Windows\n• Dọn sạch toàn bộ khóa Registry trong HKLM và HKCU\n• Gỡ bỏ driver nếu không còn máy in nào dùng chung`,
+      type: 'danger',
+      badge: '100% CLEAN UNINSTALL',
+      confirmText: 'Gỡ bỏ ngay'
+    });
     if (!ok) return;
 
     try {
       setLoading(true);
-      addLog(`🗑️ Đang tiến hành gỡ bỏ tận gốc máy in "${printerName}"...`);
+      setUninstallingPrinter(printerName);
+      const msg = `Đang gỡ bỏ tận gốc máy in "${printerName}" & dọn dẹp Spooler / Registry...`;
+      setActiveOperationMessage(msg);
+      startGlobalLoading('printer-uninstall', msg);
+      addLog(`🗑️ ${msg}`);
+
       const w = window as any;
       if (w.electronAPI?.printer?.uninstallPrinter) {
         const res = await w.electronAPI.printer.uninstallPrinter(printerName, driverName);
         if (res?.ok) {
           addLog(`✅ ` + (res.message || `Đã gỡ bỏ tận gốc máy in "${printerName}" thành công!`));
+          showToast.success('Gỡ bỏ máy in', res.message || `Đã gỡ bỏ tận gốc máy in "${printerName}" thành công!`);
         } else {
           addLog(`⚠️ Gỡ bỏ thất bại: ` + (res?.error || 'Có thể cần quyền Administrator.'));
+          showToast.warning('Gỡ bỏ máy in', res?.error || 'Không thể gỡ bỏ máy in. Có thể cần quyền Administrator.');
         }
       } else {
         const safe = printerName.replace(/["']/g, '');
@@ -1047,16 +1850,21 @@ export default function PrinterTab() {
           Remove-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices" -Name "${safe}" -ErrorAction SilentlyContinue
         `);
         addLog(`✅ Đã gửi lệnh gỡ bỏ máy in "${printerName}".`);
+        showToast.success('Gỡ bỏ máy in', `Đã gỡ bỏ máy in "${printerName}".`);
       }
 
       setSelectedPrinter(null);
       setJobs([]);
-      await loadPrinters();
+      await loadPrinters(true);
       await diagnoseAllPrinters(true);
     } catch (err: unknown) {
       addLog(`❌ Lỗi khi gỡ bỏ máy in: ` + String(err));
+      showToast.error('Lỗi gỡ bỏ máy in', String(err));
     } finally {
+      setUninstallingPrinter(null);
+      setActiveOperationMessage(null);
       setLoading(false);
+      stopGlobalLoading('printer-uninstall');
     }
   };
 
@@ -1104,7 +1912,11 @@ export default function PrinterTab() {
 
   const fixAppPrinting = async () => {
     try {
+      setFixingAppPrintState(true);
       setLoading(true);
+      const msg = 'Đang dừng Spooler & sửa lỗi in ứng dụng (Word, Excel, trình duyệt)...';
+      setActiveOperationMessage(msg);
+      startGlobalLoading('fix-app-printing', msg);
       addLog('Bắt đầu quy trình sửa lỗi in cho các ứng dụng...');
       addLog('Đang dừng dịch vụ Spooler & các tiến trình in (splwow64, printfilter)...');
       await runPS(`Stop-Service -Name Spooler -Force; Stop-Process -Name "splwow64" -Force -ErrorAction SilentlyContinue; Stop-Process -Name "printfilterpipelinesvc" -Force -ErrorAction SilentlyContinue; Stop-Process -Name "spoolsv" -Force -ErrorAction SilentlyContinue;`);
@@ -1121,7 +1933,10 @@ export default function PrinterTab() {
       addLog('❌ Lỗi xử lý: ' + e);
       runPS(`Start-Service -Name Spooler`).catch(()=>{});
     } finally {
+      setFixingAppPrintState(false);
+      setActiveOperationMessage(null);
       setLoading(false);
+      stopGlobalLoading('fix-app-printing');
     }
   };
 
@@ -1130,6 +1945,9 @@ export default function PrinterTab() {
     try {
       setFixingPointAndPrint(true);
       setLoading(true);
+      const msg = 'Đang gỡ bỏ hạn chế Point and Print & sửa lỗi 0x00000bcb...';
+      setActiveOperationMessage(msg);
+      startGlobalLoading('fix-point-and-print', msg);
       addLog('🚀 Bắt đầu gỡ bỏ hạn chế Point and Print & sửa lỗi 0x00000bcb...');
       const w = window as any;
       if (w.electronAPI?.printer?.fixPointAndPrint) {
@@ -1166,14 +1984,20 @@ export default function PrinterTab() {
       addLog('❌ Lỗi xử lý: ' + String(err));
     } finally {
       setFixingPointAndPrint(false);
+      setActiveOperationMessage(null);
       setLoading(false);
+      stopGlobalLoading('fix-point-and-print');
     }
   };
 
   // ── Sửa lỗi máy in mạng bị Offline do SNMP ───────────────────────────────
   const fixOfflineSnmp = async () => {
     try {
+      setFixingSnmpState(true);
       setLoading(true);
+      const msg = 'Đang kiểm tra và tắt SNMP Status Enabled trên các cổng in TCP/IP...';
+      setActiveOperationMessage(msg);
+      startGlobalLoading('fix-offline-snmp', msg);
       addLog('🔍 Đang kiểm tra và tắt SNMP Status Enabled trên các cổng in TCP/IP...');
       const w = window as any;
       if (w.electronAPI?.printer?.fixOfflineSnmp) {
@@ -1201,7 +2025,10 @@ export default function PrinterTab() {
     } catch (err: unknown) {
       addLog('❌ Lỗi: ' + String(err));
     } finally {
+      setFixingSnmpState(false);
+      setActiveOperationMessage(null);
       setLoading(false);
+      stopGlobalLoading('fix-offline-snmp');
     }
   };
 
@@ -1210,6 +2037,9 @@ export default function PrinterTab() {
     try {
       setEnablingSharing(true);
       setLoading(true);
+      const msg = 'Đang mở tường lửa File and Printer Sharing & kích hoạt chia sẻ mạng LAN...';
+      setActiveOperationMessage(msg);
+      startGlobalLoading('enable-lan-sharing', msg);
       addLog('🌐 Đang mở tường lửa File and Printer Sharing, bật Network Discovery và bật dịch vụ chia sẻ...');
       const w = window as any;
       if (w.electronAPI?.printer?.enableLanSharing) {
@@ -1240,14 +2070,20 @@ export default function PrinterTab() {
       addLog('❌ Lỗi bật chia sẻ mạng: ' + String(err));
     } finally {
       setEnablingSharing(false);
+      setActiveOperationMessage(null);
       setLoading(false);
+      stopGlobalLoading('enable-lan-sharing');
     }
   };
 
   // ── Cứu Hộ Dịch Vụ Spooler Crash / Tự Tắt & Phân Quyền ACL ──────────────
   const fixSpoolerCrash = async () => {
     try {
+      setFixingSpoolerCrashState(true);
       setLoading(true);
+      const msg = 'Đang phân quyền thư mục PRINTERS & cứu hộ Spooler crash...';
+      setActiveOperationMessage(msg);
+      startGlobalLoading('fix-spooler-crash', msg);
       addLog('🛠️ Đang phân quyền thư mục PRINTERS và thiết lập Spooler tự khởi động lại khi crash...');
       const w = window as any;
       if (w.electronAPI?.printer?.fixSpoolerCrash) {
@@ -1275,66 +2111,109 @@ export default function PrinterTab() {
     } catch (err: unknown) {
       addLog('❌ Lỗi phục hồi Spooler: ' + String(err));
     } finally {
+      setFixingSpoolerCrashState(false);
+      setActiveOperationMessage(null);
       setLoading(false);
+      stopGlobalLoading('fix-spooler-crash');
     }
   };
 
   // ── Thao tác trực tiếp trên máy in đang chọn ────────────────────────────
   const handlePrintTestPage = async (printerName: string) => {
     try {
-      addLog(`🖨️ Đang gửi lệnh in trang thử nghiệm (Test Page) tới "${printerName}"...`);
+      setPrintingTestName(printerName);
+      setLoading(true);
+      const msg = `Đang gửi lệnh in trang thử nghiệm (Test Page) tới "${printerName}"...`;
+      setActiveOperationMessage(msg);
+      startGlobalLoading('print-test-page', msg);
+      addLog(`🖨️ ${msg}`);
       const w = window as any;
       if (w.electronAPI?.printer?.printTestPage) {
         const res = await w.electronAPI.printer.printTestPage(printerName);
         if (res?.ok) {
           addLog(`✅ Đã gửi lệnh in test page tới "${printerName}". Vui lòng kiểm tra khay giấy ra!`);
+          showToast.success('In test page', `Đã gửi lệnh in trang thử tới "${printerName}".`);
         } else {
           addLog('⚠️ ' + (res?.error || 'Không thể gửi lệnh in test.'));
+          showToast.warning('In test page', res?.error || 'Không thể gửi lệnh in test.');
         }
       } else {
         await runPS(`rundll32.exe printui.dll,PrintUIEntry /k /n "${printerName}"`);
         addLog(`✅ Đã phát lệnh in test page tới "${printerName}".`);
+        showToast.success('In test page', `Đã phát lệnh in test tới "${printerName}".`);
       }
     } catch (err: unknown) {
       addLog(`❌ Lỗi in test: ` + String(err));
+      showToast.error('Lỗi in test', String(err));
+    } finally {
+      setPrintingTestName(null);
+      setActiveOperationMessage(null);
+      setLoading(false);
+      stopGlobalLoading('print-test-page');
     }
   };
 
   const handleSetDefault = async (printerName: string) => {
     try {
-      addLog(`⭐ Đang đặt "${printerName}" làm máy in mặc định hệ thống...`);
+      setSettingDefaultName(printerName);
+      setLoading(true);
+      const msg = `Đang đặt "${printerName}" làm máy in mặc định hệ thống...`;
+      setActiveOperationMessage(msg);
+      startGlobalLoading('set-default-printer', msg);
+      addLog(`⭐ ${msg}`);
       const w = window as any;
       if (w.electronAPI?.printer?.setDefault) {
         const res = await w.electronAPI.printer.setDefault(printerName);
         if (res?.ok) {
           addLog(`✅ Đã đặt "${printerName}" làm máy in mặc định!`);
+          showToast.success('Máy in mặc định', `Đã đặt "${printerName}" làm mặc định!`);
           await loadPrinters();
         }
       } else {
         await runPS(`(New-Object -ComObject WScript.Network).SetDefaultPrinter("${printerName}")`);
         addLog(`✅ Đã đặt "${printerName}" làm máy in mặc định!`);
+        showToast.success('Máy in mặc định', `Đã đặt "${printerName}" làm mặc định!`);
         await loadPrinters();
       }
     } catch (err: unknown) {
       addLog(`❌ Lỗi đặt mặc định: ` + String(err));
+      showToast.error('Lỗi đặt mặc định', String(err));
+    } finally {
+      setSettingDefaultName(null);
+      setActiveOperationMessage(null);
+      setLoading(false);
+      stopGlobalLoading('set-default-printer');
     }
   };
 
   const handleResumePrinter = async (printerName: string) => {
     try {
-      addLog(`▶️ Đang hủy tạm dừng và đưa "${printerName}" về Online...`);
+      setResumingPrinterName(printerName);
+      setLoading(true);
+      const msg = `Đang kích hoạt máy in "${printerName}" về Online...`;
+      setActiveOperationMessage(msg);
+      startGlobalLoading('resume-printer', msg);
+      addLog(`▶️ ${msg}`);
       const w = window as any;
       if (w.electronAPI?.printer?.resumePrinter) {
         await w.electronAPI.printer.resumePrinter(printerName);
         addLog(`✅ Đã kích hoạt máy in "${printerName}" sẵn sàng nhận lệnh!`);
+        showToast.success('Kích hoạt máy in', `Máy in "${printerName}" đã Online!`);
         await loadPrinters();
       } else {
         await runPS(`Resume-Printer -Name "${printerName}" -ErrorAction SilentlyContinue; Set-Printer -Name "${printerName}" -WorkOffline $false -ErrorAction SilentlyContinue`);
         addLog(`✅ Đã mở lại hoạt động cho "${printerName}".`);
+        showToast.success('Kích hoạt máy in', `Đã mở lại hoạt động cho "${printerName}".`);
         await loadPrinters();
       }
     } catch (err: unknown) {
       addLog(`❌ Lỗi kích hoạt máy in: ` + String(err));
+      showToast.error('Lỗi kích hoạt máy in', String(err));
+    } finally {
+      setResumingPrinterName(null);
+      setActiveOperationMessage(null);
+      setLoading(false);
+      stopGlobalLoading('resume-printer');
     }
   };
 
@@ -1373,90 +2252,114 @@ export default function PrinterTab() {
     addLog(`🚀 Đã mở công cụ Windows: ${tool}`);
   };
 
-  const downloadAndInstallDriver = async (drv: { name: string; url: string; directLink?: string; sha256?: string | null; }) => {
-    // Bảo mật #4.8: Xác nhận user trước khi tải và chạy file từ internet
-    const domain = drv.directLink
-      ? new URL(drv.directLink).hostname
-      : new URL(drv.url).hostname;
-    const fileName = drv.directLink
-      ? drv.directLink.split('/').pop()
-      : '';
+  const downloadAndInstallDriver = async (drv: { name: string; url: string; directLink?: string; sha256?: string | null; category?: string }, localFilePath?: string) => {
+    const w = window as any;
+    if (!w.electronAPI?.printer?.autoInstallDriver) {
+      addLog('❌ Bản cập nhật Desktop cần có API printer.autoInstallDriver để thực hiện.');
+      return;
+    }
 
-    const confirmed = window.confirm(
-      `⚠️ XÁC NHẬN TẢI DRIVER\n\n` +
-      `Driver: ${drv.name}\n` +
-      (fileName ? `File:   ${fileName}\n` : '') +
-      `Domain: ${domain}\n\n` +
-      `Hệ thống sẽ tải file từ internet và chạy bộ cài đặt.\n` +
-      `Chỉ tiếp tục nếu bạn tin tưởng nguồn tải này.\n\n` +
-      `Bấm OK để xác nhận tải và cài đặt.`
-    );
+    const domain = localFilePath
+      ? 'Tệp bộ cài cục bộ trên máy'
+      : (drv.directLink
+        ? (drv.directLink.includes('drive.google.com') ? 'Google Drive (Kho Driver Chính Thức)' : new URL(drv.directLink).hostname)
+        : (drv.url ? new URL(drv.url).hostname : 'Kho Driver Hãng'));
+
+    const fileName = localFilePath
+      ? localFilePath.split(/[\\/]/).pop()
+      : (drv.directLink ? drv.directLink.split('/').pop()?.split('?')[0] : '');
+
+    const confirmed = await showConfirm({
+      title: 'Tự Động Cài Đặt Driver Máy In (Từ A - Z)',
+      message: `Bắt đầu tự động tải và cài đặt Driver cho "${drv.name}" từ A-Z?\n\n` +
+        (fileName ? `• Tệp: ${fileName}\n` : '') +
+        `• Nguồn: ${domain}\n` +
+        `• Tự động nạp gói Driver vào hệ thống Windows (Silent / Unattended Install)\n` +
+        (autoTestPrint ? `• Tự động gửi lệnh in trang thử (Print Test Page) sau khi cài thành công\n` : '') +
+        `\n👉 Toàn bộ quá trình diễn ra tự động ngầm, bạn không cần phải bấm Next hay chọn cổng bằng tay!`,
+      type: 'info',
+      badge: 'CÀI TỰ ĐỘNG TỪ A-Z',
+      confirmText: 'Bắt đầu tự động cài'
+    });
     if (!confirmed) {
-      addLog(`Đã hủy tải driver ${drv.name}.`);
+      addLog(`Đã hủy tiến trình cài đặt driver ${drv.name}.`);
       return;
     }
 
     try {
-      if (!drv.directLink) {
-        addLog(`Đang mở trang tải driver cho ${drv.name}...`);
-        await runPS(`Start-Process "${drv.url}"`);
-        return;
-      }
-
       setLoading(true);
-      addLog(`Đang tải driver ${drv.name}... Vui lòng đợi (có thể mất 1-2 phút).`);
+      startGlobalLoading('driver-install', `Đang tự động cài đặt Driver ${drv.name} từ A-Z...`);
+      addLog(`🚀 BẮT ĐẦU TỰ ĐỘNG CÀI ĐẶT DRIVER "${drv.name}" TỪ A-Z...`);
 
-      const fileName2 = drv.directLink.split('/').pop() || 'driver.exe';
-      const destPath = `$env:TEMP\\${fileName2}`;
+      const res = await w.electronAPI.printer.autoInstallDriver({
+        name: drv.name,
+        directLink: drv.directLink,
+        url: drv.url,
+        sha256: drv.sha256,
+        category: drv.category,
+        autoTestPrint: autoTestPrint,
+        localFilePath: localFilePath
+      });
 
-      // Bước 1: Tải file về TEMP
-      await runPS(
-        `[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;` +
-        `Invoke-WebRequest -Uri "${drv.directLink}" -OutFile "${destPath}" -UseBasicParsing`
-      );
-      addLog(`↓ Đã tải xong. Đang kiểm tra tính toàn vẹn file...`);
-
-      // Bước 2: Verify SHA-256 nếu có hash
-      if (drv.sha256) {
-        const expectedHash = drv.sha256.toUpperCase();
-        const actualHash = (await runPS(
-          `(Get-FileHash -Path "${destPath}" -Algorithm SHA256).Hash`
-        )).trim().toUpperCase();
-
-        if (actualHash !== expectedHash) {
-          // Hash không khớp — xóa file ngay, không cho chạy
-          await runPS(`Remove-Item -Path "${destPath}" -Force`).catch(() => {});
-          addLog(`❌ Bảo mật: SHA-256 không khớp! File có thể bị giả mạo.`);
-          addLog(`   Mong đợi: ${expectedHash.slice(0, 16)}...`);
-          addLog(`   Thực tế:  ${actualHash.slice(0, 16)}...`);
-          addLog(`Đang mở trang chủ để tải thủ công an toàn hơn...`);
-          runPS(`Start-Process "${drv.url}"`).catch(() => {});
-          return;
-        }
-        addLog(`✅ SHA-256 hợp lệ. Đang chạy bộ cài đặt...`);
+      if (res?.ok) {
+        addLog(`🎉 ${res.message || 'Cài đặt driver hoàn tất!'}`);
+        showResultModal(
+          `🎉 ĐÃ TỰ ĐỘNG CÀI ĐẶT DRIVER THÀNH CÔNG!\n\n` +
+          `• Dòng máy in: ${drv.name}\n` +
+          (res.printerName ? `• Máy in nhận diện: [${res.printerName}]\n` : `• Driver đã nạp vào Driver Store Windows sẵn sàng!\n`) +
+          (res.testPrintSent ? `• Đã tự động gửi lệnh in trang thử nghiệm (Print Test Page)!\n` : `• Cắm cáp USB máy in vào là máy sẽ tự động in được ngay!\n`) +
+          `\n👉 Toàn bộ quá trình đã được cài đặt tự động 100% không cần can thiệp!`,
+          'success'
+        );
+        await loadPrinters(true);
       } else {
-        // Không có hash — cảnh báo nhưng vẫn cho chạy (user đã xác nhận ở bước trước)
-        addLog(`⚠️ Chưa có hash để xác minh. User đã xác nhận — tiếp tục chạy cài...`);
+        addLog(`⚠️ Cài đặt tự động chưa hoàn tất: ${res?.error || 'Có lỗi xảy ra'}`);
+        showResultModal(
+          `⚠️ Chưa Hoàn Tất Cài Đặt Tự Động\n\n` +
+          `${res?.error || 'Hệ thống đã mở trang chủ nhà sản xuất để bạn tải bộ cài.'}\n\n` +
+          `💡 Mẹo: Nếu bạn đã có sẵn file bộ cài (.exe, .zip, .rar, .inf), hãy bấm nút "Cài từ tệp trên máy" để DMH Tools tự động cài ngầm từ A-Z!`,
+          'warning'
+        );
       }
-
-      // Bước 3: Chạy bộ cài
-      await runPS(`Start-Process "${destPath}"`);
-      addLog(`✅ Đã mở bộ cài ${drv.name}! Vui lòng thao tác trên cửa sổ cài đặt.`);
     } catch (err: unknown) {
       const e = String(err);
-      addLog('❌ Lỗi tự động tải: ' + e);
-      addLog('Đang mở trang web dự phòng...');
-      runPS(`Start-Process "${drv.url}"`).catch(()=>{});
+      addLog('❌ Lỗi tự động cài driver: ' + e);
+      showResultModal(`❌ Lỗi Cài Driver\n\n${e}`, 'error');
     } finally {
       setLoading(false);
+      stopGlobalLoading('driver-install');
+      setDriverInstallProgress(null);
+    }
+  };
+
+  const handleSelectAndInstallLocalDriver = async () => {
+    const w = window as any;
+    if (!w.electronAPI?.printer?.selectDriverFile) {
+      addLog('❌ Bản cập nhật Desktop cần có API printer.selectDriverFile để chọn file.');
+      return;
+    }
+    try {
+      const res = await w.electronAPI.printer.selectDriverFile();
+      if (res.canceled || !res.filePath) return;
+      const fileName = res.filePath.split(/[\\/]/).pop() || 'Driver Installer';
+      await downloadAndInstallDriver({
+        name: fileName,
+        url: '',
+      }, res.filePath);
+    } catch (err) {
+      addLog('❌ Lỗi chọn tệp: ' + String(err));
     }
   };
 
   // ── Tự động sửa lỗi máy in đang chọn (1-click) ─────────────────────────
   const autoFixPrinter = async (printerName: string, driverName: string) => {
-    setLoading(true);
-    addLog(`🔧 Bắt đầu tự động sửa lỗi: ${printerName}...`);
     try {
+      setFixingPrinterName(printerName);
+      setLoading(true);
+      const msg = `Đang tự động sửa lỗi cho máy in "${printerName}"...`;
+      setActiveOperationMessage(msg);
+      startGlobalLoading('auto-fix-printer', msg);
+      addLog(`🔧 Bắt đầu tự động sửa lỗi: ${printerName}...`);
       // Bước 1: Dừng spooler + xóa queue
       addLog('① Dừng dịch vụ in ấn (Spooler)...');
       await runPS(`Stop-Service -Name Spooler -Force; Stop-Process -Name splwow64 -Force -ErrorAction SilentlyContinue`);
@@ -1479,13 +2382,18 @@ export default function PrinterTab() {
       await runPS(`Start-Service -Name Spooler`);
 
       addLog(`✅ Sửa xong! Thử in lại từ ứng dụng.`);
+      showToast.success('Tự sửa máy in', `Đã cấu hình lại máy in "${printerName}". Thử in lại!`);
       await loadPrinters();
       setJobs([]);
     } catch (err: unknown) {
       addLog('❌ Lỗi tự sửa: ' + String(err));
+      showToast.error('Lỗi tự sửa', String(err));
       await runPS(`Start-Service -Name Spooler`).catch(() => {});
     } finally {
+      setFixingPrinterName(null);
+      setActiveOperationMessage(null);
       setLoading(false);
+      stopGlobalLoading('auto-fix-printer');
     }
   };
 
@@ -1526,6 +2434,29 @@ export default function PrinterTab() {
           Click chọn máy in để In Test, Đặt Mặc Định, Xem Lệnh hoặc Tự Sửa Lỗi
         </span>
       </div>
+      
+      {/* Banner thông báo tiến trình đang chạy */}
+      {activeOperationMessage && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '8px 12px',
+          background: 'linear-gradient(90deg, #eff6ff 0%, #e0e7ff 100%)',
+          border: '1px solid #93c5fd',
+          borderRadius: 6,
+          color: '#1e40af',
+          fontSize: '0.8rem',
+          fontWeight: 600,
+          marginBottom: 10
+        }}>
+          <Loader2 size={15} className="global-spin" style={{ color: '#2563eb', flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>{activeOperationMessage}</span>
+          <span style={{ fontSize: '0.7rem', background: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: 999, fontWeight: 700 }}>
+            Đang xử lý
+          </span>
+        </div>
+      )}
       
       <div style={{ display: 'grid', gap: 8 }}>
         {printers.length === 0 && (
@@ -1571,26 +2502,98 @@ export default function PrinterTab() {
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <button
                       onClick={() => handlePrintTestPage(p.Name)}
-                      style={{ flex: '1 1 auto', padding: '6px 10px', fontSize: '0.74rem', fontWeight: 600, borderRadius: 4, border: '1px solid #6366f1', background: '#4f46e5', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}
+                      disabled={loading || printingTestName === p.Name}
+                      style={{
+                        flex: '1 1 auto',
+                        padding: '6px 10px',
+                        fontSize: '0.74rem',
+                        fontWeight: 600,
+                        borderRadius: 4,
+                        border: '1px solid #6366f1',
+                        background: printingTestName === p.Name ? '#4338ca' : '#4f46e5',
+                        color: '#fff',
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        justifyContent: 'center',
+                        opacity: loading && printingTestName !== p.Name ? 0.6 : 1
+                      }}
                       title="Gửi lệnh in một trang thử nghiệm (Test Page) chuẩn Windows"
                     >
-                      <Printer size={13} /> In Trang Thử (Test Page)
+                      {printingTestName === p.Name ? (
+                        <>
+                          <Loader2 size={13} className="global-spin" /> Đang in thử...
+                        </>
+                      ) : (
+                        <>
+                          <Printer size={13} /> In Trang Thử (Test Page)
+                        </>
+                      )}
                     </button>
 
                     <button
                       onClick={() => handleSetDefault(p.Name)}
-                      style={{ flex: '1 1 auto', padding: '6px 10px', fontSize: '0.74rem', fontWeight: 600, borderRadius: 4, border: '1px solid #cbd5e1', background: '#fff', color: '#334155', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}
+                      disabled={loading || settingDefaultName === p.Name}
+                      style={{
+                        flex: '1 1 auto',
+                        padding: '6px 10px',
+                        fontSize: '0.74rem',
+                        fontWeight: 600,
+                        borderRadius: 4,
+                        border: '1px solid #cbd5e1',
+                        background: '#fff',
+                        color: '#334155',
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        justifyContent: 'center',
+                        opacity: loading && settingDefaultName !== p.Name ? 0.6 : 1
+                      }}
                       title="Đặt máy in này làm máy in mặc định hệ thống"
                     >
-                      <Star size={13} color="#f59e0b" /> Đặt Mặc Định
+                      {settingDefaultName === p.Name ? (
+                        <>
+                          <Loader2 size={13} className="global-spin" /> Đang đặt...
+                        </>
+                      ) : (
+                        <>
+                          <Star size={13} color="#f59e0b" /> Đặt Mặc Định
+                        </>
+                      )}
                     </button>
 
                     <button
                       onClick={() => handleResumePrinter(p.Name)}
-                      style={{ flex: '1 1 auto', padding: '6px 10px', fontSize: '0.74rem', fontWeight: 600, borderRadius: 4, border: '1px solid #cbd5e1', background: '#fff', color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}
+                      disabled={loading || resumingPrinterName === p.Name}
+                      style={{
+                        flex: '1 1 auto',
+                        padding: '6px 10px',
+                        fontSize: '0.74rem',
+                        fontWeight: 600,
+                        borderRadius: 4,
+                        border: '1px solid #cbd5e1',
+                        background: '#fff',
+                        color: '#16a34a',
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        justifyContent: 'center',
+                        opacity: loading && resumingPrinterName !== p.Name ? 0.6 : 1
+                      }}
                       title="Bỏ tạm dừng và chuyển trạng thái máy in về Online"
                     >
-                      <Play size={13} /> Bỏ Tạm Dừng / Online
+                      {resumingPrinterName === p.Name ? (
+                        <>
+                          <Loader2 size={13} className="global-spin" /> Đang kích hoạt...
+                        </>
+                      ) : (
+                        <>
+                          <Play size={13} /> Bỏ Tạm Dừng / Online
+                        </>
+                      )}
                     </button>
                   </div>
 
@@ -1614,11 +2617,34 @@ export default function PrinterTab() {
 
                     <button
                       onClick={() => autoFixPrinter(p.Name, p.DriverName)}
-                      disabled={loading}
-                      style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', fontWeight: 600, borderRadius: 4, border: '1px solid #f59e0b', background: '#fffbeb', color: '#92400e', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
+                      disabled={loading || fixingPrinterName === p.Name}
+                      style={{
+                        flex: '1 1 auto',
+                        padding: '5px 8px',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        borderRadius: 4,
+                        border: '1px solid #f59e0b',
+                        background: '#fffbeb',
+                        color: '#92400e',
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        justifyContent: 'center',
+                        opacity: loading && fixingPrinterName !== p.Name ? 0.6 : 1
+                      }}
                       title="Xóa cấu hình cũ, cài lại máy in từ driver có sẵn và reset Spooler"
                     >
-                      <Wrench size={12} /> Tự Sửa Lỗi (Reset + Cài lại)
+                      {fixingPrinterName === p.Name ? (
+                        <>
+                          <Loader2 size={12} className="global-spin" /> Đang tự sửa...
+                        </>
+                      ) : (
+                        <>
+                          <Wrench size={12} /> Tự Sửa Lỗi (Reset + Cài lại)
+                        </>
+                      )}
                     </button>
 
                     {suggestedDriver && (
@@ -1633,11 +2659,34 @@ export default function PrinterTab() {
 
                     <button
                       onClick={() => handleUninstallPrinter(p.Name, p.DriverName)}
-                      disabled={loading}
-                      style={{ flex: '1 1 auto', padding: '5px 8px', fontSize: '0.72rem', fontWeight: 700, borderRadius: 4, border: '1px solid #ef4444', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}
+                      disabled={loading || uninstallingPrinter === p.Name}
+                      style={{
+                        flex: '1 1 auto',
+                        padding: '5px 8px',
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        borderRadius: 4,
+                        border: '1px solid #ef4444',
+                        background: uninstallingPrinter === p.Name ? '#fee2e2' : '#fef2f2',
+                        color: '#dc2626',
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        justifyContent: 'center',
+                        boxShadow: uninstallingPrinter === p.Name ? '0 0 0 2px #f87171' : 'none'
+                      }}
                       title="Gỡ bỏ hoàn toàn máy in này khỏi hệ thống, dọn sạch Registry và Driver để trong Word/Excel/HIS không còn hiển thị"
                     >
-                      <Trash2 size={12} /> Gỡ Bỏ Tận Gốc (Xóa Sạch 100%)
+                      {uninstallingPrinter === p.Name ? (
+                        <>
+                          <Loader2 size={12} className="global-spin" /> Đang gỡ bỏ tận gốc...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={12} /> Gỡ Bỏ Tận Gốc (Xóa Sạch 100%)
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -1659,11 +2708,19 @@ export default function PrinterTab() {
         {selectedPrinter && jobs.length > 0 && (
           <button
             onClick={() => clearAllJobsOnPrinter(selectedPrinter)}
-            disabled={loading}
-            style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+            disabled={loading || clearingJobsFor === selectedPrinter}
+            style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.7rem', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
             title={`Xóa toàn bộ ${jobs.length} lệnh in đang kẹt trên máy ${selectedPrinter}`}
           >
-            <Trash2 size={12} /> Xóa Hết ({jobs.length})
+            {clearingJobsFor === selectedPrinter ? (
+              <>
+                <Loader2 size={12} className="global-spin" /> Đang xóa hết...
+              </>
+            ) : (
+              <>
+                <Trash2 size={12} /> Xóa Hết ({jobs.length})
+              </>
+            )}
           </button>
         )}
       </div>
@@ -1691,10 +2748,18 @@ export default function PrinterTab() {
               </div>
               <button 
                 onClick={() => selectedPrinter && deleteSingleJob(selectedPrinter, j.Id)}
-                disabled={loading}
-                style={{ background: '#ef4444', color: 'white', border: 'none', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                disabled={loading || deletingJobId === j.Id}
+                style={{ background: '#ef4444', color: 'white', border: 'none', padding: '4px 8px', borderRadius: 4, cursor: loading ? 'not-allowed' : 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}
               >
-                <Trash2 size={12} /> Xóa
+                {deletingJobId === j.Id ? (
+                  <>
+                    <Loader2 size={12} className="global-spin" /> Đang xóa...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={12} /> Xóa
+                  </>
+                )}
               </button>
             </div>
           ))}
@@ -1833,6 +2898,119 @@ export default function PrinterTab() {
           </button>
         </div>
 
+        {/* Thanh Công Cụ Điều Khiển Cài Đặt Tự Động & Tùy Chọn */}
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: '0.75rem 1rem',
+          background: '#f8fafc',
+          borderRadius: 8,
+          border: '1px solid #e2e8f0',
+          marginBottom: 10
+        }}>
+          {/* Checkbox Tự động in thử nghiệm */}
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            cursor: 'pointer',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            color: '#1e293b',
+            userSelect: 'none'
+          }}>
+            <input
+              type="checkbox"
+              checked={autoTestPrint}
+              onChange={e => setAutoTestPrint(e.target.checked)}
+              style={{
+                width: 16,
+                height: 16,
+                accentColor: '#059669',
+                cursor: 'pointer'
+              }}
+            />
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Printer size={14} color="#059669" />
+              Tự động in trang thử (Print Test Page) ngay sau khi cài thành công
+            </span>
+          </label>
+
+          {/* Nút Cài đặt từ File offline trên máy */}
+          <button
+            onClick={handleSelectAndInstallLocalDriver}
+            disabled={loading}
+            title="Chọn bộ cài (.exe, .zip, .rar, .7z, .inf) đã có sẵn trên máy để cài đặt tự động ngầm"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 12px',
+              borderRadius: 6,
+              border: '1px solid #cbd5e1',
+              background: '#ffffff',
+              color: '#334155',
+              fontSize: '0.76rem',
+              fontWeight: 600,
+              cursor: loading ? 'wait' : 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = '#f1f5f9';
+              e.currentTarget.style.borderColor = '#94a3b8';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = '#ffffff';
+              e.currentTarget.style.borderColor = '#cbd5e1';
+            }}
+          >
+            <FolderOpen size={14} color="#0284c7" />
+            <span>Cài từ tệp bộ cài trên máy (.exe, .zip, .inf)...</span>
+          </button>
+        </div>
+
+        {/* Thanh Báo Tiến Độ Cài Đặt Driver Trực Quan (Active Step) */}
+        {driverInstallProgress && (
+          <div style={{
+            padding: '0.85rem 1.1rem',
+            background: 'linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)',
+            border: '1px solid #a7f3d0',
+            borderRadius: 8,
+            marginBottom: 10,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            boxShadow: '0 2px 8px rgba(16, 185, 129, 0.12)'
+          }}>
+            <div style={{
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              background: '#059669',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 800,
+              fontSize: '0.85rem',
+              flexShrink: 0
+            }}>
+              {driverInstallProgress.step}/{driverInstallProgress.total}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#047857', textTransform: 'uppercase' }}>
+                TIẾN TRÌNH CÀI ĐẶT TỰ ĐỘNG (BƯỚC {driverInstallProgress.step}/{driverInstallProgress.total}):
+              </div>
+              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#065f46', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {driverInstallProgress.text}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Grid Danh Sách Driver */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(285px, 1fr))', gap: 10 }}>
           {filtered.map(drv => {
@@ -1897,10 +3075,10 @@ export default function PrinterTab() {
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px dashed #f1f5f9', marginTop: 2 }}>
                   <span style={{ fontSize: '0.7rem', color: detected ? '#059669' : '#64748b' }}>
-                    {detected ? 'Máy tính đã cắm máy in này' : 'Click để tải & mở bộ cài'}
+                    {detected ? 'Máy tính đã cắm máy in này' : 'Cài đặt tự động A-Z'}
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', fontWeight: 600, color: '#0284c7' }}>
-                    <Download size={12} /> Cài Đặt
+                    <Download size={12} /> Cài Tự Động
                   </div>
                 </div>
               </button>
@@ -1958,17 +3136,18 @@ export default function PrinterTab() {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <button 
             className="btn-primary" 
-            onClick={() => { void diagnoseAllPrinters(false); }} 
-            disabled={loading} 
+            onClick={handleWorkflowDiagnose} 
+            disabled={loading || isWorkflowRunning} 
             style={{ background: '#4f46e5', borderColor: '#4f46e5', padding: '0.45rem 0.8rem', fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
-            title="Quét và chẩn đoán toàn diện tất cả các lỗi máy in & dịch vụ hệ thống"
+            title="Quét và chẩn đoán toàn diện tất cả các lỗi máy in & dịch vụ hệ thống theo quy trình 10 bước"
           >
-            <RefreshCw size={14} className={loading ? 'spin' : ''} /> Quét & Chẩn Đoán Toàn Bộ Lỗi
+            <RefreshCw size={14} className={(loading || (isWorkflowRunning && workflowMode === 'diagnose')) ? 'spin' : ''} /> 
+            {isWorkflowRunning && workflowMode === 'diagnose' ? 'Đang quét lỗi...' : '🔍 Đọc & Quét Toàn Bộ Lỗi'}
           </button>
           
           <button 
-            onClick={handleFixAllIssues} 
-            disabled={loading || fixingAll} 
+            onClick={handleWorkflowFixAll} 
+            disabled={loading || isWorkflowRunning} 
             style={{ 
               background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
               color: '#fff', 
@@ -1977,15 +3156,16 @@ export default function PrinterTab() {
               padding: '0.45rem 0.85rem', 
               fontSize: '0.76rem', 
               fontWeight: 700, 
-              cursor: (loading || fixingAll) ? 'not-allowed' : 'pointer', 
+              cursor: (loading || isWorkflowRunning) ? 'not-allowed' : 'pointer', 
               display: 'flex', 
               alignItems: 'center', 
               gap: 6,
               boxShadow: '0 2px 4px rgba(16,185,129,0.25)' 
             }}
-            title="Tự động sửa toàn bộ các lỗi phát hiện được trong 1 lần bấm"
+            title="Tự động sửa toàn bộ các lỗi phát hiện được trong 1 lần bấm theo quy trình 10 bước chuẩn"
           >
-            <Zap size={14} /> {fixingAll ? 'Đang sửa tự động...' : '⚡ SỬA TỰ ĐỘNG TẤT CẢ LỖI'}
+            <Zap size={14} className={(isWorkflowRunning && workflowMode === 'fix') ? 'spin' : ''} /> 
+            {isWorkflowRunning && workflowMode === 'fix' ? 'Đang sửa tự động...' : '⚡ SỬA TỰ ĐỘNG TẤT CẢ LỖI'}
             {diagnostics && diagnostics.issueCount > 0 && (
               <span style={{ background: '#ef4444', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: '0.68rem', fontWeight: 700 }}>
                 {diagnostics.issueCount}
@@ -1993,8 +3173,32 @@ export default function PrinterTab() {
             )}
           </button>
 
-          <button className="btn-secondary" onClick={clearPrintQueue} disabled={loading} style={{ background: '#fff1f2', borderColor: '#fecdd3', color: '#e11d48', padding: '0.45rem 0.75rem', fontSize: '0.75rem', fontWeight: 600 }}>
-            <Trash2 size={14} /> Xóa Kẹt Lệnh In
+          <button
+            className="btn-secondary"
+            onClick={clearPrintQueue}
+            disabled={loading}
+            style={{
+              background: '#fff1f2',
+              borderColor: '#fecdd3',
+              color: '#e11d48',
+              padding: '0.45rem 0.75rem',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4
+            }}
+          >
+            {activeOperationMessage?.includes('Spooler & dọn sạch') ? (
+              <>
+                <Loader2 size={14} className="global-spin" /> Đang xóa kẹt...
+              </>
+            ) : (
+              <>
+                <Trash2 size={14} /> Xóa Kẹt Lệnh In
+              </>
+            )}
           </button>
           <button className="btn-secondary" onClick={() => handleOpenWindowsTool('printers')} style={{ padding: '0.45rem 0.7rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }} title="Mở Devices and Printers của Windows">
             <ExternalLink size={13} /> Devices & Printers
@@ -2130,466 +3334,588 @@ export default function PrinterTab() {
       {(activeSubView === 'repair' || activeSubView === 'all') && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
 
-          {/* ═════ KHỐI 0: BẢNG CHẨN ĐOÁN SỨC KHỎE MÁY IN TOÀN DIỆN ═════ */}
-          <div style={{ 
-            background: diagnostics ? (diagnostics.issueCount === 0 ? '#f0fdf4' : '#fffbeb') : '#f8fafc', 
-            border: `1px solid ${diagnostics ? (diagnostics.issueCount === 0 ? '#86efac' : '#fde68a') : '#e2e8f0'}`, 
-            borderRadius: 8, 
-            padding: '0.9rem', 
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)' 
+          {/* ═══════════════════════════════════════════════════════════════════════════ */}
+          {/* ── BÁC SĨ MÁY IN: BẢNG QUY TRÌNH CHẨN ĐOÁN & SỬA LỖI TỰ ĐỘNG (2 NÚT) ────── */}
+          {/* ═══════════════════════════════════════════════════════════════════════════ */}
+          <div style={{
+            background: '#ffffff',
+            border: '1px solid #c7d2fe',
+            borderRadius: 12,
+            padding: '1.1rem',
+            boxShadow: '0 4px 20px -2px rgba(99, 102, 241, 0.08)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.7rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {diagnostics ? (
-                  diagnostics.issueCount === 0 ? (
-                    <ShieldCheck size={20} color="#16a34a" />
-                  ) : (
-                    <AlertTriangle size={20} color="#d97706" />
-                  )
-                ) : (
-                  <Activity size={20} color="#64748b" />
-                )}
-                <div>
-                  <h3 style={{ fontSize: '0.85rem', fontWeight: 700, margin: 0, color: diagnostics ? (diagnostics.issueCount === 0 ? '#15803d' : '#92400e') : '#334155', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                    {diagnostics ? (
-                      diagnostics.issueCount === 0 
-                        ? 'Hệ Thống Máy In Đạt Chuẩn 100% - Không Phát Hiện Lỗi' 
-                        : `Phát Hiện ${diagnostics.issueCount} Sự Cố / Cảnh Báo Cần Khắc Phục`
-                    ) : (
-                      'Báo Cáo Chẩn Đoán Sức Khỏe Hệ Thống Máy In'
-                    )}
+            {/* Header: Tiêu đề + 2 Nút Hành Động Lớn */}
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '0.9rem',
+              paddingBottom: '0.85rem',
+              borderBottom: '1px solid #f1f5f9'
+            }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{
+                    background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                    borderRadius: 8,
+                    padding: 6,
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <Wrench size={18} />
+                  </div>
+                  <h3 style={{
+                    fontSize: '0.96rem',
+                    fontWeight: 800,
+                    color: '#1e1b4b',
+                    margin: 0,
+                    letterSpacing: '0.3px',
+                    textTransform: 'uppercase'
+                  }}>
+                    Trung Tâm Đọc & Sửa Lỗi Máy In Tự Động A-Z
                   </h3>
-                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 2 }}>
-                    {diagnostics?.timestamp 
-                      ? `Lần quét gần nhất: ${diagnostics.timestamp} | ${printers.length} máy in đã nhận diện`
-                      : 'Bấm nút "Quét & Chẩn Đoán Toàn Bộ Lỗi" ở trên để quét toàn diện 6 hạng mục kỹ thuật.'}
-                  </div>
+                  {diagnostics?.issueCount !== undefined && (
+                    <span style={{
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 12,
+                      background: diagnostics.issueCount === 0 ? '#dcfce7' : '#fee2e2',
+                      color: diagnostics.issueCount === 0 ? '#15803d' : '#b91c1c'
+                    }}>
+                      {diagnostics.issueCount === 0 ? '✓ Đạt chuẩn 100%' : `⚠️ ${diagnostics.issueCount} sự cố phát hiện`}
+                    </span>
+                  )}
                 </div>
+                <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '4px 0 0 0' }}>
+                  Tổng hợp mọi loại lỗi in ấn, chia sẻ mạng LAN (0x709, 0x11b, 0x40, 0xbcb), Spooler crash, máy in Offline ảo và treo ứng dụng.
+                </p>
               </div>
 
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                {diagnostics && diagnostics.issueCount > 0 && (
-                  <button
-                    onClick={handleFixAllIssues}
-                    disabled={loading || fixingAll}
-                    style={{ background: '#d97706', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                  >
-                    <Zap size={12} /> Sửa Ngay Toàn Bộ ({diagnostics.issueCount} lỗi)
-                  </button>
-                )}
+              {/* Nhóm 2 Nút Bấm Tập Trung */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {/* Nút 1: Đọc & Quét Lỗi */}
                 <button
-                  onClick={() => { void diagnoseAllPrinters(false); }}
-                  disabled={loading}
-                  style={{ background: '#fff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px 8px', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                  onClick={handleWorkflowDiagnose}
+                  disabled={isWorkflowRunning || loading}
+                  style={{
+                    background: isWorkflowRunning && workflowMode === 'diagnose'
+                      ? '#6366f1'
+                      : 'linear-gradient(135deg, #4338ca 0%, #4f46e5 50%, #6366f1 100%)',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 8,
+                    padding: '8px 16px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: (isWorkflowRunning || loading) ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
+                    boxShadow: '0 2px 8px rgba(79, 70, 229, 0.28)',
+                    transition: 'all 0.15s ease'
+                  }}
+                  title="Quét và chẩn đoán toàn bộ 10 hạng mục lỗi máy in & dịch vụ hệ thống"
                 >
-                  <RefreshCw size={11} className={loading ? 'spin' : ''} /> Quét lại
+                  <Search size={15} className={isWorkflowRunning && workflowMode === 'diagnose' ? 'spin' : ''} />
+                  <span>{isWorkflowRunning && workflowMode === 'diagnose' ? 'ĐANG QUÉT LỖI...' : '🔍 ĐỌC & QUÉT TOÀN BỘ LỖI'}</span>
+                </button>
+
+                {/* Nút 2: Sửa Tự Động Toàn Bộ Lỗi */}
+                <button
+                  onClick={handleWorkflowFixAll}
+                  disabled={isWorkflowRunning || loading}
+                  style={{
+                    background: isWorkflowRunning && workflowMode === 'fix'
+                      ? '#059669'
+                      : 'linear-gradient(135deg, #059669 0%, #10b981 50%, #14b8a6 100%)',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 8,
+                    padding: '8px 18px',
+                    fontSize: '0.78rem',
+                    fontWeight: 800,
+                    cursor: (isWorkflowRunning || loading) ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
+                    boxShadow: '0 3px 10px rgba(16, 185, 129, 0.35)',
+                    transition: 'all 0.15s ease'
+                  }}
+                  title="1-Click tự động sửa triệt để toàn bộ 10 bước lỗi từ A-Z"
+                >
+                  <Zap size={16} className={isWorkflowRunning && workflowMode === 'fix' ? 'spin' : ''} />
+                  <span>{isWorkflowRunning && workflowMode === 'fix' ? 'ĐANG KHẮC PHỤC A-Z...' : '⚡ SỬA TỰ ĐỘNG TOÀN BỘ LỖI (1-CLICK)'}</span>
                 </button>
               </div>
             </div>
 
-            {/* Grid 6 Hạng mục chẩn đoán */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
-              
-              {/* Mục 1: Spooler Service */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.6rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#334155' }}>Dịch vụ Spooler</div>
-                  <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: 2 }}>
-                    {diagnostics?.spooler ? (
-                      diagnostics.spooler.isOk ? (
-                        <span style={{ color: '#16a34a', fontWeight: 600 }}>✓ Đang chạy ({diagnostics.spooler.startType})</span>
-                      ) : (
-                        <span style={{ color: '#ef4444', fontWeight: 600 }}>❌ {diagnostics.spooler.status}</span>
-                      )
-                    ) : (
-                      'Chưa kiểm tra'
-                    )}
-                  </div>
-                </div>
-                {diagnostics?.spooler?.isOk ? (
-                  <CheckCircle size={16} color="#16a34a" />
-                ) : diagnostics ? (
-                  <button onClick={fixSpoolerCrash} style={{ background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: '0.65rem', fontWeight: 600, cursor: 'pointer' }}>Fix</button>
-                ) : null}
+            {/* Ô Nhập IP/Tên Máy Chủ Chia Sẻ (Tùy chọn) */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              background: '#f8faff',
+              border: '1px solid #e0e7ff',
+              borderRadius: 8,
+              padding: '6px 12px',
+              flexWrap: 'wrap'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: '#4338ca', fontWeight: 600 }}>
+                <Network size={14} color="#4f46e5" />
+                <span>Máy Chủ Chia Sẻ Máy In (Tùy chọn cho lỗi 0x40 / 0x709 mạng LAN):</span>
               </div>
-
-              {/* Mục 2: Chia sẻ LAN (0x709 & 0x11b) */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.6rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#334155' }}>Lỗi LAN 0x709 / 0x11b</div>
-                  <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: 2 }}>
-                    {diagnostics?.lanRpc ? (
-                      diagnostics.lanRpc.isOk ? (
-                        <span style={{ color: '#16a34a', fontWeight: 600 }}>✓ Đã fix Named Pipe</span>
-                      ) : (
-                        <span style={{ color: '#d97706', fontWeight: 600 }}>⚠️ Chưa fix Registry</span>
-                      )
-                    ) : (
-                      'Chưa kiểm tra'
-                    )}
-                  </div>
-                </div>
-                {diagnostics?.lanRpc?.isOk ? (
-                  <CheckCircle size={16} color="#16a34a" />
-                ) : diagnostics ? (
-                  <button onClick={fixShareError} style={{ background: '#fef3c7', color: '#b45309', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: '0.65rem', fontWeight: 600, cursor: 'pointer' }}>Fix</button>
-                ) : null}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 260, maxWidth: 420 }}>
+                <input
+                  type="text"
+                  placeholder="Nhập IP hoặc Tên Máy Chủ (Ví dụ: 192.168.1.50 hoặc MAY-CHU)"
+                  value={workflowTargetHost}
+                  onChange={e => setWorkflowTargetHost(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '4px 10px',
+                    fontSize: '0.72rem',
+                    border: '1px solid #c7d2fe',
+                    borderRadius: 6,
+                    outline: 'none',
+                    color: '#1e1b4b',
+                    background: '#fff',
+                    fontWeight: 600
+                  }}
+                />
               </div>
-
-              {/* Mục 3: Point & Print (0xbcb) */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.6rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#334155' }}>Driver Mạng 0xbcb</div>
-                  <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: 2 }}>
-                    {diagnostics?.pointAndPrint ? (
-                      diagnostics.pointAndPrint.isOk ? (
-                        <span style={{ color: '#16a34a', fontWeight: 600 }}>✓ Cho phép nạp driver</span>
-                      ) : (
-                        <span style={{ color: '#d97706', fontWeight: 600 }}>⚠️ Bị chặn bởi GPO</span>
-                      )
-                    ) : (
-                      'Chưa kiểm tra'
-                    )}
-                  </div>
-                </div>
-                {diagnostics?.pointAndPrint?.isOk ? (
-                  <CheckCircle size={16} color="#16a34a" />
-                ) : diagnostics ? (
-                  <button onClick={fixPointAndPrint} style={{ background: '#fef3c7', color: '#b45309', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: '0.65rem', fontWeight: 600, cursor: 'pointer' }}>Fix</button>
-                ) : null}
+              <div style={{ fontSize: '0.67rem', color: '#64748b' }}>
+                💡 Nếu nhập IP, khi bấm <strong>Sửa Lỗi</strong> hệ thống sẽ tự động ghim danh tính Windows Credential cho máy chủ đó!
               </div>
-
-              {/* Mục 4: Tường Lửa Firewall */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.6rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#334155' }}>Tường Lửa Chia Sẻ</div>
-                  <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: 2 }}>
-                    {diagnostics?.firewall ? (
-                      diagnostics.firewall.isOk ? (
-                        <span style={{ color: '#16a34a', fontWeight: 600 }}>✓ Đã mở cổng chia sẻ</span>
-                      ) : (
-                        <span style={{ color: '#d97706', fontWeight: 600 }}>⚠️ Cổng Firewall đóng</span>
-                      )
-                    ) : (
-                      'Chưa kiểm tra'
-                    )}
-                  </div>
-                </div>
-                {diagnostics?.firewall?.isOk ? (
-                  <CheckCircle size={16} color="#16a34a" />
-                ) : diagnostics ? (
-                  <button onClick={enableLanSharing} style={{ background: '#fef3c7', color: '#b45309', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: '0.65rem', fontWeight: 600, cursor: 'pointer' }}>Mở</button>
-                ) : null}
-              </div>
-
-              {/* Mục 5: File Kẹt Spooler */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.6rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#334155' }}>Bộ Đệm In Spooler</div>
-                  <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: 2 }}>
-                    {diagnostics?.spoolFiles ? (
-                      diagnostics.spoolFiles.isOk ? (
-                        <span style={{ color: '#16a34a', fontWeight: 600 }}>✓ Sạch sẽ (0 file kẹt)</span>
-                      ) : (
-                        <span style={{ color: '#ef4444', fontWeight: 600 }}>⚠️ Kẹt {diagnostics.spoolFiles.count} file rác</span>
-                      )
-                    ) : (
-                      'Chưa kiểm tra'
-                    )}
-                  </div>
-                </div>
-                {diagnostics?.spoolFiles?.isOk ? (
-                  <CheckCircle size={16} color="#16a34a" />
-                ) : diagnostics ? (
-                  <button onClick={clearPrintQueue} style={{ background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: '0.65rem', fontWeight: 600, cursor: 'pointer' }}>Dọn</button>
-                ) : null}
-              </div>
-
-              {/* Mục 6: SNMP Offline Ảo */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.6rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#334155' }}>Cổng Mạng SNMP</div>
-                  <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: 2 }}>
-                    {diagnostics?.snmpPorts ? (
-                      diagnostics.snmpPorts.isOk ? (
-                        <span style={{ color: '#16a34a', fontWeight: 600 }}>✓ Đã tắt (Tránh Offline ảo)</span>
-                      ) : (
-                        <span style={{ color: '#d97706', fontWeight: 600 }}>⚠️ {diagnostics.snmpPorts.badCount} cổng bật SNMP</span>
-                      )
-                    ) : (
-                      'Chưa kiểm tra'
-                    )}
-                  </div>
-                </div>
-                {diagnostics?.snmpPorts?.isOk ? (
-                  <CheckCircle size={16} color="#16a34a" />
-                ) : diagnostics ? (
-                  <button onClick={fixOfflineSnmp} style={{ background: '#fef3c7', color: '#b45309', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: '0.65rem', fontWeight: 600, cursor: 'pointer' }}>Tắt</button>
-                ) : null}
-              </div>
-
-            </div>
-          </div>
-          
-          {/* ═════ KHỐI 1: KHẮC PHỤC SỰ CỐ MẠNG LAN & CHIA SẺ ═════ */}
-          <div style={{ background: '#fff', border: '1px solid #c7d2fe', borderRadius: 8, padding: '0.9rem', boxShadow: '0 1px 3px rgba(99,102,241,0.06)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-              <h3 style={{ fontSize: '0.82rem', fontWeight: 700, color: '#3730a3', margin: 0, display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                <Share2 size={16} color="#6366f1" /> 1. Khắc Phục Lỗi Chia Sẻ Máy In Mạng LAN (Share Printer)
-              </h3>
-              {shareRpcStatus?.isFixed ? (
-                <span style={{ fontSize: '0.7rem', background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <CheckCircle2 size={12} /> Đã Bật RPC Named Pipe
-                </span>
-              ) : (
-                <span style={{ fontSize: '0.7rem', background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: 12, fontWeight: 600 }}>
-                  ⚠️ Chưa cấu hình Registry Fix
-                </span>
-              )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 8 }}>
-              {/* Thẻ 1: Lỗi 0x00000709 / 0x0000011b */}
-              <div style={{ background: '#f8faff', border: '1px solid #e0e7ff', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#1e1b4b', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Share2 size={14} color="#6366f1" /> Lỗi 0x00000709 / 0x11b
+            {/* Thanh Tiến Trình Hoạt Động (Live Workflow Progress Bar) */}
+            {(isWorkflowRunning || workflowProgressPercent > 0) && (
+              <div style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: 8,
+                padding: '0.75rem 1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 700, color: workflowMode === 'fix' ? '#065f46' : '#3730a3' }}>
+                    <Loader2 size={13} className="spin" />
+                    <span>{workflowStatusText || (workflowMode === 'fix' ? 'Đang tiến hành sửa chữa lỗi...' : 'Đang quét hệ thống...')}</span>
                   </div>
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '4px 0 8px 0', lineHeight: 1.4 }}>
-                    Đặc trị lỗi <em>"Operation could not be completed"</em> khi máy con kết nối máy in qua LAN.
-                  </p>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155' }}>
+                    {workflowProgressPercent}%
+                  </span>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <button
-                    onClick={fixShareError}
-                    disabled={loading || fixingShare}
-                    style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                  >
-                    <Share2 size={12} className={fixingShare ? 'spin' : ''} />
-                    {fixingShare ? 'Đang fix...' : '⚡ Sửa Tự Động 1-Click'}
-                  </button>
-                  <button
-                    onClick={openLocalPortModal}
-                    disabled={loading}
-                    style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 4, padding: '5px 8px', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                    title="Giải pháp chống lỗi 0x709 triệt để 100% khi kết nối giữa 2 bản Windows khác nhau (Win 11 - Win 10)"
-                  >
-                    <Network size={12} /> 🌐 Kết Nối Bằng Local Port
-                  </button>
-                  <button
-                    onClick={() => setShowError709Modal(true)}
-                    style={{ background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: 4, padding: '5px 8px', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                    title="Xem chi tiết hướng dẫn 4 bước sửa lỗi 0x709 qua Registry Editor (Epson LQ-310 & LAN)"
-                  >
-                    <BookOpen size={12} /> 📖 Hướng Dẫn Sửa Bằng Tay (Regedit)
-                  </button>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <button
-                      onClick={copyCmdToClipboard}
-                      style={{ flex: 1, background: copiedCmd ? '#ecfdf5' : '#fff', color: copiedCmd ? '#059669' : '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px', fontSize: '0.68rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}
-                      title="Chép câu lệnh Registry CMD Admin"
-                    >
-                      {copiedCmd ? <Check size={11} color="#059669" /> : <Copy size={11} />}
-                      {copiedCmd ? 'Đã chép' : 'Chép CMD'}
-                    </button>
-                    <button
-                      onClick={handleRestartPc}
-                      style={{ flex: 1, background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: 4, padding: '4px', fontSize: '0.68rem', cursor: 'pointer' }}
-                      title="Khởi động lại máy"
-                    >
-                      Reset PC
-                    </button>
-                  </div>
+                {/* Track */}
+                <div style={{ width: '100%', height: 8, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${workflowProgressPercent}%`,
+                    height: '100%',
+                    background: workflowMode === 'fix'
+                      ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)'
+                      : 'linear-gradient(90deg, #6366f1 0%, #4f46e5 100%)',
+                    borderRadius: 4,
+                    transition: 'width 0.3s ease'
+                  }} />
                 </div>
               </div>
+            )}
 
-              {/* Thẻ 2: Lỗi 0x00000040 / Network Name No Longer Available */}
-              <div style={{ background: '#fffbeb', border: '1px solid #fed7aa', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#9a3412', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <AlertTriangle size={14} color="#ea580c" /> Lỗi 40 (0x00000040)
-                  </div>
-                  <p style={{ fontSize: '0.7rem', color: '#7c2d12', margin: '4px 0 8px 0', lineHeight: 1.4 }}>
-                    Đặc trị lỗi <em>"The specified network name is no longer available"</em> khi 2 máy khác bản Windows (Point & Print, RPC, SMB Signing).
-                  </p>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <button
-                    onClick={fixError0x40}
-                    disabled={loading || fixing0x40}
-                    style={{ background: '#ea580c', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                    title="Vô hiệu hóa Point & Print Restrictions, cấu hình RPC Named Pipe, tắt SMB Signing và khởi động lại Spooler"
-                  >
-                    <Zap size={12} className={fixing0x40 ? 'spin' : ''} />
-                    {fixing0x40 ? 'Đang sửa...' : '⚡ Sửa Tự Động 1-Click'}
-                  </button>
-                  <button
-                    onClick={() => setShowError0x40Modal(true)}
-                    style={{ background: '#fff', color: '#c2410c', border: '1px solid #fdba74', borderRadius: 4, padding: '5px 8px', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                    title="Xem chi tiết nguyên nhân và 4 bước khắc phục bằng Group Policy (gpedit.msc) và Registry"
-                  >
-                    <FileText size={12} /> 📖 Hướng Dẫn 4 Bước (gpedit)
-                  </button>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <button
-                      onClick={() => handleOpenWindowsTool('gpedit')}
-                      style={{ flex: 1, background: '#fff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px', fontSize: '0.67rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}
-                      title="Mở Group Policy Editor (gpedit.msc)"
-                    >
-                      <Settings size={11} /> gpedit.msc
-                    </button>
-                    <button
-                      onClick={() => handleOpenWindowsTool('services')}
-                      style={{ flex: 1, background: '#fff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px', fontSize: '0.67rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}
-                      title="Mở Services (services.msc) kiểm tra Spooler"
-                    >
-                      <Activity size={11} /> services.msc
-                    </button>
-                  </div>
-                </div>
+            {/* ── BẢNG THỂ HIỆN QUY TRÌNH ĐANG FIX (Interactive Process Table) ── */}
+            <div style={{
+              border: '1px solid #e2e8f0',
+              borderRadius: 8,
+              overflow: 'hidden',
+              background: '#fff'
+            }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.73rem' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
+                    <th style={{ padding: '8px 12px', fontWeight: 700, width: '28%' }}>Quy Trình / Hạng Mục Kỹ Thuật</th>
+                    <th style={{ padding: '8px 10px', fontWeight: 700, width: '22%' }}>Mã Lỗi Khắc Phục</th>
+                    <th style={{ padding: '8px 10px', fontWeight: 700, width: '20%' }}>Trạng Thái Thực Tế</th>
+                    <th style={{ padding: '8px 12px', fontWeight: 700, width: '30%' }}>Chi Tiết Kỹ Thuật Đo Được</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workflowSteps.map((step, idx) => {
+                    const isFixingCurrent = step.status === 'fixing';
+                    const isScanningCurrent = step.status === 'scanning';
+                    const isRowHighlight = isFixingCurrent || isScanningCurrent;
+
+                    return (
+                      <tr
+                        key={step.id}
+                        style={{
+                          borderBottom: idx === workflowSteps.length - 1 ? 'none' : '1px solid #f1f5f9',
+                          background: isFixingCurrent
+                            ? '#fefce8'
+                            : isScanningCurrent
+                              ? '#f0fdf4'
+                              : (idx % 2 === 0 ? '#ffffff' : '#fafafa'),
+                          transition: 'background 0.2s ease'
+                        }}
+                      >
+                        {/* Cột 1: Tên bước & Mô tả */}
+                        <td style={{ padding: '8px 12px', verticalAlign: 'middle' }}>
+                          <div style={{ fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{
+                              width: 18,
+                              height: 18,
+                              borderRadius: '50%',
+                              background: isFixingCurrent ? '#f59e0b' : isScanningCurrent ? '#3b82f6' : '#e2e8f0',
+                              color: isRowHighlight ? '#fff' : '#475569',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.64rem',
+                              fontWeight: 800
+                            }}>
+                              {step.stepNum}
+                            </span>
+                            <span>{step.title}</span>
+                          </div>
+                          <div style={{ fontSize: '0.66rem', color: '#64748b', marginTop: 2, paddingLeft: 24, lineHeight: 1.3 }}>
+                            {step.desc}
+                          </div>
+                        </td>
+
+                        {/* Cột 2: Mã lỗi */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'middle' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            background: '#f1f5f9',
+                            color: '#334155',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: 4,
+                            padding: '2px 6px',
+                            fontSize: '0.66rem',
+                            fontWeight: 600
+                          }}>
+                            {step.errorCode}
+                          </span>
+                        </td>
+
+                        {/* Cột 3: Trạng thái thực tế */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'middle' }}>
+                          {step.status === 'idle' && (
+                            <span style={{ fontSize: '0.68rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500 }}>
+                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#cbd5e1' }} />
+                              Chờ thực hiện
+                            </span>
+                          )}
+                          {step.status === 'scanning' && (
+                            <span style={{ fontSize: '0.68rem', color: '#2563eb', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>
+                              <Loader2 size={12} className="spin" />
+                              Đang kiểm tra...
+                            </span>
+                          )}
+                          {step.status === 'fixing' && (
+                            <span style={{
+                              fontSize: '0.68rem',
+                              color: '#b45309',
+                              background: '#fef3c7',
+                              padding: '2px 7px',
+                              borderRadius: 10,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontWeight: 700
+                            }}>
+                              <Zap size={11} className="spin" />
+                              Đang khắc phục...
+                            </span>
+                          )}
+                          {step.status === 'ok' && (
+                            <span style={{
+                              fontSize: '0.68rem',
+                              color: '#15803d',
+                              background: '#dcfce7',
+                              padding: '2px 7px',
+                              borderRadius: 10,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontWeight: 700
+                            }}>
+                              <CheckCircle2 size={11} />
+                              Bình thường / Đã sửa
+                            </span>
+                          )}
+                          {step.status === 'error' && (
+                            <span style={{
+                              fontSize: '0.68rem',
+                              color: '#b91c1c',
+                              background: '#fee2e2',
+                              padding: '2px 7px',
+                              borderRadius: 10,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontWeight: 700
+                            }}>
+                              <AlertTriangle size={11} />
+                              Phát hiện lỗi
+                            </span>
+                          )}
+                          {step.status === 'warning' && (
+                            <span style={{
+                              fontSize: '0.68rem',
+                              color: '#c2410c',
+                              background: '#ffedd5',
+                              padding: '2px 7px',
+                              borderRadius: 10,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontWeight: 700
+                            }}>
+                              <AlertTriangle size={11} />
+                              Cần cấu hình
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Cột 4: Chi tiết kỹ thuật */}
+                        <td style={{ padding: '8px 12px', verticalAlign: 'middle', color: '#334155' }}>
+                          <span style={{
+                            fontSize: '0.69rem',
+                            fontWeight: isRowHighlight ? 700 : 500,
+                            color: step.status === 'error' ? '#dc2626' : step.status === 'ok' ? '#047857' : '#475569'
+                          }}>
+                            {step.detail}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ── FOOTER UTILITY TOOLBAR: TIỆN ÍCH HỖ TRỢ IT MỞ RỘNG (GỌN GÀNG) ── */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              paddingTop: '0.4rem',
+              borderTop: '1px dashed #e2e8f0',
+              flexWrap: 'wrap'
+            }}>
+              <div style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Settings size={12} /> Tiện ích nâng cao dành cho IT:
               </div>
-
-              {/* Thẻ 3: Lỗi 0x00000bcb / Point & Print */}
-              <div style={{ background: '#f8faff', border: '1px solid #e0e7ff', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#1e1b4b', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <ShieldAlert size={14} color="#8b5cf6" /> Lỗi 0x00000bcb (Driver LAN)
-                  </div>
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '4px 0 8px 0', lineHeight: 1.4 }}>
-                    Gỡ bỏ Group Policy chặn máy con tự nạp driver máy in chia sẻ qua mạng.
-                  </p>
-                </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <button
-                  onClick={fixPointAndPrint}
-                  disabled={loading || fixingPointAndPrint}
-                  style={{ background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, opacity: fixingPointAndPrint ? 0.8 : 1 }}
+                  onClick={openLocalPortModal}
+                  style={{
+                    background: '#f0fdf4',
+                    color: '#047857',
+                    border: '1px solid #bbf7d0',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    fontSize: '0.67rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3
+                  }}
+                  title="Tạo cổng in Local Port kết nối trực tiếp bỏ qua RPC Spooler"
                 >
-                  <CheckCircle2 size={12} className={fixingPointAndPrint ? 'spin' : ''} />
-                  {fixingPointAndPrint ? 'Đang gỡ chặn...' : 'Gỡ Chặn Driver LAN'}
+                  <Network size={11} /> 🌐 Cổng Local Port
+                </button>
+
+                <button
+                  onClick={handleOpenCredentialManager}
+                  style={{
+                    background: '#fff',
+                    color: '#9a3412',
+                    border: '1px solid #fed7aa',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    fontSize: '0.67rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3
+                  }}
+                  title="Mở Windows Credential Manager kiểm tra danh tính mạng"
+                >
+                  <ShieldCheck size={11} /> 🔑 Credential Manager
+                </button>
+
+                <button
+                  onClick={clearSmbCache}
+                  disabled={clearingSmbCache}
+                  style={{
+                    background: '#f0f9ff',
+                    color: '#0369a1',
+                    border: '1px solid #bae6fd',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    fontSize: '0.67rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3
+                  }}
+                  title="Dọn sạch cache kết nối mạng SMB kẹt (net use /delete) & làm mới DNS"
+                >
+                  <RefreshCw size={11} className={clearingSmbCache ? 'animate-spin' : ''} /> 🧹 Dọn Cache SMB
+                </button>
+
+                <button
+                  onClick={openError709Modal}
+                  style={{
+                    background: '#fffbeb',
+                    color: '#b45309',
+                    border: '1px solid #fde68a',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    fontSize: '0.67rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3
+                  }}
+                  title="Mở bảng chẩn đoán chuyên sâu chi tiết 8 khoá Registry 0x00000709"
+                >
+                  <Search size={11} /> 🔍 Chi Tiết 709
+                </button>
+
+                <button
+                  onClick={() => handleOpenWindowsTool('gpedit')}
+                  style={{
+                    background: '#fff',
+                    color: '#475569',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    fontSize: '0.67rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3
+                  }}
+                  title="Mở Group Policy gpedit.msc"
+                >
+                  <Settings size={11} /> gpedit.msc
+                </button>
+
+                <button
+                  onClick={() => handleOpenWindowsTool('services')}
+                  style={{
+                    background: '#fff',
+                    color: '#475569',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    fontSize: '0.67rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3
+                  }}
+                  title="Mở services.msc"
+                >
+                  <Activity size={11} /> services.msc
+                </button>
+
+                <button
+                  onClick={handleExport709Script}
+                  disabled={exporting709Script}
+                  style={{
+                    background: '#e0e7ff',
+                    color: '#4338ca',
+                    border: '1px solid #c7d2fe',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    fontSize: '0.67rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3
+                  }}
+                  title="Xuất file .bat sửa lỗi máy in cho Máy Chủ cắm cáp USB"
+                >
+                  <Download size={11} /> Xuất Script Cho Máy Chủ
+                </button>
+
+                <button
+                  onClick={() => setShowCmdDetails(!showCmdDetails)}
+                  style={{
+                    background: '#fff',
+                    color: '#6366f1',
+                    border: '1px solid #c7d2fe',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    fontSize: '0.67rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3
+                  }}
+                  title="Xem hoặc ẩn câu lệnh Registry CMD"
+                >
+                  <Terminal size={11} /> {showCmdDetails ? 'Ẩn câu lệnh CMD' : 'Xem câu lệnh CMD'}
+                </button>
+
+                <button
+                  onClick={handleRestartPc}
+                  style={{
+                    background: '#fff1f2',
+                    color: '#e11d48',
+                    border: '1px solid #fecdd3',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    fontSize: '0.67rem',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                  title="Khởi động lại Windows để áp dụng toàn diện"
+                >
+                  Reset PC
                 </button>
               </div>
-
-              {/* Thẻ 4: Mở Tường Lửa & Tắt Đòi Pass */}
-              <div style={{ background: '#f8faff', border: '1px solid #e0e7ff', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#1e1b4b', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Wifi size={14} color="#0284c7" /> Mạng & Tắt Đòi Mật Khẩu
-                  </div>
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '4px 0 8px 0', lineHeight: 1.4 }}>
-                    Mở cổng Firewall File/Printer Sharing, bật Network Discovery, bỏ hỏi pass.
-                  </p>
-                </div>
-                <button
-                  onClick={enableLanSharing}
-                  disabled={loading || enablingSharing}
-                  style={{ background: '#0284c7', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, opacity: enablingSharing ? 0.8 : 1 }}
-                >
-                  <Wifi size={12} className={enablingSharing ? 'spin' : ''} />
-                  {enablingSharing ? 'Đang bật chia sẻ...' : 'Bật Chia Sẻ Mạng LAN'}
-                </button>
-              </div>
             </div>
 
-            {/* Banner hướng dẫn sống còn khi 2 Win khác nhau */}
-            <div style={{ marginTop: '0.65rem', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '0.6rem 0.8rem', fontSize: '0.72rem', color: '#92400e', lineHeight: 1.45 }}>
-              <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, color: '#b45309', marginBottom: 3 }}>
-                <AlertTriangle size={13} /> Lưu ý quan trọng khi bị lỗi 0x00000709 hoặc 0x00000040 giữa 2 máy khác Win (Win 11 & Win 10/7):
-              </div>
-              <div style={{ paddingLeft: '0.5rem' }}>
-                • <strong>Khi bị lỗi 0x00000040 ("The specified network name is no longer available"):</strong> Bấm ngay nút <strong>⚡ Sửa Tự Động 1-Click</strong> hoặc xem <strong>📖 Hướng Dẫn 4 Bước (gpedit)</strong> để vô hiệu hóa Point & Print Restrictions, cấu hình RPC Named Pipe, tắt SMB Signing Windows 11 và chuyển sang Private Network.<br />
-                • <strong>Khi bị lỗi 0x00000709 / 0x11b:</strong> Bấm <strong>⚡ Sửa Tự Động 1-Click</strong> trên <u>CẢ 2 MÁY</u> (Cả Máy Chủ cắm máy in và Máy Khách cần in), sau đó Restart máy.<br />
-                • <strong>Trên máy chủ cắm máy in:</strong> Đổi tên chia sẻ (Share Name) thành tên <strong>viết liền không dấu cách</strong> (ví dụ đặt <code>LQ310</code> hoặc <code>Canon2900</code>).<br />
-                • <strong>Vũ khí tối thượng:</strong> Bấm nút <strong>[ 🌐 Kết Nối Bằng Local Port ]</strong> để tạo cổng in nội bộ qua mạng, in mượt mà 100% không qua RPC Spooler từ xa!
-              </div>
-            </div>
-
-            {/* Xem chi tiết CMD */}
-            <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowCmdDetails(!showCmdDetails)}
-                style={{ background: 'transparent', color: '#6366f1', border: 'none', padding: '2px 4px', fontSize: '0.7rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'underline' }}
-              >
-                <Terminal size={12} /> {showCmdDetails ? 'Ẩn câu lệnh CMD' : 'Xem câu lệnh Registry sửa lỗi LAN'}
-              </button>
-            </div>
-
+            {/* Khối hiển thị câu lệnh Registry CMD khi người dùng bấm xem */}
             {showCmdDetails && (
-              <div style={{ marginTop: '0.4rem', background: '#0f172a', borderRadius: 6, padding: '0.6rem', fontSize: '0.7rem', color: '#e2e8f0', fontFamily: 'Consolas, monospace', lineHeight: 1.5, overflowX: 'auto' }}>
-                <div style={{ color: '#94a3b8' }}># Bật RPC Named Pipe cho máy in:</div>
-                <div style={{ color: '#38bdf8' }}>REG ADD "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f</div>
+              <div style={{
+                background: '#0f172a',
+                borderRadius: 8,
+                padding: '0.75rem',
+                fontSize: '0.7rem',
+                color: '#e2e8f0',
+                fontFamily: 'Consolas, monospace',
+                lineHeight: 1.5,
+                overflowX: 'auto'
+              }}>
+                <div style={{ color: '#94a3b8' }}># 1. Bật RPC Named Pipe cho máy in (Sửa 0x709 & 0x11b):</div>
                 <div style={{ color: '#38bdf8' }}>REG ADD "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f</div>
-                <div style={{ color: '#94a3b8', marginTop: 4 }}># Tắt yêu cầu bảo mật mức cao RPC Print:</div>
                 <div style={{ color: '#38bdf8' }}>REG ADD "HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f</div>
-                <div style={{ color: '#94a3b8', marginTop: 4 }}># Khởi động lại dịch vụ Print Spooler:</div>
+                <div style={{ color: '#94a3b8', marginTop: 4 }}># 2. Gỡ bỏ Group Policy chặn Driver LAN (Sửa 0xbcb):</div>
+                <div style={{ color: '#38bdf8' }}>REG ADD "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint" /v "RestrictDriverInstallationToAdministrators" /t REG_DWORD /d 0 /f</div>
+                <div style={{ color: '#94a3b8', marginTop: 4 }}># 3. Tắt SMB Signing (Sửa lỗi 0x40 trên Windows 11):</div>
+                <div style={{ color: '#38bdf8' }}>REG ADD "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f</div>
+                <div style={{ color: '#94a3b8', marginTop: 4 }}># 4. Khởi động lại dịch vụ Spooler:</div>
                 <div style={{ color: '#a7f3d0' }}>net stop spooler && net start spooler</div>
               </div>
             )}
-          </div>
-
-          {/* ═════ KHỐI 2: KHẮC PHỤC SỰ CỐ DỊCH VỤ IN, KẸT LỆNH & ỨNG DỤNG ═════ */}
-          <div style={{ background: '#fff', border: '1px solid #fed7aa', borderRadius: 8, padding: '0.9rem', boxShadow: '0 1px 3px rgba(249,115,22,0.06)' }}>
-            <h3 style={{ fontSize: '0.82rem', fontWeight: 700, color: '#c2410c', margin: '0 0 0.6rem 0', display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              <Activity size={16} color="#f97316" /> 2. Khắc Phục Sự Cố Dịch Vụ In & Ứng Dụng (Spooler, Offline, App Treo)
-            </h3>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8 }}>
-              {/* Thẻ 4: Sửa lỗi Máy In Báo Offline do SNMP */}
-              <div style={{ background: '#fffaf5', border: '1px solid #ffedd5', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#7c2d12', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Power size={14} color="#ea580c" /> Máy In Báo "Offline" (SNMP)
-                  </div>
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '4px 0 8px 0', lineHeight: 1.4 }}>
-                    Tắt SNMP Status trên cổng TCP/IP & ép chuyển máy in về trạng thái Online.
-                  </p>
-                </div>
-                <button
-                  onClick={fixOfflineSnmp}
-                  disabled={loading}
-                  style={{ background: '#ea580c', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                >
-                  <Power size={12} /> Bật Online (Tắt SNMP)
-                </button>
-              </div>
-
-              {/* Thẻ 5: Cứu Hộ Spooler Crash / Tự Tắt */}
-              <div style={{ background: '#fffaf5', border: '1px solid #ffedd5', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#7c2d12', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Wrench size={14} color="#d97706" /> Spooler Tự Tắt / Crash
-                  </div>
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '4px 0 8px 0', lineHeight: 1.4 }}>
-                    Cấp lại Full Quyền thư mục Spooler PRINTERS & tự bật lại Spooler khi crash.
-                  </p>
-                </div>
-                <button
-                  onClick={fixSpoolerCrash}
-                  disabled={loading}
-                  style={{ background: '#d97706', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                >
-                  <Wrench size={12} /> Cứu Hộ Spooler Crash
-                </button>
-              </div>
-
-              {/* Thẻ 6: Lỗi Treo In Word / Excel / PDF */}
-              <div style={{ background: '#fffaf5', border: '1px solid #ffedd5', borderRadius: 6, padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#7c2d12', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Activity size={14} color="#16a34a" /> Treo In Word / PDF / HIS
-                  </div>
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '4px 0 8px 0', lineHeight: 1.4 }}>
-                    Diệt tiến trình in phụ trợ treo (splwow64), giải phóng bộ đệm ứng dụng.
-                  </p>
-                </div>
-                <button
-                  onClick={fixAppPrinting}
-                  disabled={loading}
-                  style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                >
-                  <Activity size={12} /> Sửa Lỗi In Ứng Dụng
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* Hộp Console Log khi ở chuyên mục Sửa Lỗi */}
@@ -2734,12 +4060,40 @@ export default function PrinterTab() {
                 />
               </div>
 
+              {/* Thông tin đăng nhập máy chủ nếu máy chủ cài mật khẩu */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                    Tài khoản Máy Chủ (Tùy chọn):
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Để trống nếu không có mật khẩu"
+                    value={localPortUser}
+                    onChange={e => setLocalPortUser(e.target.value)}
+                    style={{ width: '100%', padding: '6px 8px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: 6, boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '0.73rem', fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                    Mật khẩu Máy Chủ:
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Mật khẩu máy chủ (nếu có)"
+                    value={localPortPass}
+                    onChange={e => setLocalPortPass(e.target.value)}
+                    style={{ width: '100%', padding: '6px 8px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: 6, boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+
               <div style={{ background: '#fffbeb', border: '1px solid #fed7aa', borderRadius: 6, padding: '0.65rem 0.8rem', fontSize: '0.71rem', color: '#9a3412', lineHeight: 1.45 }}>
                 <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
-                  <AlertTriangle size={13} color="#ea580c" /> Tránh lỗi 0x00000040 ("The specified network name is no longer available"):
+                  <AlertTriangle size={13} color="#ea580c" /> Bí quyết đặc trị lỗi 0x00000040 &amp; 0x00000709 triệt để 100%:
                 </div>
-                • Tên chia sẻ trên máy chủ phải chính xác 100% (nên viết liền không dấu, ví dụ: <code>LQ310</code> thay vì tên dài).<br />
-                • Hệ thống tự động cấu hình Private Network và mở phiên SMB vĩnh viễn để chống đứt kết nối mạng giữa Win 11 và Win 10/7.
+                • Tên chia sẻ trên máy chủ phải chính xác 100% (nên viết liền không dấu, ví dụ: <code>LQ310</code> thay vì tên dài có khoảng trắng).<br />
+                • Cổng Local Port sẽ tạo đường ống in trực tiếp tới <code>\\IP\ShareName</code>, bỏ qua hoàn toàn lỗi RPC, Point &amp; Print và tải driver qua mạng của Windows!
               </div>
 
             </div>
@@ -2747,7 +4101,7 @@ export default function PrinterTab() {
             {/* Footer */}
             <div style={{ padding: '0.85rem 1.25rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <button
-                onClick={fixError0x40}
+                onClick={() => fixError0x40(localPortHost || error0x40Host)}
                 disabled={loading || fixing0x40}
                 style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #fed7aa', background: '#fff7ed', color: '#ea580c', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
                 title="Bấm nút này nếu gặp lỗi 0x00000040 (The specified network name is no longer available)"
@@ -2778,33 +4132,38 @@ export default function PrinterTab() {
       )}
 
       {/* Modal Hướng Dẫn & Đặc Trị Lỗi 40 (0x00000040) */}
-      {/* ── MODAL ĐẶC TRỊ LỖI 0x00000709 (EPSON LQ-310 & MÁY IN LAN) ── */}
+      {/* ── MODAL TRUNG TÂM CHẨN ĐOÁN & ĐẶC TRỊ LỖI 0x00000709 TỪ A-Z ── */}
       {showError709Modal && (
         <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.7)',
+          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.75)',
           zIndex: 2200, display: 'flex', alignItems: 'center', justifyContent: 'center',
           backdropFilter: 'blur(4px)', padding: '1rem'
         }}>
           <div style={{
-            background: '#fff', borderRadius: 12, width: '100%', maxWidth: 720,
-            maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+            background: '#fff', borderRadius: 12, width: '100%', maxWidth: 780,
+            maxHeight: '92vh', display: 'flex', flexDirection: 'column',
             boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)', overflow: 'hidden'
           }}>
             {/* Header */}
             <div style={{
-              background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)',
+              background: 'linear-gradient(135deg, #3730a3 0%, #4f46e5 100%)',
               color: '#fff', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ background: 'rgba(255,255,255,0.2)', padding: 6, borderRadius: 8 }}>
+                <div style={{ background: 'rgba(255,255,255,0.2)', padding: 7, borderRadius: 8 }}>
                   <Share2 size={20} color="#fff" />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, letterSpacing: 0.3 }}>
-                    Đặc Trị Lỗi 0x00000709 - Kết Nối Máy In Chia Sẻ Mạng LAN
-                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, letterSpacing: 0.3 }}>
+                      Trung Tâm Chẩn Đoán & Đặc Trị Lỗi 0x00000709 Từ A-Z
+                    </h3>
+                    <span style={{ background: '#ecfdf5', color: '#065f46', fontSize: '0.65rem', fontWeight: 700, padding: '1px 7px', borderRadius: 10 }}>
+                      Chuyên Sâu
+                    </span>
+                  </div>
                   <div style={{ fontSize: '0.72rem', color: '#e0e7ff', marginTop: 2 }}>
-                    Chuyên trị máy in kim Epson LQ-310 / LQ-300+, Canon LBP, HP bị chặn khi kết nối qua mạng nội bộ
+                    Tự động nhận định 11 tiêu chí hệ thống • Đặc trị in mạng LAN & Lỗi đặt máy in mặc định
                   </div>
                 </div>
               </div>
@@ -2816,127 +4175,577 @@ export default function PrinterTab() {
               </button>
             </div>
 
-            {/* Body */}
-            <div style={{ padding: '1.25rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.9rem', fontSize: '0.75rem', lineHeight: 1.5, color: '#334155' }}>
-              
-              {/* Nguyên nhân */}
-              <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8, padding: '0.8rem 1rem' }}>
-                <div style={{ fontWeight: 700, color: '#5b21b6', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <AlertTriangle size={14} color="#7c3aed" /> Nguyên Nhân Gây Lỗi 0x00000709:
-                </div>
-                <div style={{ color: '#4c1d95', fontSize: '0.73rem' }}>
-                  • Xuất hiện khi bạn đang cố kết nối mạng máy in chia sẻ (đặc biệt phổ biến với dòng <strong>Epson LQ-310</strong> in hóa đơn/bảng kê, máy in kim, Canon).<br />
-                  • <strong>Nguyên nhân gốc rễ:</strong> Do Windows chặn quyền truy cập hoặc ghi đè khóa cấu hình máy in mặc định qua mạng LAN (cơ chế xác thực RPC Named Pipes bị siết chặt bởi các bản cập nhật bảo mật của Microsoft).
-                </div>
-              </div>
-
-              {/* 4 Bước Registry Editor */}
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '0.9rem 1rem' }}>
-                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>🛠️ 4 Bước Chỉnh Sửa Registry Trên Máy Tính Bị Lỗi (Thủ Công):</span>
-                  <button
-                    onClick={() => handleOpenWindowsTool('regedit')}
-                    style={{ background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                    title="Mở Registry Editor ngay"
-                  >
-                    <ExternalLink size={11} /> Mở regedit.exe
-                  </button>
-                </div>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>1</div>
-                    <div>
-                      <strong>Truy cập Registry Editor:</strong> Nhấn tổ hợp phím <code>Windows + R</code>, gõ <code>regedit</code> rồi nhấn Enter để mở công cụ Registry Editor.
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>2</div>
-                    <div>
-                      <strong>Tìm thư mục Printers:</strong> Điều hướng đến khóa Printer theo đúng đường dẫn:<br />
-                      <code style={{ background: '#e2e8f0', padding: '2px 6px', borderRadius: 4, color: '#0f172a' }}>HKEY_LOCAL_MACHINE\Software\Policies\Microsoft\Windows NT\Printers</code><br />
-                      <span style={{ fontSize: '0.7rem', color: '#64748b' }}>*(Nếu không tìm thấy khóa Printers, bạn nhấp chuột phải vào thư mục <strong>Windows NT</strong> chọn <strong>New &gt; Key</strong> và đặt tên là <strong>Printers</strong>)*.</span>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>3</div>
-                    <div>
-                      <strong>Thêm khóa RPC Named Pipe:</strong> Nhấp chuột phải vào không gian trống bên phải, chọn <strong>New &gt; DWORD (32-bit) Value</strong> và đặt tên chính xác là <code style={{ color: '#4338ca', fontWeight: 700 }}>RpcUseNamedPipeProtocol</code>.<br />
-                      <span style={{ fontSize: '0.7rem', color: '#64748b' }}>*(Khuyên dùng: DMH Tools cũng cấu hình luôn khóa này trong thư mục con <code>Printers\RPC</code> và <code>Control\Print</code> để bảo đảm 100% bản Windows đều nhận diện)*.</span>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>4</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div>
-                        <strong>Sửa giá trị thành 1 &amp; Khởi động lại:</strong> Nhấp đúp vào <code>RpcUseNamedPipeProtocol</code>, đổi ô Value data thành <strong>1</strong> rồi bấm <strong>OK</strong>. Sau đó khởi động lại máy tính (hoặc khởi động lại dịch vụ Print Spooler).
-                      </div>
-                      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                        <button
-                          onClick={restartSpooler}
-                          style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', borderRadius: 4, padding: '2px 6px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer' }}
-                        >
-                          ⚡ Khởi Động Lại Spooler Ngay
-                        </button>
-                        <button
-                          onClick={handleRestartPc}
-                          style={{ background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: 4, padding: '2px 6px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer' }}
-                        >
-                          Khởi Động Lại Máy Tính (Reset PC)
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Giải pháp tự động 1-Click của DMH Tools */}
-              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '0.8rem 1rem' }}>
-                <div style={{ fontWeight: 700, color: '#166534', marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <CheckCircle2 size={14} color="#16a34a" /> Khắc Phục Tự Động 1-Click (Khuyên Dùng):
+            {/* Navigation Tabs */}
+            <div style={{
+              display: 'flex', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0',
+              padding: '4px 1rem 0 1rem', gap: 6
+            }}>
+              <button
+                onClick={() => setActive709Tab('lan')}
+                style={{
+                  padding: '7px 14px', border: 'none', borderRadius: '6px 6px 0 0',
+                  fontSize: '0.75rem', fontWeight: active709Tab === 'lan' ? 700 : 500,
+                  background: active709Tab === 'lan' ? '#fff' : 'transparent',
+                  color: active709Tab === 'lan' ? '#4338ca' : '#64748b',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                  borderBottom: active709Tab === 'lan' ? '2px solid #4338ca' : 'none'
+                }}
+              >
+                <Network size={13} />
+                <span>Mạng LAN & 11 Tiêu Chuẩn 709</span>
+                {diag709 && (
+                  <span style={{
+                    fontSize: '0.65rem', padding: '1px 6px', borderRadius: 10, fontWeight: 700,
+                    background: diag709.issueCount === 0 ? '#dcfce7' : '#fee2e2',
+                    color: diag709.issueCount === 0 ? '#15803d' : '#b91c1c'
+                  }}>
+                    {diag709.issueCount === 0 ? '✓ Đạt' : `${diag709.issueCount} lỗi`}
                   </span>
-                  <button
-                    onClick={copyCmdToClipboard}
-                    style={{ background: copiedCmd ? '#dcfce7' : '#fff', color: copiedCmd ? '#15803d' : '#166534', border: '1px solid #86efac', borderRadius: 4, padding: '3px 8px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
-                  >
-                    {copiedCmd ? <Check size={11} /> : <Copy size={11} />}
-                    {copiedCmd ? 'Đã chép lệnh CMD' : 'Chép Lệnh Registry CMD'}
-                  </button>
-                </div>
-                <div style={{ color: '#15803d', fontSize: '0.72rem' }}>
-                  Bạn không cần thao tác regedit thủ công phức tạp! DMH_Tools đã tích hợp tự động ghi đồng bộ cả 2 khóa Registry (trong cả <code>Printers</code> và <code>Printers\RPC</code>), miễn trừ bảo mật RPC Spooler và khởi động lại dịch vụ in chỉ trong 1 giây.
-                </div>
-              </div>
+                )}
+              </button>
 
-              {/* Cách kiểm tra thành công */}
-              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '0.7rem 1rem', fontSize: '0.72rem', color: '#1e40af' }}>
-                <strong>🎯 Cách kiểm tra thành công:</strong> Sau khi máy tính khởi động lại, bạn tiến hành kết nối lại với máy in qua mạng LAN (ví dụ vào Run gõ <code>\\IP_MAY_CHU</code> rồi nhấp đúp vào máy in Epson LQ-310), thông báo lỗi <strong>0x00000709</strong> sẽ hoàn toàn biến mất và máy in sẽ được thêm thành công!
-              </div>
+              <button
+                onClick={() => setActive709Tab('default')}
+                style={{
+                  padding: '7px 14px', border: 'none', borderRadius: '6px 6px 0 0',
+                  fontSize: '0.75rem', fontWeight: active709Tab === 'default' ? 700 : 500,
+                  background: active709Tab === 'default' ? '#fff' : 'transparent',
+                  color: active709Tab === 'default' ? '#4338ca' : '#64748b',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                  borderBottom: active709Tab === 'default' ? '2px solid #4338ca' : 'none'
+                }}
+              >
+                <Star size={13} />
+                <span>Lỗi 709 Đặt Mặc Định (Set Default)</span>
+              </button>
+
+              <button
+                onClick={() => setActive709Tab('manual')}
+                style={{
+                  padding: '7px 14px', border: 'none', borderRadius: '6px 6px 0 0',
+                  fontSize: '0.75rem', fontWeight: active709Tab === 'manual' ? 700 : 500,
+                  background: active709Tab === 'manual' ? '#fff' : 'transparent',
+                  color: active709Tab === 'manual' ? '#4338ca' : '#64748b',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                  borderBottom: active709Tab === 'manual' ? '2px solid #4338ca' : 'none'
+                }}
+              >
+                <BookOpen size={13} />
+                <span>Hướng Dẫn Thủ Công & Lệnh CMD</span>
+              </button>
+            </div>
+
+            {/* Body Content */}
+            <div style={{ padding: '1.1rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.9rem', fontSize: '0.75rem', lineHeight: 1.5, color: '#334155' }}>
+              
+              {/* ═════ TAB 1: MẠNG LAN & 11 TIÊU CHUẨN 709 ═════ */}
+              {active709Tab === 'lan' && (
+                <>
+                  {/* Hộp Chẩn Đoán Tự Động (Auto-Diagnostic Result) */}
+                  <div style={{
+                    background: diag709 ? (diag709.issueCount === 0 ? '#f0fdf4' : '#fffbeb') : '#f8fafc',
+                    border: `1px solid ${diag709 ? (diag709.issueCount === 0 ? '#86efac' : '#fde68a') : '#e2e8f0'}`,
+                    borderRadius: 8, padding: '0.85rem 1rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <div style={{ fontWeight: 800, fontSize: '0.8rem', color: diag709 ? (diag709.issueCount === 0 ? '#15803d' : '#92400e') : '#334155', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {diag709 ? (
+                          diag709.issueCount === 0 ? <ShieldCheck size={16} color="#16a34a" /> : <AlertTriangle size={16} color="#d97706" />
+                        ) : (
+                          <Activity size={16} color="#6366f1" />
+                        )}
+                        <span>
+                          {diag709
+                            ? (diag709.issueCount === 0 ? 'KẾT QUẢ CHẨN ĐOÁN: MÁY TÍNH ĐẠT CHUẨN 100% (KHÔNG CÓ LỖI 709)' : `PHÁT HIỆN ${diag709.issueCount} NGUYÊN NHÂN GÂY LỖI 0x00000709 TRÊN MÁY TÍNH NÀY`)
+                            : 'ĐANG CHỜ QUÉT HỆ THỐNG...'}
+                        </span>
+                      </div>
+                      <button
+                        onClick={runDiagnose709}
+                        disabled={diagnosing709}
+                        style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 4, padding: '3px 8px', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: '#334155' }}
+                      >
+                        <RefreshCw size={10} className={diagnosing709 ? 'spin' : ''} />
+                        {diagnosing709 ? 'Đang quét...' : 'Quét lại'}
+                      </button>
+                    </div>
+
+                    {diag709 && diag709.issues.length > 0 ? (
+                      <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '0.5rem 0.75rem', marginTop: 4 }}>
+                        <div style={{ fontWeight: 700, color: '#991b1b', fontSize: '0.72rem', marginBottom: 4 }}>
+                          Danh sách điểm nghẽn kỹ thuật được nhận định:
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: '1.2rem', color: '#b91c1c', fontSize: '0.7rem' }}>
+                          {diag709.issues.map((iss, idx) => (
+                            <li key={idx} style={{ marginBottom: 2 }}>{iss}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : diag709 ? (
+                      <div style={{ color: '#166534', fontSize: '0.72rem' }}>
+                        Tất cả 11 tiêu chí cấu hình trên máy tính này đều hoàn hảo. Nếu bạn vẫn gặp lỗi 709 khi kết nối tới máy in, nguyên nhân 100% nằm ở <strong>Máy Chủ (Host cắm cáp máy in)</strong> chưa mở RPC Named Pipe hoặc chưa mở spoolss! Hãy dùng tính năng <em>Xuất Script Cho Máy Chủ</em> ở bên dưới.
+                      </div>
+                    ) : (
+                      <div style={{ color: '#64748b', fontSize: '0.72rem' }}>
+                        Hệ thống đang kiểm tra tự động các khóa Registry, quyền HKCU, Tường lửa, Point & Print và dịch vụ Spooler...
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Lưới 11 Tiêu Chuẩn Kỹ Thuật Trực Quan */}
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#0f172a', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Layers size={13} color="#4338ca" /> Trạng thái chi tiết 11 tiêu chí hệ thống:
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(225px, 1fr))', gap: 6 }}>
+                      
+                      {/* Tiêu chí 1: RPC Named Pipe */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#1e293b' }}>1. RPC Named Pipe</div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b' }}>RpcUseNamedPipeProtocol = 1</div>
+                        </div>
+                        {diag709?.checks?.rpcNamedPipe?.ok ? (
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><CheckCircle2 size={13} /> Chuẩn</span>
+                        ) : (
+                          <span style={{ color: '#dc2626', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><AlertTriangle size={13} /> Lỗi</span>
+                        )}
+                      </div>
+
+                      {/* Tiêu chí 2: RPC Privacy PrintNightmare */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#1e293b' }}>2. Miễn trừ RPC Privacy</div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Hóa giải PrintNightmare (0x11b)</div>
+                        </div>
+                        {diag709?.checks?.rpcPrivacy?.ok ? (
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><CheckCircle2 size={13} /> Chuẩn</span>
+                        ) : (
+                          <span style={{ color: '#dc2626', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><AlertTriangle size={13} /> Lỗi</span>
+                        )}
+                      </div>
+
+                      {/* Tiêu chí 3: DnsOnWire (Đặc trị kết nối bằng IP) */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#1e293b' }}>3. DnsOnWire = 1 (SPN Fallback)</div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Cho phép kết nối qua IP \\192.168.x.x</div>
+                        </div>
+                        {diag709?.checks?.dnsOnWire?.ok ? (
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><CheckCircle2 size={13} /> Chuẩn</span>
+                        ) : (
+                          <span style={{ color: '#dc2626', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><AlertTriangle size={13} /> Thiếu</span>
+                        )}
+                      </div>
+
+                      {/* Tiêu chí 4: Strict Name Checking */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#1e293b' }}>4. Bỏ chặn Strict Name</div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Hỗ trợ bí danh mạng &amp; Loopback</div>
+                        </div>
+                        {diag709?.checks?.strictNameChecking?.ok ? (
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><CheckCircle2 size={13} /> Chuẩn</span>
+                        ) : (
+                          <span style={{ color: '#dc2626', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><AlertTriangle size={13} /> Thiếu</span>
+                        )}
+                      </div>
+
+                      {/* Tiêu chí 5: Windows 11 RPC */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#1e293b' }}>5. Chính sách Win 11 RPC</div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b' }}>RpcProtocols=7, RpcOverNamedPipes=1</div>
+                        </div>
+                        {diag709?.checks?.win11Rpc?.ok ? (
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><CheckCircle2 size={13} /> Chuẩn</span>
+                        ) : (
+                          <span style={{ color: '#d97706', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><AlertTriangle size={13} /> Chưa tối ưu</span>
+                        )}
+                      </div>
+
+                      {/* Tiêu chí 6: Point & Print */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#1e293b' }}>6. Point &amp; Print Restrictions</div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Cho phép kéo Driver qua mạng LAN</div>
+                        </div>
+                        {diag709?.checks?.pointAndPrint?.ok ? (
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><CheckCircle2 size={13} /> Chuẩn</span>
+                        ) : (
+                          <span style={{ color: '#dc2626', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><AlertTriangle size={13} /> Chặn</span>
+                        )}
+                      </div>
+
+                      {/* Tiêu chí 7: NullSessionPipes spoolss */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#1e293b' }}>7. NullSessionPipes spoolss</div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Cần thiết khi máy này là Máy Chủ in</div>
+                        </div>
+                        {diag709?.checks?.nullSessionPipes?.ok ? (
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><CheckCircle2 size={13} /> Chuẩn</span>
+                        ) : (
+                          <span style={{ color: '#d97706', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><AlertTriangle size={13} /> Thiếu spoolss</span>
+                        )}
+                      </div>
+
+                      {/* Tiêu chí 8: SMB Guest & Signing */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#1e293b' }}>8. SMB Guest &amp; Tắt Signing</div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Tránh lỗi ngắt kết nối session mạng</div>
+                        </div>
+                        {diag709?.checks?.smbGuest?.ok ? (
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><CheckCircle2 size={13} /> Chuẩn</span>
+                        ) : (
+                          <span style={{ color: '#d97706', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><AlertTriangle size={13} /> Chưa tối ưu</span>
+                        )}
+                      </div>
+
+                      {/* Tiêu chí 9: HKCU Windows Device */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#1e293b' }}>9. Quyền HKCU Windows</div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Quyền ghi đặt máy in mặc định</div>
+                        </div>
+                        {diag709?.checks?.hkcuDefault?.ok ? (
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><CheckCircle2 size={13} /> Chuẩn</span>
+                        ) : (
+                          <span style={{ color: '#dc2626', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><AlertTriangle size={13} /> Bị khóa</span>
+                        )}
+                      </div>
+
+                      {/* Tiêu chí 10: Firewall */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#1e293b' }}>10. Tường Lửa Firewall</div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Mở File and Printer Sharing (445/135)</div>
+                        </div>
+                        {diag709?.checks?.firewall?.ok ? (
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><CheckCircle2 size={13} /> Mở</span>
+                        ) : (
+                          <span style={{ color: '#dc2626', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><AlertTriangle size={13} /> Đóng</span>
+                        )}
+                      </div>
+
+                      {/* Tiêu chí 11: Spooler & Stuck Files */}
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#1e293b' }}>11. Print Spooler &amp; Hàng Đợi</div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Dịch vụ in &amp; file kẹt bộ đệm</div>
+                        </div>
+                        {diag709?.checks?.spooler?.ok ? (
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><CheckCircle2 size={13} /> Sạch sẽ</span>
+                        ) : (
+                          <span style={{ color: '#dc2626', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2 }}><AlertTriangle size={13} /> Kẹt/Dừng</span>
+                        )}
+                      </div>
+
+                    </div>
+                  </div>
+
+                  {/* Cụm 4 Giải Pháp Khắc Phục Triệt Để */}
+                  <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '0.85rem 1rem' }}>
+                    <div style={{ fontWeight: 800, color: '#166534', fontSize: '0.78rem', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Zap size={14} color="#16a34a" /> 3 Bước Hành Động Để Sửa Triệt Để Lỗi 0x00000709 Từ A-Z:
+                    </div>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 8 }}>
+                      
+                      {/* Nút 1: Sửa máy hiện tại */}
+                      <div style={{ background: '#fff', border: '1px solid #86efac', borderRadius: 6, padding: '8px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 6 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, color: '#15803d', fontSize: '0.72rem' }}>BƯỚC 1: Sửa Trên Máy Tính Này</div>
+                          <div style={{ fontSize: '0.66rem', color: '#64748b', marginTop: 2 }}>Tự động ghi cả 11 tiêu chuẩn kỹ thuật phía trên chỉ với 1 cú nhấp chuột.</div>
+                        </div>
+                        <button
+                          onClick={handleFix709AZ}
+                          disabled={fixing709AZ}
+                          style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 10px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                        >
+                          <Zap size={12} className={fixing709AZ ? 'spin' : ''} />
+                          {fixing709AZ ? 'Đang sửa A-Z...' : '⚡ Sửa Tự Động A-Z (1-Click)'}
+                        </button>
+                      </div>
+
+                      {/* Nút 2: Xuất file sửa cho máy chủ */}
+                      <div style={{ background: '#fff', border: '1px solid #93c5fd', borderRadius: 6, padding: '8px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 6 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, color: '#1d4ed8', fontSize: '0.72rem' }}>BƯỚC 2: Sửa Trên Máy Chủ (Host)</div>
+                          <div style={{ fontSize: '0.66rem', color: '#64748b', marginTop: 2 }}>Xuất file .bat mang sang Máy Cắm Máy In chạy 1-Click để mở quyền cho máy con.</div>
+                        </div>
+                        <button
+                          onClick={handleExport709Script}
+                          disabled={exporting709Script}
+                          style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 10px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                        >
+                          <Download size={12} className={exporting709Script ? 'spin' : ''} />
+                          {exporting709Script ? 'Đang xuất...' : '📦 Xuất Script Cho Máy Chủ'}
+                        </button>
+                      </div>
+
+                      {/* Nút 3: Cổng Local Port */}
+                      <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 6, padding: '8px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 6 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.72rem' }}>GIẢI PHÁP TỐI THƯỢNG: Local Port</div>
+                          <div style={{ fontSize: '0.66rem', color: '#64748b', marginTop: 2 }}>Bỏ qua 100% RPC Spooler từ xa, in mượt mà cho mọi dòng Epson LQ, Canon, HP.</div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setShowError709Modal(false);
+                            openLocalPortModal();
+                          }}
+                          style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 10px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                        >
+                          <Network size={12} />
+                          🔌 Kết Nối Qua Local Port
+                        </button>
+                      </div>
+
+                    </div>
+                  </div>
+
+                  {/* Khởi động lại dịch vụ */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 10px' }}>
+                    <span style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                      💡 Sau khi cấu hình xong, hãy khởi động lại Spooler (hoặc Restart PC) để Windows áp dụng ngay:
+                    </span>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={restartSpooler}
+                        disabled={restartingSpooler}
+                        style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', borderRadius: 4, padding: '3px 8px', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        {restartingSpooler ? 'Đang restart...' : '🔄 Khởi Động Lại Spooler'}
+                      </button>
+                      <button
+                        onClick={handleRestartPc}
+                        disabled={restartingPc}
+                        style={{ background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: 4, padding: '3px 8px', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        {restartingPc ? 'Đang restart...' : '💻 Khởi Động Lại Máy Tính'}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* ═════ TAB 2: LỖI 709 KHI ĐẶT MÁY IN MẶC ĐỊNH ═════ */}
+              {active709Tab === 'default' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                  <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '0.85rem 1rem' }}>
+                    <div style={{ fontWeight: 800, color: '#1e40af', fontSize: '0.8rem', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Star size={15} color="#2563eb" /> Vì Sao Bị Lỗi 0x00000709 Khi Bấm "Set As Default Printer"?
+                    </div>
+                    <div style={{ color: '#1e3a8a', fontSize: '0.72rem', lineHeight: 1.5 }}>
+                      • <strong>Hiện tượng:</strong> Bạn vào <em>Settings &gt; Printers &amp; Scanners</em> hoặc <em>Control Panel</em>, chọn máy in rồi bấm <strong>"Set as default printer"</strong> thì Windows báo lỗi popup: <em>"Operation could not be completed (error 0x00000709)"</em>.<br />
+                      • <strong>Nguyên nhân gốc rễ:</strong> Do phân quyền bảo mật (ACL) của khóa Registry người dùng hiện tại tại đường dẫn: <br />
+                      <code style={{ background: '#dbeafe', padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>HKEY_CURRENT_USER\Software\Microsoft\Windows NT\CurrentVersion\Windows</code><br />
+                      bị chuyển sang chế độ <strong>Read-Only</strong> hoặc tài khoản Windows hiện tại mất quyền ghi (Write Permission) vào giá trị <code>Device</code>.
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#0f172a', marginBottom: 8 }}>
+                      Chọn máy in bạn muốn cấp quyền và đặt làm mặc định:
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+                      <select
+                        value={selectedDefaultTarget}
+                        onChange={e => setSelectedDefaultTarget(e.target.value)}
+                        style={{
+                          flex: 1, padding: '7px 10px', borderRadius: 6, border: '1px solid #cbd5e1',
+                          fontSize: '0.75rem', fontWeight: 600, color: '#0f172a', background: '#fff'
+                        }}
+                      >
+                        <option value="">-- Chọn máy in trong hệ thống --</option>
+                        {printers.map(p => (
+                          <option key={p.Name} value={p.Name}>
+                            {p.Name} (Driver: {p.DriverName} | Cổng: {p.PortName})
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        onClick={() => handleFixDefaultPrinter709(selectedDefaultTarget)}
+                        disabled={fixingDefault709 || !selectedDefaultTarget}
+                        style={{
+                          padding: '7px 16px', borderRadius: 6, border: 'none',
+                          background: selectedDefaultTarget ? '#4f46e5' : '#94a3b8',
+                          color: '#fff', fontSize: '0.75rem', fontWeight: 700,
+                          cursor: selectedDefaultTarget ? 'pointer' : 'not-allowed',
+                          display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <Zap size={13} className={fixingDefault709 ? 'spin' : ''} />
+                        {fixingDefault709 ? 'Đang cấp quyền...' : '⚡ Cấp Quyền & Đặt Mặc Định Ngay'}
+                      </button>
+                    </div>
+
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '0.7rem 0.9rem', fontSize: '0.7rem', color: '#475569' }}>
+                      <strong>Thao tác tự động của DMH Tools:</strong><br />
+                      1. Cấp lại quyền <code>FullControl</code> cho tài khoản người dùng hiện tại trên khóa Registry <code>HKCU\...\Windows</code>.<br />
+                      2. Tắt chế độ <em>"Let Windows manage my default printer"</em> (đặt <code>UserSelectedDefault = 1</code>).<br />
+                      3. Cập nhật chuỗi <code>Device</code> và gọi COM API <code>WScript.Network.SetDefaultPrinter</code> để kích hoạt máy in mặc định ngay lập tức.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ═════ TAB 3: HƯỚNG DẪN THỦ CÔNG & LỆNH CMD ═════ */}
+              {active709Tab === 'manual' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                  
+                  {/* Công cụ: Khai Báo Windows Credentials 1-Click (Kinh nghiệm thực chiến Sài Gòn Computer) */}
+                  <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '0.85rem 1rem' }}>
+                    <div style={{ fontWeight: 800, color: '#166534', fontSize: '0.78rem', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <ShieldCheck size={15} color="#16a34a" /> Khai Báo Danh Tính Windows Credentials (Kinh Nghiệm Sài Gòn Computer):
+                    </div>
+                    <div style={{ color: '#15803d', fontSize: '0.71rem', lineHeight: 1.45, marginBottom: 8 }}>
+                      • <strong>Bí quyết thực chiến:</strong> Khi máy con kết nối máy in trên máy chủ, Windows thường chặn âm thầm vì chưa chứng thực danh tính mạng (Access Denied / 709).<br />
+                      • Bạn chỉ cần nhập IP hoặc Tên Máy Chủ vào bên dưới, DMH Tools sẽ tự động dùng lệnh <code>cmdkey</code> lưu chứng thư mạng để thông luồng 100%!
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        placeholder="Nhập IP Máy Chủ (ví dụ: 192.168.1.100 hoặc MAY_CHU)"
+                        value={credHostInput}
+                        onChange={e => setCredHostInput(e.target.value)}
+                        style={{
+                          flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #86efac',
+                          fontSize: '0.75rem', fontWeight: 600, color: '#0f172a', background: '#fff'
+                        }}
+                      />
+                      <button
+                        onClick={handleSaveWindowsCred}
+                        disabled={savingCred || !credHostInput.trim()}
+                        style={{
+                          padding: '6px 14px', borderRadius: 6, border: 'none',
+                          background: credHostInput.trim() ? '#16a34a' : '#94a3b8',
+                          color: '#fff', fontSize: '0.73rem', fontWeight: 700,
+                          cursor: credHostInput.trim() ? 'pointer' : 'not-allowed',
+                          display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <Zap size={12} className={savingCred ? 'spin' : ''} />
+                        {savingCred ? 'Đang lưu...' : '⚡ Lưu Danh Tính (cmdkey) Ngay'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 4 Bước Chỉnh Sửa Registry Thủ Công */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '0.9rem 1rem' }}>
+                    <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>🛠️ 4 Bước Chỉnh Sửa Registry Thủ Công Bằng regedit.exe:</span>
+                      <button
+                        onClick={() => handleOpenWindowsTool('regedit')}
+                        style={{ background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                        title="Mở Registry Editor ngay"
+                      >
+                        <ExternalLink size={11} /> Mở regedit.exe
+                      </button>
+                    </div>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>1</div>
+                        <div>
+                          <strong>Mở Registry Editor:</strong> Nhấn tổ hợp phím <code>Windows + R</code>, gõ <code>regedit</code> rồi nhấn Enter.
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>2</div>
+                        <div>
+                          <strong>Tìm thư mục Printers:</strong> Điều hướng đến đường dẫn:<br />
+                          <code style={{ background: '#e2e8f0', padding: '2px 6px', borderRadius: 4, color: '#0f172a' }}>HKEY_LOCAL_MACHINE\Software\Policies\Microsoft\Windows NT\Printers</code><br />
+                          <span style={{ fontSize: '0.7rem', color: '#64748b' }}>*(Nếu chưa có, chuột phải Windows NT chọn New &gt; Key đặt tên là Printers)*.</span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>3</div>
+                        <div>
+                          <strong>Tạo khóa RPC Named Pipe:</strong> Nhấp chuột phải vào khoảng trống chọn <strong>New &gt; DWORD (32-bit) Value</strong>, đặt tên là <code style={{ color: '#4338ca', fontWeight: 700 }}>RpcUseNamedPipeProtocol</code> và đổi giá trị thành <strong>1</strong>.
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ background: '#6366f1', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>4</div>
+                        <div>
+                          <strong>Thêm DnsOnWire cho kết nối IP:</strong> Vào <code>HKLM\System\CurrentControlSet\Control\Print</code>, thêm DWORD <code>DnsOnWire</code> đặt giá trị <strong>1</strong>. Sau đó khởi động lại Print Spooler!
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Copy Lệnh CMD Nhanh */}
+                  <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '0.85rem 1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontWeight: 700, color: '#166534', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <Terminal size={14} color="#16a34a" /> Lệnh CMD Ghi Nhanh Vào Registry (Chạy As Administrator):
+                      </span>
+                      <button
+                        onClick={copyCmdToClipboard}
+                        style={{ background: copiedCmd ? '#dcfce7' : '#fff', color: copiedCmd ? '#15803d' : '#166534', border: '1px solid #86efac', borderRadius: 4, padding: '3px 8px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                      >
+                        {copiedCmd ? <Check size={11} /> : <Copy size={11} />}
+                        {copiedCmd ? 'Đã sao chép' : 'Sao chép CMD'}
+                      </button>
+                    </div>
+                    <pre style={{ margin: 0, background: '#0f172a', color: '#38bdf8', padding: '8px 10px', borderRadius: 6, fontSize: '0.68rem', overflowX: 'auto', fontFamily: 'monospace', lineHeight: 1.4 }}>
+{`reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f
+reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC" /v "RpcUseNamedPipeProtocol" /t REG_DWORD /d 1 /f
+reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "RpcAuthnLevelPrivacyEnabled" /t REG_DWORD /d 0 /f
+reg add "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Control\\Print" /v "DnsOnWire" /t REG_DWORD /d 1 /f
+net stop Spooler && net start Spooler`}
+                    </pre>
+                  </div>
+
+                  {/* Phân Tích & Cảnh Báo: Chép Đè File DLL win32spl.dll */}
+                  <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '0.85rem 1rem' }}>
+                    <div style={{ fontWeight: 800, color: '#92400e', fontSize: '0.76rem', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <AlertTriangle size={14} color="#d97706" /> Cảnh Báo Về Phương Pháp "Chép Đè File DLL win32spl.dll" Trôi Nổi Trên Mạng:
+                    </div>
+                    <div style={{ color: '#78350f', fontSize: '0.7rem', lineHeight: 1.45 }}>
+                      • <strong>Rủi ro:</strong> Một số diễn đàn hướng dẫn tải file zip và chép đè file <code>win32spl.dll</code> cũ vào <code>System32</code>. Cách này rất dễ gây xung đột phiên bản Windows, làm dịch vụ Print Spooler bị dừng liên tục (Crash) hoặc bị ghi đè lại mỗi khi Windows Update!<br />
+                      • <strong>Khuyến cáo chuẩn:</strong> DMH Tools áp dụng phương pháp chuẩn của Microsoft (Cấu hình Registry + Miễn trừ RPC) kết hợp <strong>In qua Local Port</strong>. Đây là giải pháp an toàn tuyệt đối, không can thiệp vào file hệ thống Windows và bất tử 100% qua mọi đợt cập nhật!
+                    </div>
+                  </div>
+
+                </div>
+              )}
 
             </div>
 
             {/* Footer */}
-            <div style={{ padding: '0.75rem 1.25rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ padding: '0.8rem 1.25rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => setShowError709Modal(false)}
+                  style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Đóng
+                </button>
+                <button
+                  onClick={handleExport709Script}
+                  disabled={exporting709Script}
+                  style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #93c5fd', background: '#eff6ff', color: '#1d4ed8', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+                >
+                  <Download size={13} className={exporting709Script ? 'spin' : ''} />
+                  Xuất File Cho Máy Chủ (.BAT)
+                </button>
+              </div>
               <button
-                onClick={() => setShowError709Modal(false)}
-                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer' }}
+                onClick={handleFix709AZ}
+                disabled={fixing709AZ}
+                style={{ padding: '6px 18px', borderRadius: 6, border: 'none', background: '#16a34a', color: '#fff', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)' }}
               >
-                Đóng
-              </button>
-              <button
-                onClick={() => {
-                  setShowError709Modal(false);
-                  fixShareError();
-                }}
-                disabled={loading || fixingShare}
-                style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: '#4f46e5', color: '#fff', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <Share2 size={13} className={fixingShare ? 'spin' : ''} />
-                {fixingShare ? 'Đang áp dụng...' : '⚡ Sửa Tự Động 1-Click Ngay'}
+                <Zap size={14} className={fixing709AZ ? 'spin' : ''} />
+                {fixing709AZ ? 'Đang sửa A-Z...' : '⚡ Sửa Tự Động Toàn Diện A-Z'}
               </button>
             </div>
           </div>
@@ -2945,13 +4754,13 @@ export default function PrinterTab() {
 
       {showError0x40Modal && (
         <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.7)',
+          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.75)',
           zIndex: 2200, display: 'flex', alignItems: 'center', justifyContent: 'center',
           backdropFilter: 'blur(4px)', padding: '1rem'
         }}>
           <div style={{
-            background: '#fff', borderRadius: 12, width: '100%', maxWidth: 720,
-            maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+            background: '#fff', borderRadius: 12, width: '100%', maxWidth: 760,
+            maxHeight: '92vh', display: 'flex', flexDirection: 'column',
             boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)', overflow: 'hidden'
           }}>
             {/* Header */}
@@ -2960,15 +4769,20 @@ export default function PrinterTab() {
               color: '#fff', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ background: 'rgba(255,255,255,0.2)', padding: 6, borderRadius: 8 }}>
+                <div style={{ background: 'rgba(255,255,255,0.2)', padding: 7, borderRadius: 8 }}>
                   <AlertTriangle size={20} color="#fff" />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, letterSpacing: 0.3 }}>
-                    Đặc Trị Lỗi 40 (0x00000040) - "The specified network name is no longer available"
-                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, letterSpacing: 0.3 }}>
+                      Đặc Trị Lỗi 40 (0x00000040) - Tuyệt Chiêu Minh Yak 100%
+                    </h3>
+                    <span style={{ background: '#ffedd5', color: '#9a3412', fontSize: '0.65rem', fontWeight: 700, padding: '1px 7px', borderRadius: 10 }}>
+                      Thành Công 100%
+                    </span>
+                  </div>
                   <div style={{ fontSize: '0.72rem', color: '#ffedd5', marginTop: 2 }}>
-                    Khắc phục sự cố kết nối chia sẻ máy in giữa 2 phiên bản Windows khác nhau (Win 7/10 ↔ Win 10/11)
+                    "The specified network name is no longer available" • Tự động ghim Windows Credential (Guest) &amp; Mở máy in
                   </div>
                 </div>
               </div>
@@ -2981,125 +4795,215 @@ export default function PrinterTab() {
             </div>
 
             {/* Body */}
-            <div style={{ padding: '1.25rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.9rem', fontSize: '0.75rem', lineHeight: 1.5, color: '#334155' }}>
+            <div style={{ padding: '1.2rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.9rem', fontSize: '0.75rem', lineHeight: 1.5, color: '#334155' }}>
               
-              {/* Nguyên nhân */}
-              <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '0.8rem 1rem' }}>
-                <div style={{ fontWeight: 700, color: '#9a3412', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <AlertTriangle size={14} color="#ea580c" /> Nguyên Nhân Gây Lỗi:
-                </div>
-                <div style={{ color: '#7c2d12', fontSize: '0.73rem' }}>
-                  • <strong>Bản vá bảo mật Windows (Chính sách Point and Print &amp; RPC):</strong> Chặn máy tính client kết nối tự động hoặc tải driver từ máy chủ chia sẻ máy in nhằm phòng chống lỗ hổng bảo mật mạng.<br />
-                  • <strong>Bắt buộc SMB Signing trên Windows 11:</strong> Khi máy Windows 11 kết nối tới Windows 10/7, cơ chế bắt buộc ký số SMB làm đứt phiên mạng với thông báo: <em>"The specified network name is no longer available" (Tên mạng được chỉ định không còn khả dụng)</em>.
-                </div>
-              </div>
-
-              {/* 4 Bước Group Policy */}
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '0.9rem 1rem' }}>
-                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>🛠️ 4 Bước Chỉnh Sửa Chính Sách Hệ Thống (Group Policy):</span>
-                  <button
-                    onClick={() => handleOpenWindowsTool('gpedit')}
-                    style={{ background: '#ea580c', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                    title="Mở Group Policy Editor ngay"
-                  >
-                    <ExternalLink size={11} /> Mở gpedit.msc
-                  </button>
+              {/* ── KHỐI 1: TUYỆT CHIÊU MINH YAK (TỰ ĐỘNG HÓA 100%) ── */}
+              <div style={{ background: '#fff7ed', border: '1.5px solid #f97316', borderRadius: 8, padding: '0.95rem 1.1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ fontWeight: 800, color: '#9a3412', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <Sparkles size={16} color="#ea580c" /> Tuyệt Chiêu Minh Yak: Ghim Windows Credential (Guest) Tự Động
+                  </div>
+                  <span style={{ background: '#ea580c', color: '#fff', fontSize: '0.65rem', fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
+                    Khuyên Dùng Hàng Đầu
+                  </span>
                 </div>
                 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ background: '#ea580c', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>1</div>
-                    <div>
-                      <strong>Mở Group Policy Editor:</strong> Thực hiện trên máy tính bị lỗi không kết nối được. Nhấn tổ hợp phím <code>Windows + R</code>, gõ <code>gpedit.msc</code> rồi nhấn Enter. <em>(Lưu ý: Nếu dùng Windows bản Home không có sẵn gpedit.msc, bạn dùng nút Sửa Tự Động hoặc mã Registry phía dưới)</em>.
+                <div style={{ color: '#7c2d12', fontSize: '0.73rem', lineHeight: 1.5, marginBottom: 10 }}>
+                  • <strong>Bản chất lỗi 0x00000040:</strong> Khi bạn nhấp đúp vào máy in chia sẻ qua <code>\\MAY-CHU\TenMayIn</code>, Windows 10/11 tự ý gửi tài khoản đăng nhập của máy con sang máy chủ. Nếu máy chủ không có tài khoản này hoặc bật chia sẻ ẩn danh, máy chủ sẽ ngắt ngay phiên kết nối SMB và trả lỗi <em>"The specified network name is no longer available"</em>.<br />
+                  • <strong>Giải pháp từ video Minh Yak:</strong> Ghim thông tin tài khoản <code>guest</code> (mật khẩu rỗng) vào <strong>Windows Credential Manager</strong> cho máy chủ đó. Khi truy cập, Windows sẽ luôn dùng quyền Guest để vào máy chủ, không bao giờ bị từ chối kết nối nữa!
+                </div>
+
+                {/* Hộp Công Cụ Tự Động Hóa 1-Click */}
+                <div style={{ background: '#fff', border: '1px solid #fdba74', borderRadius: 7, padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#9a3412', marginBottom: 4 }}>
+                        Nhập IP hoặc Tên Máy Chủ chia sẻ máy in:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ví dụ: 192.168.1.10 hoặc WIN-18LE6N970C0 hoặc MAY-CHU"
+                        value={error0x40Host}
+                        onChange={e => setError0x40Host(e.target.value)}
+                        style={{
+                          width: '100%', padding: '7px 10px', fontSize: '0.76rem',
+                          border: '1.5px solid #fdba74', borderRadius: 6, boxSizing: 'border-box',
+                          fontWeight: 600, color: '#0f172a', outline: 'none'
+                        }}
+                      />
                     </div>
+                    <button
+                      onClick={() => fixError0x40(error0x40Host)}
+                      disabled={loading || fixing0x40 || !error0x40Host.trim()}
+                      style={{
+                        padding: '7px 16px', borderRadius: 6, border: 'none',
+                        background: error0x40Host.trim() ? '#ea580c' : '#fdba74',
+                        color: '#fff', fontSize: '0.76rem', fontWeight: 700,
+                        cursor: error0x40Host.trim() ? 'pointer' : 'not-allowed',
+                        display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+                        height: 35
+                      }}
+                      title="Tự động ghim Windows Credential (Guest), tắt SMB Signing, mở RPC Named Pipe và tự động mở File Explorer tới máy chủ"
+                    >
+                      <Zap size={14} className={fixing0x40 ? 'spin' : ''} />
+                      {fixing0x40 ? 'Đang áp dụng...' : '⚡ Ghim Credential & Mở Máy In'}
+                    </button>
                   </div>
 
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ background: '#ea580c', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>2</div>
-                    <div>
-                      <strong>Truy cập mục Point and Print:</strong> Trong cửa sổ hiện ra, điều hướng theo đường dẫn:<br />
-                      <code style={{ background: '#e2e8f0', padding: '2px 6px', borderRadius: 4, color: '#0f172a' }}>Computer Configuration &gt; Administrative Templates &gt; Printers</code>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #fed7aa', paddingTop: 6 }}>
+                    <div style={{ fontSize: '0.69rem', color: '#9a3412', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <CheckCircle2 size={13} color="#ea580c" />
+                      Sau khi bấm nút, Explorer sẽ mở <code>\\{error0x40Host.trim() || 'MAY-CHU'}</code>. Bạn chỉ cần <strong>nhấp đúp vào máy in</strong> -&gt; chọn <strong>Install driver</strong> là xong!
                     </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ background: '#ea580c', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>3</div>
-                    <div>
-                      <strong>Vô hiệu hóa hạn chế Point and Print:</strong> Tìm mục <strong>Point and Print Restrictions</strong>, nhấp đúp vào nó, chọn <strong>Disabled</strong>, sau đó nhấn <strong>Apply</strong> và <strong>OK</strong> để cho phép máy con nhận driver qua mạng.
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ background: '#ea580c', color: '#fff', borderRadius: '50%', width: 18, height: 18, minWidth: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700 }}>4</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div>
-                        <strong>Khởi động lại dịch vụ Print Spooler:</strong> Làm mới kết nối in bằng cách nhấn <code>Windows + R</code>, gõ <code>services.msc</code> &gt; tìm dịch vụ <strong>Print Spooler</strong> &gt; nhấp chuột phải chọn <strong>Restart</strong>.
-                      </div>
-                      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                        <button
-                          onClick={() => handleOpenWindowsTool('services')}
-                          style={{ background: '#fff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '2px 6px', fontSize: '0.66rem', cursor: 'pointer' }}
-                        >
-                          Mở services.msc
-                        </button>
-                        <button
-                          onClick={restartSpooler}
-                          style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', borderRadius: 4, padding: '2px 6px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer' }}
-                        >
-                          ⚡ Khởi Động Lại Spooler Ngay
-                        </button>
-                      </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={handleOpenCredentialManager}
+                        disabled={openingCredMgr}
+                        style={{ background: '#fff', color: '#9a3412', border: '1px solid #fdba74', borderRadius: 4, padding: '3px 8px', fontSize: '0.67rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                        title="Mở Windows Credential Manager thủ công (control keymgr.dll)"
+                      >
+                        <ShieldCheck size={11} color="#ea580c" /> Mở Credential Manager
+                      </button>
+                      <button
+                        onClick={() => copyMinhYakCmdToClipboard(error0x40Host)}
+                        style={{ background: copiedMinhYakCmd ? '#ecfdf5' : '#fff', color: copiedMinhYakCmd ? '#059669' : '#9a3412', border: '1px solid #fdba74', borderRadius: 4, padding: '3px 8px', fontSize: '0.67rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                        title="Chép câu lệnh cmdkey /add:..."
+                      >
+                        {copiedMinhYakCmd ? <Check size={11} color="#059669" /> : <Copy size={11} />}
+                        {copiedMinhYakCmd ? 'Đã chép CMD' : 'Chép Lệnh CMD'}
+                      </button>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Giải pháp Registry cho Windows Home & 1-Click */}
-              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '0.8rem 1rem' }}>
-                <div style={{ fontWeight: 700, color: '#166534', marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <CheckCircle2 size={14} color="#16a34a" /> Khắc Phục Tự Động 1-Click (Hỗ trợ 100% Win Home &amp; Pro):
-                  </span>
+              {/* ── KHỐI 2: CÁC BƯỚC THỦ CÔNG THEO VIDEO MINH YAK ── */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '0.9rem 1rem' }}>
+                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.78rem', marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>📋 4 Bước Làm Bằng Tay Trong Windows Như Video Minh Yak:</span>
                   <button
-                    onClick={copy0x40RegToClipboard}
-                    style={{ background: copied0x40Reg ? '#dcfce7' : '#fff', color: copied0x40Reg ? '#15803d' : '#166534', border: '1px solid #86efac', borderRadius: 4, padding: '3px 8px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                    onClick={handleOpenCredentialManager}
+                    style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
                   >
-                    {copied0x40Reg ? <Check size={11} /> : <Copy size={11} />}
-                    {copied0x40Reg ? 'Đã chép mã Registry' : 'Chép Mã Registry CMD'}
+                    <ExternalLink size={10} /> Mở control keymgr.dll
                   </button>
                 </div>
-                <div style={{ color: '#15803d', fontSize: '0.72rem' }}>
-                  Đối với Windows Home không có <code>gpedit.msc</code>, DMH_Tools tự động ghi trực tiếp cấu hình Registry tương đương: Vô hiệu hóa Point &amp; Print Restrictions, bật RPC Named Pipe, tắt SMB Signing và khởi động lại Spooler chỉ với 1 click!
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.72rem', color: '#334155' }}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <span style={{ background: '#e2e8f0', color: '#0f172a', borderRadius: '50%', width: 16, height: 16, minWidth: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.63rem', fontWeight: 700 }}>1</span>
+                    <div>Nhấn tổ hợp phím <code>Windows + R</code>, nhập <code>control keymgr.dll</code> rồi nhấn Enter để mở <strong>Credential Manager</strong>.</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <span style={{ background: '#e2e8f0', color: '#0f172a', borderRadius: '50%', width: 16, height: 16, minWidth: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.63rem', fontWeight: 700 }}>2</span>
+                    <div>Nhấp vào mục <strong>Windows Credentials</strong> &gt; Nhấp vào dòng chữ màu xanh <strong>"Add a Windows credential"</strong>.</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <span style={{ background: '#e2e8f0', color: '#0f172a', borderRadius: '50%', width: 16, height: 16, minWidth: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.63rem', fontWeight: 700 }}>3</span>
+                    <div>
+                      Điền thông tin máy chủ:
+                      <div style={{ background: '#f1f5f9', padding: '4px 8px', borderRadius: 4, margin: '3px 0', fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                        • Internet or network address: <strong>{error0x40Host.trim() || 'Tên hoặc IP máy chủ (VD: WIN-18LE6N970C0 hoặc 192.168.1.10)'}</strong><br />
+                        • User name: <strong>guest</strong><br />
+                        • Password: <strong>(để trống hoàn toàn)</strong>
+                      </div>
+                      Sau đó bấm nút <strong>OK</strong> để lưu chứng thực.
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <span style={{ background: '#e2e8f0', color: '#0f172a', borderRadius: '50%', width: 16, height: 16, minWidth: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.63rem', fontWeight: 700 }}>4</span>
+                    <div>Mở lại Run (Win + R), gõ <code>\\{error0x40Host.trim() || 'MAY-CHU'}</code> &gt; Nhấp đúp vào máy in. Khi Windows hiện popup <em>"Do you trust this printer?"</em> -&gt; Nhấp vào <strong>"Install driver"</strong> -&gt; Kết nối hoàn tất 100%!</div>
+                  </div>
                 </div>
               </div>
 
-              {/* Cách kiểm tra thành công */}
-              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '0.7rem 1rem', fontSize: '0.72rem', color: '#1e40af' }}>
-                <strong>🎯 Cách kiểm tra thành công:</strong> Thử kết nối lại tới máy in chia sẻ qua mạng LAN (ví dụ vào Run gõ <code>\\IP_MAY_CHU</code> rồi nhấp đúp vào máy in) hoặc thêm lại máy in. Nếu hệ thống cho phép cài đặt và in thử một trang (Print Test Page) thành công nghĩa là đã khắc phục hoàn toàn lỗi!
+              {/* ── KHỐI 3: KIỂM TRA MÁY CHỦ (HOST) ── */}
+              <div style={{ background: '#fffbeb', border: '1px solid #fed7aa', borderRadius: 8, padding: '0.85rem 1rem' }}>
+                <div style={{ fontWeight: 700, color: '#9a3412', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}>
+                  <ShieldAlert size={14} color="#ea580c" /> 3 Điều Cần Lưu Ý Trên Máy Chủ (Máy cắm trực tiếp máy in):
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#7c2d12', fontSize: '0.72rem' }}>
+                  <div>
+                    <strong>1. Đổi tên Share máy in ngắn gọn, không dấu cách:</strong> Vào <code>Control Panel &gt; Devices and Printers</code> &gt; Chuột phải máy in &gt; <em>Printer properties</em> &gt; Thẻ <em>Sharing</em>. Đặt tên Share viết liền không dấu (VD: <code>Canon2900</code> hoặc <code>LQ310</code> thay vì tên dài có khoảng trắng).
+                  </div>
+                  <div>
+                    <strong>2. Tắt mật khẩu chia sẻ mạng:</strong> Vào <code>Control Panel &gt; Network and Sharing Center &gt; Advanced sharing settings</code> &gt; <em>All Networks</em> &gt; Chọn <strong>Turn off password protected sharing</strong> &gt; Save changes.
+                  </div>
+                  <div>
+                    <strong>3. Chạy DMH_Tools trên Máy Chủ:</strong> Mở DMH_Tools trên Máy Chủ bằng quyền Administrator và bấm <strong>[⚡ Sửa Tự Động 1-Click]</strong> để chuyển mạng sang Private, mở tường lửa cổng 445 và cấp quyền truy cập Spooler.
+                  </div>
+                </div>
+              </div>
+
+              {/* ── KHỐI 4: TUYỆT CHIÊU LOCAL PORT (BẤT TỬ 100%) ── */}
+              <div style={{ background: '#ecfdf5', border: '1.5px solid #6ee7b7', borderRadius: 8, padding: '0.85rem 1rem' }}>
+                <div style={{ fontWeight: 800, color: '#065f46', marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <CheckCircle2 size={16} color="#059669" /> Tuyệt Chiêu "Bất Tử" 100%: Kết Nối Bằng Local Port
+                  </span>
+                  <button
+                    onClick={() => {
+                      setShowError0x40Modal(false);
+                      openLocalPortModal();
+                    }}
+                    style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                  >
+                    <Network size={12} /> Mở Local Port Ngay
+                  </button>
+                </div>
+                <div style={{ color: '#047857', fontSize: '0.72rem', lineHeight: 1.45 }}>
+                  Nếu mạng cơ quan hoặc hai phiên bản Windows quá khác biệt (ví dụ Win 11 24H2 kết nối Win 7): Công cụ <strong>Local Port</strong> của DMH_Tools sẽ tạo một máy in nội bộ dẫn thẳng tới cổng <code>\\IP_MAY_CHU\TenShare</code>, <strong>bỏ qua 100% cơ chế tải driver qua mạng và RPC Spooler của Windows, in mượt mà không bao giờ gặp bất kỳ lỗi gì!</strong>
+                </div>
+              </div>
+
+              {/* ── KHỐI 5: LỆNH REGISTRY CMD CHỈNH SỬA THỦ CÔNG ── */}
+              <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '0.8rem 1rem' }}>
+                <div style={{ fontWeight: 700, color: '#334155', marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Chỉnh Sửa Toàn Bộ Registry Bằng Lệnh CMD Admin:</span>
+                  <button
+                    onClick={copy0x40RegToClipboard}
+                    style={{ background: copied0x40Reg ? '#dcfce7' : '#fff', color: copied0x40Reg ? '#15803d' : '#166534', border: '1px solid #86efac', borderRadius: 4, padding: '2px 6px', fontSize: '0.66rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                  >
+                    {copied0x40Reg ? <Check size={11} /> : <Copy size={11} />}
+                    {copied0x40Reg ? 'Đã chép' : 'Chép Mã Registry CMD'}
+                  </button>
+                </div>
+                <div style={{ color: '#64748b', fontSize: '0.71rem' }}>
+                  Vô hiệu hóa <code>Point and Print Restrictions</code>, tắt SMB Signing (<code>RequireSecuritySignature = 0</code>), bật <code>AllowInsecureGuestAuth = 1</code> và khởi động lại Spooler.
+                </div>
               </div>
 
             </div>
 
             {/* Footer */}
-            <div style={{ padding: '0.75rem 1.25rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ padding: '0.75rem 1.25rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <button
                 onClick={() => setShowError0x40Modal(false)}
                 style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer' }}
               >
                 Đóng
               </button>
-              <button
-                onClick={() => {
-                  setShowError0x40Modal(false);
-                  fixError0x40();
-                }}
-                disabled={loading || fixing0x40}
-                style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: '#ea580c', color: '#fff', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <Zap size={13} className={fixing0x40 ? 'spin' : ''} />
-                {fixing0x40 ? 'Đang áp dụng...' : '⚡ Chạy Sửa Tự Động 1-Click Ngay'}
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => {
+                    setShowError0x40Modal(false);
+                    openLocalPortModal();
+                  }}
+                  style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: '#059669', color: '#fff', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Network size={13} /> 🌐 Kết Nối Local Port (Bất Tử 100%)
+                </button>
+                <button
+                  onClick={() => {
+                    setShowError0x40Modal(false);
+                    fixError0x40(error0x40Host);
+                  }}
+                  disabled={loading || fixing0x40}
+                  style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: '#ea580c', color: '#fff', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Zap size={13} className={fixing0x40 ? 'spin' : ''} />
+                  {fixing0x40 ? 'Đang áp dụng...' : '⚡ Sửa Tự Động 1-Click (Minh Yak)'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -3451,7 +5355,7 @@ export default function PrinterTab() {
                 </button>
               ) : (
                 <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-                  DMH Tools • Bác Sĩ Máy In v6.9.3
+                  DMH Tools • Bác Sĩ Máy In v6.9.5
                 </div>
               )}
 

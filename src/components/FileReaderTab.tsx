@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
+import { showToast } from '../utils/notificationSystem';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -217,10 +218,16 @@ function DataViewer({ file, searchQ }: { file: ParsedFile; searchQ: string }) {
   const cols = file.columns.filter(c => visibleCols.has(c));
 
   const exportFiltered = () => {
+    if (filtered.length === 0) {
+      showToast.warning('Không có dữ liệu', 'Không có dòng dữ liệu nào để xuất.');
+      return;
+    }
     const ws = XLSX.utils.json_to_sheet(filtered);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Dữ liệu');
-    XLSX.writeFile(wb, `${file.name.replace(/\.[^.]+$/, '')}_export.xlsx`);
+    const outName = `${file.name.replace(/\.[^.]+$/, '')}_export.xlsx`;
+    XLSX.writeFile(wb, outName);
+    showToast.success('Xuất Excel thành công', `Đã xuất ${filtered.length} dòng dữ liệu ra tệp: ${outName}`);
   };
 
   return (
@@ -609,6 +616,7 @@ function FileCard({ file, onRemove, onUpdate }: {
     onUpdate({ ...file, rows, columns: updatedColumns, rowCount: rows.length });
     setFixReport(report);
     setTimeout(() => setFixReport(null), 4000);
+    showToast.success('Làm sạch dữ liệu hoàn tất', `${file.name}: ${report.join(' · ')}`);
   };
 
   return (
@@ -722,8 +730,15 @@ export function FileReaderTab() {
     try {
       const parsed = await Promise.all(rawFiles.map(parseFile));
       setFiles(prev => [...parsed, ...prev]);
+      if (parsed.length === 1) {
+        showToast.success('Đọc tệp thành công', `${parsed[0].name}: ${parsed[0].rowCount} dòng, ${parsed[0].columns.length} cột (${parsed[0].size})`);
+      } else {
+        showToast.success('Đọc tệp thành công', `Đã phân tích xong ${parsed.length} tệp tin.`);
+      }
     } catch (err) {
-      setError(`Không thể đọc file: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Không thể đọc file: ${msg}`);
+      showToast.error('Không thể đọc file', msg);
     } finally {
       setLoading(false);
       stopGlobalLoading('file-reader');

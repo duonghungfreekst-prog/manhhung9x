@@ -10,6 +10,9 @@ import {
   Key, Network, History, Sparkles, FolderSearch, File, Server,
   AlertTriangle, CheckCircle2, ShieldCheck, ShieldAlert, FolderArchive
 } from 'lucide-react';
+import { registerTabRefreshHandler } from '../utils/autoRefreshManager';
+import { showToast, showConfirm, showAlert } from '../utils/notificationSystem';
+import { startGlobalLoading, stopGlobalLoading } from '../utils/globalLoading';
 
 // ── Định dạng dữ liệu phần cứng ─────────────────────────────────────────────
 interface HardwareData {
@@ -1043,6 +1046,15 @@ export function PcToolsTab() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSubTab]); // intentional: refreshMediaDevices là stable ref
 
+  // Đăng ký làm mới thông minh toàn app cho Tab Kỹ Thuật PC
+  useEffect(() => {
+    return registerTabRefreshHandler('pctools', async () => {
+      if (activeSubTab === 'peripherals_test') {
+        await refreshMediaDevices();
+      }
+    });
+  }, [activeSubTab]);
+
   // ── Mic Tester ──
   const startMicTest = async () => {
     setMicError(null);
@@ -1314,15 +1326,28 @@ export function PcToolsTab() {
 
   // ── User Data Backup Handler ──
   const handleBackupUserData = async () => {
-    if (!confirm('Xác nhận tiến hành sao lưu toàn bộ Desktop, Documents và Downloads của bạn sang ổ đĩa thứ hai (D:\\ hoặc E:\\) bằng Robocopy?')) return;
+    const confirmed = await showConfirm({
+      title: 'Sao lưu dữ liệu cá nhân',
+      message: 'Xác nhận tiến hành sao lưu toàn bộ Desktop, Documents và Downloads của bạn sang ổ đĩa thứ hai (D:\\ hoặc E:\\) bằng Robocopy?',
+      type: 'info',
+      confirmText: 'Bắt đầu sao lưu',
+      cancelText: 'Hủy'
+    });
+    if (!confirmed) return;
     setIsBackingUpUserData(true);
     setBackupUserDataResult(null);
     try {
       const eAPI = (window as any).electronAPI;
       const res = await eAPI?.pcTools?.backupUserData();
       setBackupUserDataResult(res);
+      if (res?.ok) {
+        showToast.success(`Sao lưu dữ liệu người dùng thành công! (${res.backupDir || 'Thư mục backup'})`);
+      } else {
+        showToast.error(`Lỗi sao lưu dữ liệu: ${res?.error || 'Thất bại'}`);
+      }
     } catch (e: any) {
       setBackupUserDataResult({ ok: false, error: e.message });
+      showToast.error(`Lỗi sao lưu dữ liệu: ${e.message}`);
     } finally {
       setIsBackingUpUserData(false);
     }
@@ -1385,6 +1410,8 @@ export function PcToolsTab() {
   const handleMasterBoost = async () => {
     setIsMasterBoosting(true);
     setMasterBoostResult(null);
+    const taskId = 'pc-master-boost';
+    startGlobalLoading(taskId, 'Đang tiến hành tăng tốc hệ thống toàn diện 1-Click Clinic Boost...');
     try {
       const eAPI = (window as any).electronAPI;
       const res = await eAPI?.pcTools?.masterBoost();
@@ -1394,6 +1421,7 @@ export function PcToolsTab() {
       setMasterBoostResult({ ok: false, error: e.message });
     } finally {
       setIsMasterBoosting(false);
+      stopGlobalLoading(taskId);
     }
   };
 
@@ -1414,8 +1442,20 @@ export function PcToolsTab() {
   };
 
   const handleRepairServices = async () => {
+    const ok = await showConfirm({
+      title: 'Khôi Phục & Sửa Chữa Dịch Vụ Hệ Thống',
+      message: 'Hệ thống sẽ tiến hành khởi động lại các dịch vụ cốt lõi của Windows (Windows Update, BITS, CryptSvc, Print Spooler, W32Time).\n\nBạn có muốn thực hiện ngay bây giờ?',
+      type: 'warning',
+      badge: 'QUẢN TRỊ VIÊN HỆ THỐNG',
+      confirmText: 'Bắt đầu sửa chữa',
+      cancelText: 'Hủy'
+    });
+    if (!ok) return;
+
     setIsRepairingServices(true);
     setServicesRepairMsg(null);
+    const taskId = 'pc-repair-services';
+    startGlobalLoading(taskId, 'Đang khôi phục và khởi động lại các dịch vụ cốt lõi Windows...');
     try {
       const eAPI = (window as any).electronAPI;
       const res = await eAPI?.pcTools?.repairServices();
@@ -1426,6 +1466,7 @@ export function PcToolsTab() {
       setServicesRepairMsg('Lỗi sửa chữa: ' + e.message);
     } finally {
       setIsRepairingServices(false);
+      stopGlobalLoading(taskId);
     }
   };
 
@@ -1568,14 +1609,23 @@ export function PcToolsTab() {
   // ── Power & BIOS Handlers ──
   const handlePowerAction = async (action: 'reboot-bios' | 'schedule-shutdown' | 'cancel-shutdown', minutes = 30) => {
     if (action === 'reboot-bios') {
-      if (!confirm('Xác nhận khởi động lại máy và truy cập thẳng vào giao diện BIOS / UEFI Firmware?')) return;
+      const confirmed = await showConfirm({
+        title: 'Khởi động vào BIOS / UEFI',
+        message: 'Xác nhận khởi động lại máy tính ngay lập tức và truy cập thẳng vào giao diện BIOS / UEFI Firmware?',
+        type: 'warning',
+        confirmText: 'Khởi động lại ngay',
+        cancelText: 'Hủy'
+      });
+      if (!confirmed) return;
     }
     try {
       const res = await (window as any).electronAPI?.invoke('pctools:power-action', { action, minutes });
       setPowerMsg(res?.message || 'Đã thực hiện lệnh thành công!');
+      showToast.info(res?.message || 'Đã thực hiện lệnh nguồn thành công!');
       setTimeout(() => setPowerMsg(null), 5000);
     } catch (e: any) {
       setPowerMsg('Lỗi: ' + e.message);
+      showToast.error('Lỗi thực thi lệnh nguồn: ' + e.message);
     }
   };
 
@@ -1644,7 +1694,11 @@ export function PcToolsTab() {
     try {
       await (window as any).electronAPI?.invoke('pctools:open-restore-gui');
     } catch (e: any) {
-      alert('Không thể mở System Restore GUI: ' + e.message);
+      showAlert({
+        title: 'System Restore GUI',
+        message: 'Không thể mở giao diện System Restore: ' + e.message,
+        type: 'warning'
+      });
     }
   };
 
@@ -1664,14 +1718,23 @@ export function PcToolsTab() {
   };
 
   const handleRemoveStartupApp = async (name: string, scope: string) => {
-    if (!confirm(`Xác nhận xóa ứng dụng "${name}" khỏi danh sách khởi động cùng Windows?`)) return;
+    const confirmed = await showConfirm({
+      title: 'Xóa ứng dụng khởi động',
+      message: `Xác nhận xóa ứng dụng "${name}" khỏi danh sách khởi động cùng Windows?`,
+      type: 'warning',
+      confirmText: 'Xóa khỏi khởi động',
+      cancelText: 'Hủy'
+    });
+    if (!confirmed) return;
     try {
       const res = await (window as any).electronAPI?.invoke('pctools:remove-startup-app', { name, scope });
       setStartupStatusMsg(res?.message || `Đã xóa ${name}`);
+      showToast.success(res?.message || `Đã xóa ${name} khỏi khởi động Windows!`);
       handleGetStartupApps();
       setTimeout(() => setStartupStatusMsg(null), 4000);
     } catch (e: any) {
       setStartupStatusMsg('Lỗi: ' + e.message);
+      showToast.error('Lỗi: ' + e.message);
     }
   };
 
@@ -1683,12 +1746,20 @@ export function PcToolsTab() {
       const res = await (window as any).electronAPI?.invoke('pctools:scan-large-files');
       if (res?.ok && Array.isArray(res.files)) {
         setLargeFiles(res.files);
-        if (res.files.length === 0) setLargeFileMsg('Không tìm thấy tệp tin lớn hơn 50MB trong các thư mục chính.');
+        if (res.files.length === 0) {
+          setLargeFileMsg('Không tìm thấy tệp tin lớn hơn 50MB trong các thư mục chính.');
+          showToast.info('Không tìm thấy tệp tin nào lớn hơn 50MB.');
+        } else {
+          showToast.success(`Đã phát hiện ${res.files.length} tệp tin có dung lượng lớn!`);
+        }
       } else {
-        setLargeFileMsg('Lỗi quét: ' + (res?.error || 'Thất bại'));
+        const errMsg = 'Lỗi quét: ' + (res?.error || 'Thất bại');
+        setLargeFileMsg(errMsg);
+        showToast.error(errMsg);
       }
     } catch (e: any) {
       setLargeFileMsg('Lỗi: ' + e.message);
+      showToast.error('Lỗi quét file: ' + e.message);
     } finally {
       setIsScanningLargeFiles(false);
     }
@@ -1703,18 +1774,27 @@ export function PcToolsTab() {
   };
 
   const handleDeleteLargeFile = async (filePath: string, fileName: string) => {
-    if (!confirm(`Bạn có chắc chắn muốn chuyển tệp "${fileName}" vào Thùng rác (Recycle Bin)?`)) return;
+    const confirmed = await showConfirm({
+      title: 'Chuyển vào Thùng rác',
+      message: `Bạn có chắc chắn muốn chuyển tệp "${fileName}" vào Thùng rác (Recycle Bin)?`,
+      type: 'warning',
+      confirmText: 'Chuyển vào Thùng rác',
+      cancelText: 'Hủy'
+    });
+    if (!confirmed) return;
     try {
       const res = await (window as any).electronAPI?.invoke('pctools:delete-file', filePath);
       if (res?.ok) {
         setLargeFiles(prev => prev.filter(f => f.FullName !== filePath));
         setLargeFileMsg(`✓ ${res.message}`);
+        showToast.success(`Đã chuyển tệp "${fileName}" vào Thùng rác thành công!`);
         setTimeout(() => setLargeFileMsg(null), 4000);
       } else {
-        alert('Không thể xóa: ' + res?.error);
+        const errMsg = 'Không thể xóa tệp: ' + (res?.error || 'Thất bại');
+        showToast.error(errMsg);
       }
     } catch (e: any) {
-      alert('Lỗi xóa tệp: ' + e.message);
+      showToast.error('Lỗi xóa tệp: ' + e.message);
     }
   };
 
@@ -1729,12 +1809,14 @@ export function PcToolsTab() {
         const resultData = res?.data || (res?.writeSpeedMBps ? res : null);
         if (res?.ok && resultData) {
           setBenchmarkResult(resultData);
+          showToast.success(`Đo tốc độ ổ đĩa ${selectedDrive} thành công! Đọc: ${resultData.readSpeedMBps || resultData.readSpeed || 0} MB/s, Ghi: ${resultData.writeSpeedMBps || resultData.writeSpeed || 0} MB/s`);
         } else {
-          alert('Lỗi đo tốc độ: ' + (res?.error || 'Không thể đo tốc độ ổ đĩa'));
+          const errMsg = 'Lỗi đo tốc độ: ' + (res?.error || 'Không thể đo tốc độ ổ đĩa');
+          showToast.error(errMsg);
         }
       }
     } catch (err: any) {
-      alert('Lỗi chạy benchmark: ' + err.message);
+      showToast.error('Lỗi chạy benchmark: ' + err.message);
     } finally {
       setIsBenchmarking(false);
     }
@@ -1759,48 +1841,95 @@ export function PcToolsTab() {
   // ── User Management Handlers ──
   const handleRenamePC = async () => {
     if (!newComputerNameInput.trim()) return;
-    if (!confirm(`Xác nhận đổi tên máy tính thành "${newComputerNameInput}"?`)) return;
+    const confirmed = await showConfirm({
+      title: 'Đổi tên máy tính',
+      message: `Xác nhận đổi tên máy tính thành "${newComputerNameInput}"? Cần khởi động lại máy để áp dụng.`,
+      type: 'warning',
+      confirmText: 'Đổi tên',
+      cancelText: 'Hủy'
+    });
+    if (!confirmed) return;
     setUserMsg('Đang đổi tên máy tính...');
     try {
       const eAPI = (window as any).electronAPI;
       const res = await eAPI.pcTools.manageUser({ action: 'rename-computer', newComputerName: newComputerNameInput.trim() });
       setUserMsg(res.message || 'Thành công');
+      showToast.success(res.message || `Đã đổi tên máy thành ${newComputerNameInput}!`);
     } catch (e: any) {
       setUserMsg('Lỗi: ' + e.message);
+      showToast.error('Lỗi đổi tên: ' + e.message);
     }
   };
 
   const handleChangePassword = async (username: string) => {
-    if (!changePassNew.trim()) { alert('Vui lòng nhập mật khẩu mới'); return; }
+    if (!changePassNew.trim()) {
+      showToast.warning('Vui lòng nhập mật khẩu mới!');
+      return;
+    }
+    const confirmed = await showConfirm({
+      title: 'Đổi Mật Khẩu Tài Khoản Windows',
+      message: `Bạn có chắc muốn cập nhật mật khẩu mới cho tài khoản "${username}" trên hệ thống Windows?`,
+      type: 'warning',
+      badge: 'QUẢN TRỊ TÀI KHOẢN',
+      confirmText: 'Đổi mật khẩu',
+      cancelText: 'Hủy'
+    });
+    if (!confirmed) return;
+
     setUserMsg(`Đang cập nhật mật khẩu cho ${username}...`);
     try {
       const eAPI = (window as any).electronAPI;
       const res = await eAPI.pcTools.manageUser({ action: 'change-password', username, password: changePassNew.trim() });
       setUserMsg(res.message || 'Thành công');
+      showToast.success(res.message || `Đã cập nhật mật khẩu cho ${username}!`);
       setChangePassNew('');
       setChangePassUser('');
     } catch (e: any) {
       setUserMsg('Lỗi: ' + e.message);
+      showToast.error('Lỗi đổi mật khẩu: ' + e.message);
     }
   };
 
   const handleToggleAccount = async (username: string, currentDisabled: boolean) => {
+    const actionText = currentDisabled ? 'kích hoạt' : 'vô hiệu hóa';
+    const confirmed = await showConfirm({
+      title: `${currentDisabled ? 'Kích Hoạt' : 'Vô Hiệu Hóa'} Tài Khoản`,
+      message: `Bạn có chắc muốn ${actionText} tài khoản "${username}" trên hệ thống Windows?${!currentDisabled ? '\n\nLưu ý: Nếu đây là tài khoản quản trị duy nhất, bạn có thể bị mất quyền truy cập máy tính!' : ''}`,
+      type: currentDisabled ? 'info' : 'danger',
+      badge: 'QUẢN TRỊ TÀI KHOẢN',
+      confirmText: `Đồng ý ${actionText}`,
+      cancelText: 'Hủy'
+    });
+    if (!confirmed) return;
+
     setUserMsg(`Đang ${currentDisabled ? 'kích hoạt' : 'vô hiệu hóa'} ${username}...`);
     try {
       const eAPI = (window as any).electronAPI;
       const res = await eAPI.pcTools.manageUser({ action: 'toggle-account', username, active: currentDisabled });
       setUserMsg(res.message || 'Thành công');
+      showToast.info(res.message || `Đã thay đổi trạng thái tài khoản ${username}!`);
       fetchUsers();
     } catch (e: any) {
       setUserMsg('Lỗi: ' + e.message);
+      showToast.error('Lỗi: ' + e.message);
     }
   };
 
   const handleCreateUser = async () => {
     if (!newUserName.trim() || !newUserPass.trim()) {
-      alert('Vui lòng nhập tên tài khoản và mật khẩu');
+      showToast.warning('Vui lòng nhập đầy đủ tên tài khoản và mật khẩu!');
       return;
     }
+    const confirmed = await showConfirm({
+      title: 'Tạo Tài Khoản Windows Mới',
+      message: `Xác nhận tạo tài khoản "${newUserName.trim()}" với quyền ${newUserIsAdmin ? 'Quản trị viên (Administrator)' : 'Người dùng tiêu chuẩn (Standard User)'}?`,
+      type: 'info',
+      badge: 'QUẢN TRỊ TÀI KHOẢN',
+      confirmText: 'Tạo tài khoản',
+      cancelText: 'Hủy'
+    });
+    if (!confirmed) return;
+
     setUserMsg(`Đang khởi tạo tài khoản ${newUserName}...`);
     try {
       const eAPI = (window as any).electronAPI;
@@ -1811,11 +1940,13 @@ export function PcToolsTab() {
         isAdmin: newUserIsAdmin
       });
       setUserMsg(res.message || 'Thành công');
+      showToast.success(res.message || `Đã tạo tài khoản ${newUserName} thành công!`);
       setNewUserName('');
       setNewUserPass('');
       fetchUsers();
     } catch (e: any) {
       setUserMsg('Lỗi: ' + e.message);
+      showToast.error('Lỗi tạo tài khoản: ' + e.message);
     }
   };
 
@@ -1861,7 +1992,10 @@ export function PcToolsTab() {
 
   // ── Custom App ──
   const handleInstallCustomApp = async () => {
-    if (!customAppPath.trim()) { alert('Vui lòng nhập đường dẫn file cài đặt hoặc ID winget'); return; }
+    if (!customAppPath.trim()) {
+      showToast.warning('Vui lòng nhập đường dẫn file cài đặt hoặc ID Winget!');
+      return;
+    }
     setIsInstallingCustom(true);
     setCustomInstallMsg('Đang thực thi cài đặt silent...');
     try {
@@ -1869,8 +2003,10 @@ export function PcToolsTab() {
       const isWinget = !customAppPath.includes('\\') && !customAppPath.endsWith('.exe') && !customAppPath.endsWith('.msi');
       const res = await eAPI.pcTools.installCustomApp(isWinget ? { wingetId: customAppPath.trim() } : { filePath: customAppPath.trim(), args: customAppArgs });
       setCustomInstallMsg(res.message || 'Đã cài đặt thành công');
+      showToast.success(res.message || 'Đã hoàn tất cài đặt ứng dụng tùy chỉnh!');
     } catch (e: any) {
       setCustomInstallMsg('Lỗi: ' + e.message);
+      showToast.error('Lỗi cài đặt: ' + e.message);
     } finally {
       setIsInstallingCustom(false);
     }
@@ -1884,8 +2020,10 @@ export function PcToolsTab() {
       const eAPI = (window as any).electronAPI;
       const res = await eAPI.pcTools.installVietnameseFonts('all');
       setFontMsg(res.message || 'Đã mở thư mục Fonts hệ thống');
+      showToast.success(res.message || 'Đã cài đặt thành công font tiếng Việt!');
     } catch (e: any) {
       setFontMsg('Lỗi cài font: ' + e.message);
+      showToast.error('Lỗi cài đặt font: ' + e.message);
     } finally {
       setIsInstallingFonts(false);
     }
@@ -1893,34 +2031,60 @@ export function PcToolsTab() {
 
   // ── Optimizer ──
   const handleCleanJunk = async () => {
+    const ok = await showConfirm({
+      title: 'Xác Nhận Dọn Rác Hệ Thống (Disk Junk)',
+      message: 'Hệ thống sẽ quét và dọn sạch các tệp tạm thời trong thư mục %TEMP%, C:\\Windows\\Temp và làm trống Thùng rác (Recycle Bin).\n\nBạn có muốn tiếp tục?',
+      type: 'warning',
+      badge: 'BẢO TRÌ HỆ THỐNG',
+      confirmText: 'Dọn rác ngay',
+      cancelText: 'Hủy'
+    });
+    if (!ok) return;
+
     setIsCleaning(true);
     setCleanResult(null);
+    const taskId = 'pc-clean-junk';
+    startGlobalLoading(taskId, 'Đang quét và dọn sạch rác hệ thống (%TEMP%, Windows Temp, Recycle Bin)...');
     try {
       const eAPI = (window as any).electronAPI;
       if (eAPI?.pcTools?.cleanJunk) {
         const res = await eAPI.pcTools.cleanJunk();
-        if (res.ok) setCleanResult(res.data);
+        if (res.ok) {
+          setCleanResult(res.data);
+          showToast.success(`Dọn rác hệ thống thành công! Đã giải phóng ${(res.data?.totalCleanedMB || 0).toLocaleString()} MB.`);
+        } else {
+          showToast.error(`Lỗi dọn rác: ${res?.error || 'Thất bại'}`);
+        }
       }
     } catch (e: any) {
-      alert('Lỗi dọn rác: ' + e.message);
+      showToast.error('Lỗi dọn rác: ' + e.message);
     } finally {
       setIsCleaning(false);
+      stopGlobalLoading(taskId);
     }
   };
 
   const handleOptimizeRam = async () => {
     setIsOptimizingRam(true);
     setRamResult(null);
+    const taskId = 'pc-optimize-ram';
+    startGlobalLoading(taskId, 'Đang tối ưu giải phóng bộ nhớ RAM đang bị chiếm dụng...');
     try {
       const eAPI = (window as any).electronAPI;
       if (eAPI?.pcTools?.optimizeRam) {
         const res = await eAPI.pcTools.optimizeRam();
-        if (res.ok) setRamResult(res.data);
+        if (res.ok) {
+          setRamResult(res.data);
+          showToast.success(`Tối ưu RAM thành công! Bộ nhớ RAM trống tăng thêm: ${(res.data?.freedMB || 0).toLocaleString()} MB.`);
+        } else {
+          showToast.error(`Lỗi tối ưu RAM: ${res?.error || 'Thất bại'}`);
+        }
       }
     } catch (e: any) {
-      alert('Lỗi tối ưu RAM: ' + e.message);
+      showToast.error('Lỗi tối ưu RAM: ' + e.message);
     } finally {
       setIsOptimizingRam(false);
+      stopGlobalLoading(taskId);
     }
   };
 
@@ -1958,7 +2122,7 @@ export function PcToolsTab() {
 
   const handleApplyBatchTweaks = async () => {
     if (selectedTweaks.length === 0) {
-      alert('Vui lòng chọn ít nhất 1 tinh chỉnh để áp dụng!');
+      showToast.warning('Vui lòng chọn ít nhất 1 tinh chỉnh để áp dụng!');
       return;
     }
     setIsApplyingBatchTweaks(true);
@@ -1973,12 +2137,14 @@ export function PcToolsTab() {
             message: res.message || 'Đã áp dụng thành công toàn bộ tinh chỉnh đã chọn!',
             appliedList: res.appliedList
           });
+          showToast.success(`Đã áp dụng thành công ${res.count || selectedTweaks.length} tinh chỉnh tối ưu hệ thống!`);
         } else {
-          alert('Lỗi áp dụng tinh chỉnh: ' + (res.error || 'Thất bại'));
+          const errMsg = 'Lỗi áp dụng tinh chỉnh: ' + (res.error || 'Thất bại');
+          showToast.error(errMsg);
         }
       }
     } catch (e: any) {
-      alert('Lỗi thực thi: ' + e.message);
+      showToast.error('Lỗi thực thi: ' + e.message);
     } finally {
       setIsApplyingBatchTweaks(false);
     }
@@ -2018,7 +2184,7 @@ export function PcToolsTab() {
 
   const handleInstallBatchApps = async () => {
     if (selectedApps.length === 0) {
-      alert('Vui lòng chọn ít nhất 1 ứng dụng để cài đặt tự động!');
+      showToast.warning('Vui lòng chọn ít nhất 1 ứng dụng để cài đặt tự động!');
       return;
     }
 
@@ -2032,7 +2198,7 @@ export function PcToolsTab() {
     });
 
     if (appsToInstall.length === 0) {
-      alert('Không có ứng dụng nào trong danh sách chọn hỗ trợ cài đặt tự động qua Winget.');
+      showToast.warning('Không có ứng dụng nào trong danh sách chọn hỗ trợ cài đặt tự động qua Winget.');
       return;
     }
 
@@ -2051,12 +2217,14 @@ export function PcToolsTab() {
         const res = await eAPI.pcTools.installBatchApps(appsToInstall);
         if (res.ok) {
           setBatchInstallResults(res.results || []);
+          showToast.success(`Đã hoàn tất quá trình cài đặt hàng loạt ${appsToInstall.length} ứng dụng!`);
         } else {
-          alert('Lỗi cài đặt hàng loạt: ' + (res.error || 'Thất bại'));
+          const errMsg = 'Lỗi cài đặt hàng loạt: ' + (res.error || 'Thất bại');
+          showToast.error(errMsg);
         }
       }
     } catch (e: any) {
-      alert('Lỗi cài đặt: ' + e.message);
+      showToast.error('Lỗi cài đặt: ' + e.message);
     } finally {
       setIsBatchInstallingApps(false);
     }
@@ -5941,7 +6109,7 @@ export function PcToolsTab() {
                                   <button
                                     onClick={() => {
                                       navigator.clipboard.writeText(d.ip);
-                                      alert(`Đã sao chép IP: ${d.ip}`);
+                                      showToast.success(`Đã sao chép địa chỉ IP: ${d.ip}`);
                                     }}
                                     style={{
                                       padding: '4px 8px', fontSize: 11, borderRadius: 4, border: '1px solid #cbd5e1',

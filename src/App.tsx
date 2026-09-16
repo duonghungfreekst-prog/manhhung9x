@@ -1,4 +1,4 @@
-import { useState, useCallback, useId, useEffect, lazy, Suspense } from 'react';
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
 import {
   Play, Download, Search, RotateCcw,
   FileText, Settings,
@@ -13,7 +13,8 @@ import { readAnyFile, compareData, exportToExcel, saveHistory, detectDecimalMism
 import { UploadCard } from './components/UploadCard';
 import { ResultsTable } from './components/ResultsTable';
 import { StatsBar } from './components/StatsBar';
-import { ToastContainer, type ToastMessage } from './components/Toast';
+import { GlobalNotificationContainer, type ToastMessage } from './components/Toast';
+import { showToast } from './utils/notificationSystem';
 import { Dashboard } from './components/Dashboard';
 import { HistoryPanel } from './components/HistoryPanel';
 import { FieldMappingModal } from './components/FieldMappingModal';
@@ -27,6 +28,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { TabLoadingSkeleton } from './components/TabLoadingSkeleton';
 import { GlobalTopProgressBar, HeaderProcessingIndicator } from './components/GlobalLoadingIndicator';
 import { startGlobalLoading, stopGlobalLoading } from './utils/globalLoading';
+import { AutoRefreshControl } from './components/AutoRefreshControl';
+import { AutoRefreshManager, registerTabRefreshHandler, triggerGlobalSmartRefresh } from './utils/autoRefreshManager';
 
 // ─── Code-Splitting Lazy Loaded Tabs (Tối ưu khởi động siêu tốc & tiết kiệm RAM) ───
 const FileReaderTab     = lazy(() => import('./components/FileReaderTab').then(m => ({ default: m.FileReaderTab })));
@@ -79,7 +82,6 @@ function App() {
   const [filter, setFilter]       = useState<FilterType>('TẤT CẢ');
   const [searchQuery, setSearch]  = useState('');
   const [page, setPage]           = useState(1);
-  const [toasts, setToasts]       = useState<ToastMessage[]>([]);
   const [showHelp, setShowHelp]   = useState(false);
   const [showMapping, setShowMapping] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
@@ -98,15 +100,11 @@ function App() {
   const [showUpdateModal, setShowUpdateModal]   = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
-  const uid = useId();
-
   const addToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
-    const id = `${uid}-${Date.now()}`;
-    setToasts(prev => [...prev, { ...toast, id }]);
-  }, [uid]);
-
-  const removeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    if (toast.type === 'success') showToast.success(toast.title, toast.message);
+    else if (toast.type === 'error') showToast.error(toast.title, toast.message);
+    else if (toast.type === 'warning') showToast.warning(toast.title, toast.message);
+    else showToast.info(toast.title, toast.message);
   }, []);
 
   // Tự động kiểm tra bản cập nhật từ GitHub sau 3.5 giây khi mở app
@@ -124,6 +122,36 @@ function App() {
       });
     }, 3500);
     return () => clearTimeout(timer);
+  }, []);
+
+  // ── Tự Động Làm Mới Thông Minh Toàn App: Đồng bộ activeTab & Bắt phím tắt F5 / Ctrl+R ──
+  useEffect(() => {
+    AutoRefreshManager.getInstance().setActiveTab(activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Bắt phím F5 hoặc Ctrl+R (Cmd+R trên macOS) — Loại trừ Ctrl+Shift+R dành cho Hard Reload
+      if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R') && !e.shiftKey)) {
+        e.preventDefault();
+        triggerGlobalSmartRefresh({ silent: false, isAuto: false });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    // Lắng nghe IPC từ Electron menu (nếu có)
+    const w = window as any;
+    let unsubIpc: (() => void) | undefined;
+    if (w.electronAPI?.onSmartRefresh) {
+      unsubIpc = w.electronAPI.onSmartRefresh(() => {
+        triggerGlobalSmartRefresh({ silent: false, isAuto: false });
+      });
+    }
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (unsubIpc) unsubIpc();
+    };
   }, []);
 
   const handleManualCheckUpdate = async () => {
@@ -328,10 +356,15 @@ function App() {
     localStorage.removeItem('dmh_internal_mapping');
   };
 
-  const handleProcess = async () => {
+  const handleProcess = async (options?: { preserveView?: boolean; silent?: boolean }) => {
     if (!file1 || !file2) return;
+    const silent = options?.silent ?? false;
+    const preserveView = options?.preserveView ?? false;
+
     setIsProcessing(true);
-    startGlobalLoading('app-compare', 'Đang đối chiếu dữ liệu 2 tệp tin...');
+    if (!silent) {
+      startGlobalLoading('app-compare', 'Đang đối chiếu dữ liệu 2 tệp tin...');
+    }
     try {
       // Chuyển File → base64
       const toB64 = async (f: File) => {
@@ -356,25 +389,29 @@ function App() {
         console.warn('[COMPARE] Python server không khả dụng, dùng engine TypeScript:', pyResult?.error);
         const [r1, r2] = await Promise.all([readAnyFile(file1), readAnyFile(file2)]);
         if (r1.data.length === 0 || r2.data.length === 0) {
-          addToast({ type: 'warning', title: 'Cảnh báo', message: 'Một trong hai tệp không có dữ liệu.' });
+          if (!silent) addToast({ type: 'warning', title: 'Cảnh báo', message: 'Một trong hai tệp không có dữ liệu.' });
           setIsProcessing(false);
-          stopGlobalLoading('app-compare');
+          if (!silent) stopGlobalLoading('app-compare');
           return;
         }
         setPortalCount(r1.data.length);
         setInternalCount(r2.data.length);
         const compared = compareData(r1.data, r2.data, customPortalMap || DEFAULT_PORTAL_MAPPING, customInternalMap || DEFAULT_INTERNAL_MAPPING);
         setResults(compared);
-        setFilter('TẤT CẢ');
-        setPage(1);
+        if (!preserveView) {
+          setFilter('TẤT CẢ');
+          setPage(1);
+        }
         const lech = compared.filter(r => r.status === 'LỆCH').length;
         const khongThay = compared.filter(r => r.status === 'KHÔNG THẤY').length;
         const khop = compared.filter(r => r.status === 'KHỚP').length;
         const statsObj: Stats = { total: compared.length, khop, lech, khongThay, totalDiffs: compared.reduce((s, r) => s + r.differences.length, 0), highSeverityDiffs: compared.reduce((s, r) => s + r.differences.filter(d => d.severity === 'high').length, 0) };
         const histEntry: HistoryEntry = { id: `${Date.now()}`, timestamp: new Date().toLocaleString('vi-VN'), portalFileName: file1.name, internalFileName: file2.name, stats: statsObj, results: compared };
         saveHistory(histEntry);
-        if (lech === 0 && khongThay === 0) addToast({ type: 'success', title: '✅ Hoàn hảo!', message: `Tất cả ${compared.length} hồ sơ đều khớp hoàn toàn.` });
-        else addToast({ type: 'warning', title: 'Đối chiếu hoàn tất', message: `${khop} khớp · ${lech} lệch · ${khongThay} không thấy` });
+        if (!silent) {
+          if (lech === 0 && khongThay === 0) addToast({ type: 'success', title: '✅ Hoàn hảo!', message: `Tất cả ${compared.length} hồ sơ đều khớp hoàn toàn.` });
+          else addToast({ type: 'warning', title: 'Đối chiếu hoàn tất', message: `${khop} khớp · ${lech} lệch · ${khongThay} không thấy` });
+        }
         return;
       }
 
@@ -397,8 +434,10 @@ function App() {
       }));
 
       setResults(compared);
-      setFilter('TẤT CẢ');
-      setPage(1);
+      if (!preserveView) {
+        setFilter('TẤT CẢ');
+        setPage(1);
+      }
 
       const lech      = pyResult.lech ?? 0;
       const khongThay = pyResult.khongThay ?? 0;
@@ -419,19 +458,30 @@ function App() {
       };
       saveHistory(histEntry);
 
-      if (lech === 0 && khongThay === 0) {
-        addToast({ type: 'success', title: '✅ Hoàn hảo!', message: `Tất cả ${compared.length} hồ sơ đều khớp hoàn toàn.` });
-      } else {
-        addToast({ type: 'warning', title: 'Đối chiếu hoàn tất (Python Engine)', message: `${khop} khớp · ${lech} lệch · ${khongThay} không thấy` });
+      if (!silent) {
+        if (lech === 0 && khongThay === 0) {
+          addToast({ type: 'success', title: '✅ Hoàn hảo!', message: `Tất cả ${compared.length} hồ sơ đều khớp hoàn toàn.` });
+        } else {
+          addToast({ type: 'warning', title: 'Đối chiếu hoàn tất (Python Engine)', message: `${khop} khớp · ${lech} lệch · ${khongThay} không thấy` });
+        }
       }
     } catch (err) {
       console.error(err);
-      addToast({ type: 'error', title: 'Lỗi xử lý', message: String(err) || 'Không thể xử lý dữ liệu.' });
+      if (!silent) addToast({ type: 'error', title: 'Lỗi xử lý', message: String(err) || 'Không thể xử lý dữ liệu.' });
     } finally {
       setIsProcessing(false);
-      stopGlobalLoading('app-compare');
+      if (!silent) stopGlobalLoading('app-compare');
     }
   };
+
+  // Đăng ký làm mới thông minh cho tab compare (Đối Chiếu BHYT)
+  useEffect(() => {
+    return registerTabRefreshHandler('compare', async ({ silent }) => {
+      if (file1 && file2 && !isProcessing) {
+        await handleProcess({ preserveView: true, silent });
+      }
+    });
+  }, [file1, file2, isProcessing, customPortalMap, customInternalMap]);
 
 
   const handleExport = () => {
@@ -631,6 +681,9 @@ function App() {
           marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6,
           padding: '0 0.25rem', flexShrink: 0, whiteSpace: 'nowrap'
         }}>
+          {/* Điều Khiển Tự Động Làm Mới Thông Minh Toàn App */}
+          <AutoRefreshControl />
+
           {/* Smart License Badge */}
           {license?.isTrial ? (
             <button
@@ -845,8 +898,8 @@ function App() {
         })}
       </div>
 
-      {/* ── Toast ── */}
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      {/* ── Global Notifications & Dialogs ── */}
+      <GlobalNotificationContainer />
 
       {/* ── Help Banner ── */}
       {showHelp && (
@@ -892,7 +945,7 @@ function App() {
                   id="btn-start-compare"
                   className="btn-primary"
                   disabled={!file1 || !file2 || isProcessing}
-                  onClick={handleProcess}
+                  onClick={() => handleProcess()}
                 >
                   {isProcessing
                     ? <><div className="spinner"/> Đang xử lý...</>

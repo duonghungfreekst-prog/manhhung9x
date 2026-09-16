@@ -1,6 +1,6 @@
-# 📘 HƯỚNG DẪN SỬ DỤNG DMH_TOOLS v4.8
+# 📘 HƯỚNG DẪN SỬ DỤNG DMH_TOOLS v6.9.4
 
-DMH_Tools v4.8 là bộ công cụ chuyên dụng hỗ trợ xử lý dữ liệu hồ sơ, tích hợp AI y tế và quản lý hàng đợi phòng khám.
+DMH_Tools v6.9.4 là bộ công cụ chuyên dụng hỗ trợ xử lý dữ liệu hồ sơ, cứu hộ máy in toàn diện (đặc trị triệt để lỗi 0x00000709, 0x0000011b, 0x00000040), tích hợp AI y tế và quản lý hàng đợi phòng khám.
 
 ---
 
@@ -120,19 +120,25 @@ Hoặc trong thư mục cài đặt: `resources\scripts\install_tts.bat`
 
 ---
 
-## 🖨 8. MÁY IN & CỨU HỘ IN MẠNG LAN
+## 🖨 8. MÁY IN & CỨU HỘ IN MẠNG LAN (BẢN NÂNG CẤP V6.9.4 ĐẶC TRỊ 709 TỪ A-Z)
 
 1. **Quản lý danh sách máy in:** Theo dõi trạng thái Online/Offline, hàng đợi lệnh in, driver và cổng in của từng máy in.
-2. **Đặc trị Lỗi 40 (0x00000040 - The specified network name is no longer available):**
-   - Thường gặp khi chia sẻ máy in giữa 2 phiên bản Windows khác nhau (Win 7/10 ↔ Win 10/11) do chính sách bảo mật **Point and Print Restrictions** và cơ chế RPC chặn nạp driver qua mạng, kết hợp cơ chế bắt buộc SMB Signing của Windows 11.
-   - **Cách 1 - Sửa tự động 1-Click:** Bấm nút **[⚡ Sửa Tự Động 1-Click]** tại thẻ *Lỗi 40 (0x00000040)*. Phần mềm sẽ tự động vô hiệu hóa Point & Print Restrictions, cấu hình RPC Named Pipe, tắt SMB Signing và khởi động lại Print Spooler (hỗ trợ cả Windows Pro và Home).
-   - **Cách 2 - Sửa thủ công qua Group Policy:**
-     - Bước 1: Nhấn `Windows + R`, gõ `gpedit.msc` rồi Enter trên máy con bị lỗi.
-     - Bước 2: Vào `Computer Configuration > Administrative Templates > Printers`.
-     - Bước 3: Nhấp đúp vào `Point and Print Restrictions`, chọn `Disabled`, nhấn Apply và OK.
-     - Bước 4: Nhấn `Windows + R`, gõ `services.msc` > tìm dịch vụ `Print Spooler` > chuột phải chọn `Restart`.
-3. **Đặc trị Lỗi 0x00000709 & 0x0000011b:** Bấm nút **[⚡ Sửa Tự Động 1-Click]** hoặc dùng **[🌐 Kết Nối Bằng Local Port]** để tạo cổng in cục bộ qua mạng, in mượt mà 100% không lo lỗi RPC từ xa.
-4. **Cứu hộ kẹt lệnh & Spooler:** Xóa sạch lệnh in kẹt, phân quyền thư mục Spooler và chuyển máy in về Online (tắt lỗi SNMP ảo).
+2. **Hệ Thống Tự Động Chẩn Đoán & Khắc Phục Lỗi 0x00000709 Thông Minh (11 Tiêu Chuẩn Kỹ Thuật):**
+   - **Tự động quét & đánh giá:** Kiểm tra tự động 11 tiêu chí: Dịch vụ Print Spooler, Cấu hình RPC qua Named Pipes (`RpcAuthnLevelPrivacyEnabled`, `RpcOverTcp`, `RpcOverNamedPipe`), Khai báo danh sách Printer Remote RPC Pipes, Chính sách Point and Print (`RestrictDriverInstallationToAdministrators`), Phân quyền Registry nhánh Windows NT (`Devices`, `PrinterPorts`, `Windows`), Quyền quản lý máy in của Windows (`LegacyDefaultPrinterMode`), Trạng thái Firewall mở File & Printer Sharing (Cổng 445, 139, 135), Cấu hình SMB Guest Auth & Insecure Guest Logons, Trạng thái phân quyền thư mục spool `C:\Windows\System32\spool\PRINTERS`, Khai báo danh tính Windows Credentials với máy chủ.
+   - **Bấm 1-Click Đặc Trị Toàn Diện:** Tự động sửa chữa và đồng bộ toàn bộ 11 tiêu chí, tự khởi động lại Spooler để áp dụng ngay mà không cần khởi động lại máy tính.
+3. **Sửa Lỗi Đặt Máy In Mặc Định (Set as Default Printer Error 0x00000709):**
+   - **Nguyên nhân:** Windows không ghi được tên máy in vào Registry khóa `HKEY_CURRENT_USER\Software\Microsoft\Windows NT\CurrentVersion\Windows` do kẹt quyền sở hữu hoặc cấu hình tự quản lý máy in mặc định của Windows 10/11 (`LegacyDefaultPrinterMode`).
+   - **Khắc phục 1-Click:** Phân quyền Full Control cho tài khoản người dùng hiện tại và Administrators, tắt cơ chế Windows tự đổi máy in mặc định, ghi thẳng giá trị `Device` chính xác.
+4. **Khai Báo Danh Tính Windows Credentials (1-Click - Thực chiến Sài Gòn Computer):**
+   - Khi kết nối máy in qua mạng LAN, nếu máy chủ yêu cầu xác thực hoặc ngắt phiên RPC, chỉ cần nhập IP máy chủ và bấm **[Lưu & Xác Thực 1-Click]**. DMH_Tools sẽ tự động nạp thông tin mạng qua `cmdkey` và thiết lập phiên `IPC$` tức thì.
+5. **Cảnh Báo Về Việc Chép Đè File DLL Trôi Nổi (win32spl.dll):**
+   - Tuyệt đối không tải các file `win32spl.dll` từ nguồn trôi nổi trên mạng để chép đè vào `System32`. Việc này gây xung đột làm crash liên tục dịch vụ Spooler (`spoolsv.exe`), gây lỗi màn hình xanh hoặc mất tác dụng ngay khi Windows Update. DMH_Tools áp dụng giải pháp chuẩn Registry kết hợp Local Port an toàn và ổn định vĩnh viễn 100%.
+6. **Đặc trị Lỗi 40 (0x00000040 - The specified network name is no longer available):**
+   - Cung cấp công cụ xuất file `.bat` cấu hình tự động cho máy chủ (kích hoạt tài khoản Guest, mở Private Network và Firewall cổng 445).
+   - Trên máy con: Tự động dọn cache SMB, mở Guest Logons và cấu hình SMB Signing.
+7. **Giải Pháp Local Port Bất Tử 100%:**
+   - Khi mạng LAN bị giới hạn chính sách ngặt nghèo hoặc Windows Update chặn RPC, sử dụng công cụ tạo cổng cục bộ `\\IP\PrinterShare` để in trực tiếp, bỏ qua hoàn toàn các mã lỗi 0x00000709, 0x0000011b, 0x00000040.
+8. **Cứu hộ kẹt lệnh & Spooler:** Xóa sạch lệnh in kẹt trong hàng đợi, phân quyền lại thư mục spool và chuyển máy in về Online (tắt lỗi SNMP ảo).
 
 ---
 
@@ -151,4 +157,4 @@ Hoặc trong thư mục cài đặt: `resources\scripts\install_tts.bat`
 2. Chỉnh sửa trực tiếp từng thẻ (Tag) và lưu lại chuẩn format Bộ Y Tế.
 
 ---
-*Phát triển bởi nhóm DMH Hospital Tools — Phiên bản v4.8.0 (2026).*
+*Phát triển bởi nhóm DMH Hospital Tools — Phiên bản v6.9.4 (2026).*

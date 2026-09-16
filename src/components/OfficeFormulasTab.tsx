@@ -7,6 +7,7 @@ import {
   Calendar, Layers, CheckSquare, Sparkles
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { showToast } from '../utils/notificationSystem';
 
 type FormulaType = 'stats' | 'condStats' | 'ifLogic' | 'vlookup' | 'compareFilter' | 'dateOps' | 'math' | 'text' | 'countFreq' | null;
 
@@ -142,8 +143,10 @@ export function OfficeFormulasTab() {
       const res = await readAnyFile(f);
       setFormat(res.format.toLowerCase() as FileFormat);
       setData(res.data);
+      showToast.success(`Đã nạp file nguồn: ${res.data.length.toLocaleString('vi-VN')} dòng`);
     } catch {
-      alert('Lỗi đọc file.'); setFile(null);
+      showToast.error('Lỗi khi đọc file nguồn. Vui lòng kiểm tra lại định dạng tệp.');
+      setFile(null);
     }
   };
 
@@ -154,8 +157,10 @@ export function OfficeFormulasTab() {
       const res = await readAnyFile(f);
       setVlFormat(res.format.toLowerCase() as FileFormat);
       setVlData(res.data);
+      showToast.success(`Đã nạp file phụ (VLOOKUP): ${res.data.length.toLocaleString('vi-VN')} dòng`);
     } catch {
-      alert('Lỗi đọc file 2.'); setVlFile(null);
+      showToast.error('Lỗi khi đọc file phụ (VLOOKUP). Vui lòng kiểm tra lại định dạng tệp.');
+      setVlFile(null);
     }
   };
 
@@ -193,6 +198,7 @@ export function OfficeFormulasTab() {
       ];
       setResults(summaryTable);
       setIsProcessing(false);
+      showToast.success(`Đã tính toán xong thống kê cơ bản cho cột "${statsCol}"!`);
     }, 400);
   };
 
@@ -273,6 +279,7 @@ export function OfficeFormulasTab() {
         }
       }
       setIsProcessing(false);
+      showToast.success(`Đã xử lý xong tính toán điều kiện (${condMode.toUpperCase()})!`);
     }, 400);
   };
 
@@ -315,6 +322,7 @@ export function OfficeFormulasTab() {
       });
       setResults(processed);
       setIsProcessing(false);
+      showToast.success(`Đã áp dụng công thức IF thành công trên ${processed.length.toLocaleString('vi-VN')} dòng!`);
     }, 400);
   };
 
@@ -361,6 +369,7 @@ export function OfficeFormulasTab() {
       });
       setResults(processed);
       setIsProcessing(false);
+      showToast.success(`Đã xử lý hàm ngày tháng (${dateOp}) cho cột "${dateColA}"!`);
     }, 400);
   };
 
@@ -394,6 +403,7 @@ export function OfficeFormulasTab() {
       });
       setResults(processed);
       setIsProcessing(false);
+      showToast.success(`Đã xử lý văn bản (${textOp}) trên ${processed.length.toLocaleString('vi-VN')} dòng!`);
     }, 400);
   };
 
@@ -423,6 +433,7 @@ export function OfficeFormulasTab() {
       });
       setResults(processed);
       setIsProcessing(false);
+      showToast.success(`Đã tra cứu VLOOKUP thành công và ghép ${vlReturnCols.length} cột vào ${processed.length.toLocaleString('vi-VN')} dòng!`);
     }, 400);
   };
 
@@ -488,6 +499,7 @@ export function OfficeFormulasTab() {
 
       setResults(res);
       setIsProcessing(false);
+      showToast.success(`Đã đối chiếu 2 file xong: tìm thấy ${res.length.toLocaleString('vi-VN')} dòng kết quả!`);
     }, 400);
   };
 
@@ -529,6 +541,7 @@ export function OfficeFormulasTab() {
       });
       setResults(processed);
       setIsProcessing(false);
+      showToast.success(`Đã tính toán số học hoàn tất trên ${processed.length.toLocaleString('vi-VN')} dòng!`);
     }, 400);
   };
 
@@ -547,15 +560,22 @@ export function OfficeFormulasTab() {
       summary.sort((a, b) => (b['Số lần xuất hiện'] as number) - (a['Số lần xuất hiện'] as number));
       setResults(summary);
       setIsProcessing(false);
+      showToast.success(`Đã phân tích tần suất xuất hiện cho cột "${countCol}" (${summary.length} giá trị khác nhau)!`);
     }, 400);
   };
 
   const handleExport = () => {
     if (results.length === 0) return;
-    const ws = XLSX.utils.json_to_sheet(results);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'KetQua');
-    XLSX.writeFile(wb, `KetQua_${formulaMode?.toUpperCase() || 'OFFICE'}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    try {
+      const ws = XLSX.utils.json_to_sheet(results);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'KetQua');
+      const fileName = `KetQua_${formulaMode?.toUpperCase() || 'OFFICE'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      showToast.success(`Đã xuất thành công ${results.length.toLocaleString('vi-VN')} dòng kết quả sang Excel (${fileName})!`);
+    } catch (err: any) {
+      showToast.error(`Lỗi xuất file Excel: ${err?.message || err}`);
+    }
   };
 
   return (

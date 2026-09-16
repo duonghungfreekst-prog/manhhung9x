@@ -4,6 +4,7 @@ import {
   Layers, Settings,
   Play, FileCode2, Trash2
 } from 'lucide-react';
+import { showToast } from '../utils/notificationSystem';
 
 type SignMode = 'card' | 'cloud' | 'batch';
 
@@ -84,10 +85,16 @@ export function SignatureTab() {
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:15 }}>
               <h3 style={{ fontSize:'0.88rem', fontWeight:600, margin:0 }}>Danh sách tệp chờ ký</h3>
               <div style={{ display:'flex', gap:8 }}>
-                <button style={{ padding:'6px 12px', borderRadius:6, border:'1px solid #e2e8f0', background:'white', fontSize:'0.82rem', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                <button 
+                  onClick={() => showToast.info('Danh sách tệp đã trống')}
+                  style={{ padding:'6px 12px', borderRadius:6, border:'1px solid #e2e8f0', background:'white', fontSize:'0.82rem', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}
+                >
                   <Trash2 size={14}/> Xóa hết
                 </button>
-                <button style={{ padding:'6px 15px', borderRadius:6, border:'none', background:pk, color:'white', fontSize:'0.82rem', fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                <button 
+                  onClick={() => showToast.info('Vui lòng kéo thả tệp XML hồ sơ vào khung bên dưới')}
+                  style={{ padding:'6px 15px', borderRadius:6, border:'none', background:pk, color:'white', fontSize:'0.82rem', fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}
+                >
                   <FileCode2 size={14}/> Thêm tệp XML
                 </button>
               </div>
@@ -102,10 +109,16 @@ export function SignatureTab() {
             </div>
 
             <div style={{ marginTop:20, display:'flex', justifyContent:'flex-end', gap:10 }}>
-              <button style={{ padding:'10px 24px', borderRadius:8, border:`1.5px solid ${pk}`, background:'white', color:pk, fontSize:'0.9rem', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:8 }}>
+              <button 
+                onClick={() => showToast.info('Đang kiểm tra kết nối USB Token / Cloud CA...')}
+                style={{ padding:'10px 24px', borderRadius:8, border:`1.5px solid ${pk}`, background:'white', color:pk, fontSize:'0.9rem', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:8 }}
+              >
                 <Settings size={18}/> Kiểm tra kết nối CA
               </button>
-              <button style={{ padding:'10px 30px', borderRadius:8, border:'none', background:pk, color:'white', fontSize:'0.9rem', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:8, boxShadow:'0 4px 12px rgba(99,102,241,0.3)' }}>
+              <button 
+                onClick={() => showToast.warning('Chưa có tệp XML nào trong danh sách chờ ký!')}
+                style={{ padding:'10px 30px', borderRadius:8, border:'none', background:pk, color:'white', fontSize:'0.9rem', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:8, boxShadow:'0 4px 12px rgba(99,102,241,0.3)' }}
+              >
                 <Play size={18} fill="currentColor"/> BẮT ĐẦU KÝ SỐ
               </button>
             </div>

@@ -7,6 +7,7 @@ import { readAnyFile, DEFAULT_PORTAL_MAPPING } from '../utils/excelProcessor';
 import { validateBhyt, exportBhytValidation, QD130_XML_TABLES } from '../utils/bhytValidator';
 import type { BhytSummary, BhytValidationResult } from '../utils/bhytValidator';
 import type { PatientRow } from '../types';
+import { showToast } from '../utils/notificationSystem';
 
 const RULES = [
   { code: 'CARD_FORMAT / CARD_LENGTH / CARD_PREFIX / CARD_NUMERIC', label: 'Định dạng mã thẻ BHYT', ref: 'TT 35/2019 & QĐ 3276/QĐ-BYT' },
@@ -203,8 +204,11 @@ export function BhytValidatorTab() {
 
       const result = validateBhyt(rows);
       setSummary(result);
-    } catch (e) {
-      setError('Lỗi đọc file: ' + String(e));
+      showToast.success(`Đã kiểm tra xong ${rows.length.toLocaleString('vi-VN')} hồ sơ BHYT! Phát hiện ${result.totalIssues} vấn đề (${result.criticalIssues} nghiêm trọng).`);
+    } catch (e: any) {
+      const errMsg = 'Lỗi đọc file: ' + String(e?.message || e);
+      setError(errMsg);
+      showToast.error(errMsg);
     } finally {
       setLoading(false);
     }
@@ -261,8 +265,14 @@ export function BhytValidatorTab() {
         {summary && (
           <button
             onClick={() => {
-              const d = new Date().toISOString().slice(0, 10);
-              exportBhytValidation(summary, `KiemTra_BHYT_QD130_${d}.xlsx`);
+              try {
+                const d = new Date().toISOString().slice(0, 10);
+                const fileName = `KiemTra_BHYT_QD130_${d}.xlsx`;
+                exportBhytValidation(summary, fileName);
+                showToast.success(`Đã xuất kết quả kiểm tra BHYT ra file Excel (${fileName})!`);
+              } catch (err: any) {
+                showToast.error(`Lỗi xuất Excel BHYT: ${err?.message || err}`);
+              }
             }}
             style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 14px',
               borderRadius: 6, border: 'none', background: pk, color: 'white',
