@@ -6421,119 +6421,19 @@ pause
         # Snapshot danh sách máy in trước khi chạy cài đặt
         $beforePrinters = @(Get-Printer -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
 
-        # 1. Quét tất cả file INF và cài đặt thông qua pnputil (Chuẩn Microsoft Driver Package)
-        $infFiles = @(Get-ChildItem -Path $extractDir -Filter "*.inf" -Recurse -ErrorAction SilentlyContinue)
-        foreach ($inf in $infFiles) {
-          & pnputil.exe /add-driver "$($inf.FullName)" /install 2>&1 | Out-Null
-          if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3010) {
-            $installedInfs++
-          }
-        }
-
-        # 2. Tìm các file EXE bộ cài đặt (Setup, Install, Driver)
-        $exeCandidates = @(Get-ChildItem -Path $extractDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object {
-          $_.Name -match 'setup|install|driver|printer' -or $_.Length -gt 300KB
-        })
-        if ($exeCandidates.Count -eq 0 -and (Test-Path $installerPath) -and $installerPath.EndsWith('.exe', [System.StringComparison]::OrdinalIgnoreCase)) {
-          $exeCandidates = @(Get-Item -Path $installerPath -ErrorAction SilentlyContinue)
-        }
-
-        if ($installMode -eq 'interactive') {
-          # Chế độ tương tác: Mở trực tiếp cửa sổ của hãng để người dùng tự chọn USB / Other theo ý muốn
-          if ($exeCandidates.Count -gt 0) {
-            $targetExe = $exeCandidates[0].FullName
-            Start-Process -FilePath $targetExe -ErrorAction SilentlyContinue
-            $executedExes++
-          }
-        } else {
-          foreach ($exe in $exeCandidates) {
-            # Nhận diện thông minh cấu trúc Inno Setup vs NSIS vs Generic
-            $silentArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-')
-            try {
-              $rawSample = [System.IO.File]::ReadAllBytes($exe.FullName)
-              $sampleStr = [System.Text.Encoding]::ASCII.GetString($rawSample, 0, [Math]::Min(120000, $rawSample.Length))
-              if ($sampleStr -match 'NullsoftInst') {
-                $silentArgs = @('/S')
-              }
-            } catch {}
-
-            try {
-              $proc = Start-Process -FilePath $exe.FullName -ArgumentList $silentArgs -PassThru -WindowStyle Hidden -ErrorAction Stop
-              $executedExes++
-              if ($proc) {
-                $sw = [System.Diagnostics.Stopwatch]::StartNew()
-                while (-not $proc.HasExited -and $sw.ElapsedMilliseconds -lt 35000) {
-                  Start-Sleep -Milliseconds 500
-                }
-              }
-            } catch {
-              try {
-                $proc2 = Start-Process -FilePath $exe.FullName -ArgumentList '/S' -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
-                $executedExes++
-                if ($proc2) {
-                  $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
-                  while (-not $proc2.HasExited -and $sw2.ElapsedMilliseconds -lt 25000) {
-                    Start-Sleep -Milliseconds 500
-                  }
-                }
-              } catch {}
-            }
-          }
-        }
-
-        # 3. Yêu cầu Windows PnP quét lại phần cứng máy in và cổng USB
-        & pnputil /scan-devices 2>$null | Out-Null
-        Start-Sleep -Seconds 2
-
-        # 4. Quét tìm máy in phù hợp trong danh sách Windows Printers
-        $afterPrinters = @(Get-Printer -ErrorAction SilentlyContinue)
-        $newPrinters = @($afterPrinters | Where-Object { $beforePrinters -notcontains $_.Name })
-
-        $matched = $null
-        # Ưu tiên 1: Máy in mới tinh vừa xuất hiện sau khi cài và khớp từ khóa
-        if ($newPrinters.Count -gt 0) {
-          $matched = $newPrinters | Where-Object {
-            $p = $_
-            $found = $false
-            foreach ($kw in $targetKeywords) {
-              if ($p.Name -like "*$kw*" -or $p.DriverName -like "*$kw*") { $found = $true; break }
-            }
-            $found
-          } | Select-Object -First 1
-
-          if (-not $matched) {
-            $matched = $newPrinters[0]
-          }
-        }
-
-        # Ưu tiên 2: Nếu không có máy in mới, tìm trong toàn bộ máy in nhưng PHẢI KHỚP CHÍNH XÁC từ khóa
-        if (-not $matched) {
-          $matched = $afterPrinters | Where-Object {
-            $p = $_
-            $found = $false
-            foreach ($kw in $targetKeywords) {
-              if ($p.Name -like "*$kw*" -or $p.DriverName -like "*$kw*") { $found = $true; break }
-            }
-            $found
-          } | Select-Object -First 1
-        }
-
-        $detectedName = if ($matched) { $matched.Name } else { "" }
-        $autoCreatedQueue = $false
+        # ── BƯỚC 1: XÁC ĐỊNH CHÍNH XÁC CỔNG GÁN CHO MÁY IN TRƯỚC HẾT ($assignedPort) ──
         $assignedPort = ""
-
-        # Xác định targetPort theo cấu hình người dùng
         if ($installMode -eq 'network' -and $printerIp) {
           $assignedPort = "IP_$printerIp"
           if (-not (Get-PrinterPort -Name $assignedPort -ErrorAction SilentlyContinue)) {
             Add-PrinterPort -Name $assignedPort -PrinterHostAddress $printerIp -PortNumber $printerPortNum -ErrorAction SilentlyContinue
           }
         } else {
-          # CÀI ĐẶT CỔNG USB
+          # Cài đặt cổng USB
           if ($selectedPort -and $selectedPort -ne "AUTO") {
             $assignedPort = $selectedPort
           } else {
-            # CHẾ ĐỘ AUTO: TỰ ĐỘNG DÒ TÌM CỔNG USB CÓ THIẾT BỊ MÁY IN ĐANG CẮM THỰC TẾ
+            # TỰ ĐỘNG DÒ TÌM CỔNG USB CÓ THIẾT BỊ MÁY IN ĐANG CẮM THỰC TẾ
             $activeUsbDevices = @(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object { 
               ($_.Service -eq 'usbprint' -or $_.ClassGuid -eq '{4d36e979-e325-11ce-bfc1-08002be10318}') -and $_.Present -eq $true 
             })
@@ -6556,21 +6456,101 @@ pause
             if ($physicallyConnectedPort) {
               $assignedPort = $physicallyConnectedPort
             } else {
-              # Fallback nếu máy in chưa cắm cáp hoặc tắt nguồn: dùng cổng USB khả dụng
+              # Fallback nếu máy in chưa cắm cáp hoặc tắt nguồn: dùng cổng USB khả dụng chưa gán
               $usbPorts = @(Get-PrinterPort -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'USB*' } | Sort-Object Name | Select-Object -ExpandProperty Name)
-              $usedPorts = @($afterPrinters | Select-Object -ExpandProperty PortName)
+              $usedPorts = @(Get-Printer -ErrorAction SilentlyContinue | Select-Object -ExpandProperty PortName)
               $availPort = $usbPorts | Where-Object { $usedPorts -notcontains $_ } | Select-Object -First 1
               $assignedPort = if ($availPort) { $availPort } elseif ($usbPorts.Count -gt 0) { $usbPorts[0] } else { 'USB001' }
             }
           }
         }
 
-        # 5. CHUYÊN BIỆT CHO MÁY IN NHIỆT / POS / BARCODE:
-        # Nếu Windows chưa tự động sinh Queue máy in và đây là dòng POS/Barcode
+        # ── BƯỚC 2: NẠP TẤT CẢ FILE INF VÀO DRIVER STORE ──
+        $infFiles = @(Get-ChildItem -Path $extractDir -Filter "*.inf" -Recurse -ErrorAction SilentlyContinue)
+        foreach ($inf in $infFiles) {
+          & pnputil.exe /add-driver "$($inf.FullName)" /install 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3010) {
+            $installedInfs++
+          }
+        }
+
+        # ── BƯỚC 3: TÌM BỘ CÀI ĐẶT EXE VÀ CHẠY HIỂN THỊ CỬA SỔ HÃNG ──
+        $exeCandidates = @(Get-ChildItem -Path $extractDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object {
+          $_.Name -match 'setup|install|driver|printer' -or $_.Length -gt 300KB
+        })
+        if ($exeCandidates.Count -eq 0 -and (Test-Path $installerPath) -and $installerPath.EndsWith('.exe', [System.StringComparison]::OrdinalIgnoreCase)) {
+          $exeCandidates = @(Get-Item -Path $installerPath -ErrorAction SilentlyContinue)
+        }
+
+        $detectedName = ""
+        $autoCreatedQueue = $false
+
+        if ($exeCandidates.Count -gt 0) {
+          # Mở cửa sổ trực tiếp của bộ cài hãng (KHÔNG dùng WindowStyle Hidden để người dùng nhìn thấy & bấm Install Now)
+          $targetExe = $exeCandidates[0].FullName
+          $proc = Start-Process -FilePath $targetExe -PassThru -ErrorAction SilentlyContinue
+          $executedExes++
+
+          # TIẾN TRÌNH GIÁM SÁT (WATCHER LOOP): Lắng nghe máy in mới xuất hiện trong tối đa 120s
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          while ($sw.ElapsedMilliseconds -lt 120000) {
+            Start-Sleep -Seconds 1
+            $currentPrinters = @(Get-Printer -ErrorAction SilentlyContinue)
+            $newPrinters = @($currentPrinters | Where-Object { $beforePrinters -notcontains $_.Name })
+            if ($newPrinters.Count -gt 0) {
+              $matchedP = $newPrinters | Where-Object {
+                $p = $_
+                $found = $false
+                foreach ($kw in $targetKeywords) {
+                  if ($p.Name -like "*$kw*" -or $p.DriverName -like "*$kw*") { $found = $true; break }
+                }
+                $found
+              } | Select-Object -First 1
+              if (-not $matchedP) { $matchedP = $newPrinters[0] }
+              $detectedName = $matchedP.Name
+              break
+            }
+
+            # Nếu tiến trình bộ cài đã đóng mà chưa có máy in, chờ thêm 2 giây quét lần cuối
+            if ($proc -and $proc.HasExited) {
+              Start-Sleep -Seconds 2
+              $finalPrinters = @(Get-Printer -ErrorAction SilentlyContinue)
+              $finalNew = @($finalPrinters | Where-Object { $beforePrinters -notcontains $_.Name })
+              if ($finalNew.Count -gt 0) {
+                $detectedName = $finalNew[0].Name
+              }
+              break
+            }
+          }
+        }
+
+        # ── BƯỚC 4: NẾU VẪN CHƯA CÓ MÁY IN (CÀI QUA FILE INF THUẦN HOẶC WINDOWS PNP) ──
+        if (-not $detectedName) {
+          & pnputil /scan-devices 2>$null | Out-Null
+          Start-Sleep -Seconds 2
+          $afterPrinters = @(Get-Printer -ErrorAction SilentlyContinue)
+          $newPrinters = @($afterPrinters | Where-Object { $beforePrinters -notcontains $_.Name })
+          if ($newPrinters.Count -gt 0) {
+            $detectedName = $newPrinters[0].Name
+          } else {
+            $matchedExisting = $afterPrinters | Where-Object {
+              $p = $_
+              $found = $false
+              foreach ($kw in $targetKeywords) {
+                if ($p.Name -like "*$kw*" -or $p.DriverName -like "*$kw*") { $found = $true; break }
+              }
+              $found
+            } | Select-Object -First 1
+            if ($matchedExisting) {
+              $detectedName = $matchedExisting.Name
+            }
+          }
+        }
+
+        # ── BƯỚC 5: TỰ ĐỘNG TẠO MÁY IN NẾU DRIVER ĐÃ CÓ NHƯNG CHƯA TẠO HÀNG ĐỢI ──
         $isPosOrBarcode = "${category || ''}" -match 'pos|barcode' -or ($targetKeywords | Where-Object { $_ -match 'XP-|Xprinter|POS|Thermal|Receipt|Barcode|Label' })
         if (-not $detectedName -and $isPosOrBarcode) {
           $allDrivers = @(Get-PrinterDriver -ErrorAction SilentlyContinue)
-          # Chỉ tìm driver thuộc đúng targetKeywords của dòng máy đang cài, TUYỆT ĐỐI không lấy nhầm dòng khác
           $bestDriver = $allDrivers | Where-Object {
             $d = $_
             $found = $false
@@ -6582,11 +6562,10 @@ pause
 
           if ($bestDriver) {
             $queueName = $bestDriver.Name
-            if (@($afterPrinters.Name) -contains $queueName) {
+            $existingNames = @(Get-Printer -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+            if ($existingNames -contains $queueName) {
               $queueName = "$queueName (Auto)"
             }
-
-            # Tự động tạo hàng đợi máy in trong Windows
             try {
               Add-Printer -Name $queueName -DriverName $bestDriver.Name -PortName $assignedPort -ErrorAction Stop
               $detectedName = $queueName
@@ -6595,7 +6574,7 @@ pause
           }
         }
 
-        # 6. KHẮC PHỤC TRIỆT ĐỂ LỖI BỘ CÀI XPRINTER TỰ GÁN VÀO 'OTHER' HOẶC SAI CỔNG USB:
+        # ── BƯỚC 6: KHẮC PHỤC TRIỆT ĐỂ LỖI BỘ CÀI XPRINTER TỰ GÁN VÀO 'OTHER' HOẶC SAI CỔNG USB ──
         # Ép cổng của máy in về đúng cổng USB/IP mà người dùng đã chọn hoặc thiết bị đang cắm thực tế!
         if ($detectedName -and $assignedPort) {
           $curr = Get-Printer -Name $detectedName -ErrorAction SilentlyContinue
@@ -6605,12 +6584,13 @@ pause
         }
 
         [PSCustomObject]@{
-          ok = ($installedInfs -gt 0 -or $executedExes -gt 0 -or [bool]$detectedName)
-          installedInfs = $installedInfs
-          executedExes = $executedExes
+          ok = [bool]$detectedName
           printerName = $detectedName
           autoCreated = $autoCreatedQueue
           assignedPort = $assignedPort
+          installedInfs = $installedInfs
+          executedExes = $executedExes
+          error = if (-not $detectedName) { "Chưa phát hiện máy in mới được tạo trên hệ thống Windows. Vui lòng chọn đúng model trên cửa sổ hãng và bấm 'Install Now'!" } else { "" }
         } | ConvertTo-Json -Compress
       `;
 
@@ -6626,10 +6606,13 @@ pause
         if (autoCreated) {
           sendLog(3, 4, `Cài đặt Driver thành công! Đã tự động tạo hàng đợi máy in: [${detectedPrinterName}] kết nối với cổng [${assignedPort || 'USB'}].`, 'ok');
         } else {
-          sendLog(3, 4, `Cài đặt Driver thành công! Hệ thống đã nhận diện máy in: [${detectedPrinterName}].`, 'ok');
+          sendLog(3, 4, `Cài đặt Driver thành công! Hệ thống đã nhận diện máy in: [${detectedPrinterName}] kết nối với cổng [${assignedPort || 'USB'}].`, 'ok');
         }
       } else {
-        sendLog(3, 4, `Đã nạp Driver [${driverName}] vào kho Driver Store của Windows. Khi cắm cáp USB máy in, máy sẽ tự động kích hoạt và dùng được ngay!`, 'ok');
+        return {
+          ok: false,
+          error: installData.error || `Chưa phát hiện máy in mới được tạo trên hệ thống Windows. Vui lòng mở lại bộ cài và hoàn tất bước Install Now!`
+        };
       }
 
       // ══════════════════════════════════════════════════════════════════════════

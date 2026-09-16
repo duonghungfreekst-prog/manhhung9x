@@ -194,25 +194,29 @@ async function main() {
       release = await githubRequest(`/repos/${repo}/releases`, 'POST', {
         tag_name: tagName,
         name: releaseName,
-        body: `### 🚀 DMH Tools ${tagName} - Tự Động Quét & Bắt Trúng Cổng USB Đang Cắm Máy In Thực Tế
+        body: `### 🚀 DMH Tools ${tagName} - Bộ Cài Driver Tương Tác: Mở Cửa Sổ Hãng, Watcher Tự Ép Cổng USB Thực Tế & Chống Báo Ảo
 
 #### 🌟 Điểm mới đột phá trong phiên bản ${tagName}:
 
-- **🎯 Tự Động Quét Phần Cứng & Nhận Diện Cổng USB Đang Cắm Máy In (Hardware PnP / USB Monitor)**:
-  + Trước đây hệ thống có thể fallback gán nhầm vào cổng trống \`USB001\` trong khi máy in thực tế đang cắm ở \`USB003\` hoặc cổng khác.
-  + Phiên bản **v6.9.8** tích hợp thuật toán quét trực tiếp từ Windows Plug & Play (\`Win32_PnPEntity\` - \`usbprint\`) và bản đồ cổng \`USB Monitor\\Ports\` trong Registry.
-  + Tự động dò ra chính xác cổng USB nào đang có thiết bị máy in kết nối vật lý (\`Present = true\`, ví dụ: **USB003 - USB Printing Support**).
-  + Tự động chọn và ép hàng đợi máy in liên kết chuẩn xác 100% vào cổng đang cắm thực tế, không còn tình trạng cài xong máy không in được vì sai cổng!
+- **🖥️ Hiển Thị Trực Tiếp Cửa Sổ Cài Đặt Của Hãng (Xprinter, Kpos, HPRT, Zywell...)**:
+  + Thay vì cố gắng chạy silent ẩn ngầm (\`-WindowStyle Hidden\`) khiến nhiều bộ cài Win32/MFC của hãng thoát sớm hoặc bị treo mà không tạo được máy in trong Windows Spooler.
+  + DMH Tools nay chủ động mở cửa sổ cài đặt của hãng ra màn hình trước mắt người dùng để người dùng dễ dàng chọn dòng máy (ví dụ: XP-80, XP-58...) và nhấn **Install Now**.
+
+- **👁️ Tích Hợp Watcher Spooler Engine Thông Minh (Real-time 120s)**:
+  + Trong lúc người dùng thao tác trên bộ cài của hãng, DMH Tools kích hoạt trình giám sát Spooler ngầm (quét mỗi giây 1 lần).
+  + Ngay khi người dùng bấm "Install Now" và máy in mới xuất hiện trong hệ thống Windows, DMH Tools lập tức bắt lấy tên máy in vừa được sinh ra!
+
+- **🎯 Tự Động Ép Cổng Về Cổng USB Đang Cắm Cáp Thực Tế (USB003...)**:
+  + Ngay sau khi bắt được máy in vừa tạo, hệ thống tự động kiểm tra cổng.
+  + Nếu bộ cài của hãng tự gán vào cổng khác (cổng trống \`USB001\`, cổng \`Other\`, \`COM\`, \`LPT\`), DMH Tools lập tức chạy lệnh ép hàng đợi máy in về đúng cổng USB đang cắm cáp phần cực kỳ chuẩn xác (\`USB003\`).
+
+- **🖨️ In Test Page Đích Danh & Chống Báo Thành Công Ảo**:
+  + Tuyệt đối không gửi lệnh in nhầm sang máy in mặc định (Canon, PDF...). DMH Tools gửi lệnh \`PrintTestPage\` đích danh trực tiếp vào máy in vừa cài đặt.
+  + Nếu quá thời gian giám sát hoặc bộ cài bị đóng mà chưa tạo máy in, hệ thống thông báo trạng thái rõ ràng, tuyệt đối không báo thành công ảo nếu chưa có máy in trong Windows.
 
 - **🟢 Giao Diện Nhận Diện Cổng Thông Minh & Trực Quan**:
-  + Hiển thị banner trạng thái phần cứng trực tiếp trên hộp thoại cài đặt:
-    * 🟢 *Đã nhận diện phần cứng: Máy in đang cắm cáp vật lý tại cổng [USB003].*
-    * ⚠️ *Chưa phát hiện cáp USB: Nhắc nhở người dùng cắm cáp và bật nguồn máy in.*
-  + Danh sách dropdown cổng USB hiển thị rõ trạng thái từng cổng: Cổng nào đang cắm máy in (gắn nhãn Khuyên Dùng), cổng nào chưa cắm hoặc đã gán máy in khác (Canon, HP...).
-
-- **🔒 Khắc Phục Triệt Để Lỗi Cổng 'Other' Của Xprinter & Chống In Nhầm Máy In Mặc Định**:
-  + Tự động ép cổng máy in về đúng cổng USB đang cắm cáp sau khi bộ cài đặt của hãng chạy xong.
-  + In trang thử nghiệm (Print Test Page) sử dụng lệnh chuẩn WMI/CIM chỉ gửi riêng đến máy in vừa cài, tuyệt đối không gửi nhầm sang máy in mặc định.
+  + Banner xanh nhận diện phần cứng đang cắm cáp tại cổng nào (VD: [USB003]).
+  + Dropdown cổng hiển thị rõ ràng cổng nào đang cắm máy in (Khuyên Dùng).
 
 *Hệ Thống Quản Lý Phòng Khám & Kỹ Thuật Máy Tính DMH*`,
         draft: false,
