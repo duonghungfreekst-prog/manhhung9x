@@ -361,7 +361,7 @@ function registerPythonIPC() {
     if (!allowed.includes(ext)) return false;
     try {
       const stat = fs.statSync(filePath);
-      return stat.size <= 200 * 1024 * 1024; // Tối đa 200MB
+      return stat.size <= 100 * 1024 * 1024; // Tối đa 100MB
     } catch {
       return false;
     }
@@ -370,17 +370,17 @@ function registerPythonIPC() {
   ipcMain.handle('compare:compare-files', async (_event, { portalPath, internalPath }) => {
     try {
       if (!isAllowedCompareFile(portalPath)) {
-        return { ok: false, error: 'Tệp cổng giám định không hợp lệ hoặc vượt quá dung lượng 200MB' };
+        return { ok: false, error: 'Tệp cổng giám định không hợp lệ hoặc vượt quá dung lượng 100MB' };
       }
       if (!isAllowedCompareFile(internalPath)) {
-        return { ok: false, error: 'Tệp nội bộ bệnh viện không hợp lệ hoặc vượt quá dung lượng 200MB' };
+        return { ok: false, error: 'Tệp nội bộ bệnh viện không hợp lệ hoặc vượt quá dung lượng 100MB' };
       }
 
       await startCompareServer();
       await new Promise(r => setTimeout(r, 800));
-      const portalB64 = fs.readFileSync(portalPath).toString('base64');
-      const internalB64 = fs.readFileSync(internalPath).toString('base64');
-      const body = JSON.stringify({ portalFile: portalB64, internalFile: internalB64 });
+
+      // Truyền đường dẫn tệp trực tiếp cho Python đọc nhị phân - tránh tạo Base64 khổng lồ gây OOM RAM
+      const body = JSON.stringify({ portalPath, internalPath });
       return await new Promise((resolve, reject) => {
         const req = http.request({
           hostname: '127.0.0.1', port: _comparePort || 27185, path: '/compare',
@@ -410,6 +410,13 @@ function registerPythonIPC() {
     try {
       if (!portalB64 || !internalB64) {
         return { ok: false, error: 'Thiếu dữ liệu tệp Base64 cần đối chiếu' };
+      }
+      if (typeof portalB64 !== 'string' || typeof internalB64 !== 'string') {
+        return { ok: false, error: 'Định dạng dữ liệu Base64 không hợp lệ' };
+      }
+      // Bảo vệ RAM chống nổ V8 Heap OOM: tối đa ~50MB file
+      if (portalB64.length > 70 * 1024 * 1024 || internalB64.length > 70 * 1024 * 1024) {
+        return { ok: false, error: 'Kích thước dữ liệu vượt quá ngưỡng an toàn RAM (50MB). Hãy sử dụng phương thức chọn tệp trực tiếp.' };
       }
       await startCompareServer();
       await new Promise((res) => {

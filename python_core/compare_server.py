@@ -409,11 +409,23 @@ class CompareHandler(BaseHTTPRequestHandler):
                 raw = self.rfile.read(length)
                 body = json.loads(raw.decode('utf-8'))
 
+                portal_path  = body.get('portalPath', '')
+                internal_path = body.get('internalPath', '')
+
+                if portal_path and internal_path:
+                    if not os.path.isfile(portal_path) or not os.path.isfile(internal_path):
+                        _send_json(self, 400, {'ok': False, 'error': 'Tệp đối chiếu không tồn tại trên đĩa'})
+                        return
+                    with open(portal_path, 'rb') as fp, open(internal_path, 'rb') as fi:
+                        result = run_compare(fp.read(), fi.read())
+                    _send_json(self, 200, result)
+                    return
+
                 portal_b64   = body.get('portalFile', '')
                 internal_b64 = body.get('internalFile', '')
 
                 if not portal_b64 or not internal_b64:
-                    _send_json(self, 400, {'ok': False, 'error': 'Thiếu portalFile hoặc internalFile'})
+                    _send_json(self, 400, {'ok': False, 'error': 'Thiếu dữ liệu tệp đối chiếu (portalFile/internalFile hoặc portalPath/internalPath)'})
                     return
 
                 portal_bytes   = base64.b64decode(portal_b64)

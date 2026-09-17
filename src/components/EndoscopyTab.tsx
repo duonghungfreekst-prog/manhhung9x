@@ -14,7 +14,13 @@ type Tab = 'live' | 'patients' | 'images';
 type SourceType = 'camera' | 'desktop';
 type Source = { id: string; name: string; thumbnail: string; appIcon: string|null };
 
-const eAPI = () => (window as any).electronAPI;
+const eAPI = () => {
+  const api = window.electronAPI;
+  return {
+    ...api,
+    ...(api?.endoscopy || {}),
+  };
+};
 
 // Âm thanh chụp ảnh mô phỏng (Shutter Sound) bằng Web Audio API
 function playShutterSound() {

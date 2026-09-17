@@ -176,7 +176,11 @@ class EndoscopyRepository {
 
     const sDate = new Date();
     const dateStr = sDate.toLocaleDateString('vi-VN');
-    const folderName = `${pt.patient_code}_${(pt.full_name || '').replace(/[^a-zA-Z0-9]/g, '_')}_${sDate.getTime()}`;
+    const sanitizedName = (pt.full_name || 'BenhNhan')
+      .trim()
+      .replace(/[\\/:*?"<>|\x00-\x1F]/g, '_')
+      .replace(/\s+/g, ' ');
+    const folderName = `${pt.patient_code}_${sanitizedName}_${sDate.getTime()}`;
     const folderPath = path.join(imgRoot, folderName);
 
     if (!fs.existsSync(folderPath)) {

@@ -2,9 +2,6 @@
  * Endoscopy API Client — giao tiếp qua Electron IPC thay vì Python server
  */
 
-// Lấy electronAPI từ preload
-const eAPI = () => (window as any).electronAPI;
-
 // ── Các hàm cũ không còn dùng (giữ để không lỗi UI nếu có gọi) ──────────────
 export const ping = async () => ({ pong: true });
 export interface StatusData { running: boolean; logs: string[]; captures: any[]; gpu_info: any; }
@@ -52,13 +49,70 @@ export interface DbStats {
   total_images: number; total_size_mb: number;
 }
 
-export const getDbStats    = () => eAPI().getDbStats();
-export const getPatients   = (q?: string) => eAPI().getPatients(q);
-export const addPatient    = (d: Partial<Patient>) => eAPI().addPatient(d);
-export const getSessions   = (patient_id: number) => eAPI().getSessions(patient_id);
-export const createSession = (d: { patient_id: number; exam_type: string; doctor_name: string }) => eAPI().createSession(d);
-export const getImages     = (session_id: number) => eAPI().getImages(session_id);
-export const toggleFav     = (image_id: number) => eAPI().toggleFav(image_id);
-export const saveCapture   = (session_id: number, b64: string, res: string) => eAPI().saveCapture(session_id, b64, res);
+const getApi = () => window.electronAPI;
+
+export const getDbStats = async () => {
+  const api = getApi();
+  if (api?.endoscopy?.getStats) return api.endoscopy.getStats();
+  if (api?.getDbStats) return api.getDbStats();
+  return null;
+};
+
+export const getPatients = async (q?: string) => {
+  const api = getApi();
+  if (api?.endoscopy?.getPatients) return api.endoscopy.getPatients(q);
+  if (api?.getPatients) return api.getPatients(q);
+  return { ok: false, patients: [] };
+};
+
+export const addPatient = async (d: Partial<Patient>) => {
+  const api = getApi();
+  if (api?.endoscopy?.addPatient) return api.endoscopy.addPatient(d);
+  if (api?.addPatient) return api.addPatient(d);
+  return { ok: false, error: 'API không khả dụng' };
+};
+
+export const getSessions = async (patient_id: number) => {
+  const api = getApi();
+  if (api?.endoscopy?.getSessions) return api.endoscopy.getSessions(patient_id);
+  if (api?.getSessions) return api.getSessions(patient_id);
+  return { ok: false, sessions: [] };
+};
+
+export const createSession = async (d: { patient_id: number; exam_type: string; doctor_name: string }) => {
+  const api = getApi();
+  if (api?.endoscopy?.createSession) return api.endoscopy.createSession(d);
+  if (api?.createSession) return api.createSession(d);
+  return { ok: false, error: 'API không khả dụng' };
+};
+
+export const getImages = async (session_id: number) => {
+  const api = getApi();
+  if (api?.endoscopy?.getImages) return api.endoscopy.getImages(session_id);
+  if (api?.getImages) return api.getImages(session_id);
+  return { ok: false, images: [] };
+};
+
+export const toggleFav = async (image_id: number) => {
+  const api = getApi();
+  if (api?.endoscopy?.toggleFavorite) return api.endoscopy.toggleFavorite(image_id);
+  if (api?.endoscopy?.toggleFav) return api.endoscopy.toggleFav(image_id);
+  if (api?.toggleFav) return api.toggleFav(image_id);
+  return { ok: false };
+};
+
+export const saveCapture = async (session_id: number, b64: string, res: string) => {
+  const api = getApi();
+  if (api?.endoscopy?.saveCapture) return api.endoscopy.saveCapture(session_id, b64, res);
+  if (api?.saveCapture) return api.saveCapture(session_id, b64, res);
+  return { ok: false, error: 'API không khả dụng' };
+};
+
 export const exportWordReport = async () => ({ ok: false, msg: 'Chưa hỗ trợ tạo word không cần Python' });
-export const recognizeImage   = (b64: string) => eAPI().recognizeImage(b64);
+
+export const recognizeImage = async (b64: string) => {
+  const api = getApi();
+  if (api?.endoscopy?.recognizeImage) return api.endoscopy.recognizeImage(b64);
+  if ((api as any)?.recognizeImage) return (api as any).recognizeImage(b64);
+  return { ok: false, error: 'API không khả dụng' };
+};

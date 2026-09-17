@@ -719,15 +719,25 @@
     }
   }
 
+  // ── HTML Sanitizer chống XSS ───────────────────────────────────────────────
+  function esc(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   // ── RENDER ─────────────────────────────────────────────────────────────────
   function render() {
     // Logo & Clinic / room
     document.getElementById('headerLogoImg').src = state.logoUrl || 'icon.png';
     document.getElementById('clinicName').textContent = state.clinicName || 'PHÒNG KHÁM ĐA KHOA';
-    document.getElementById('roomLabel').textContent  = '🏠 ' + state.roomCode;
+    document.getElementById('roomLabel').textContent  = '🏠 ' + (state.roomCode || '');
     document.getElementById('marqueeText').innerHTML  =
-      `🏥 Chào mừng quý bệnh nhân đến khám tại ${state.clinicName}` +
-      `&nbsp;&nbsp;&nbsp;&nbsp;Phòng: ${state.roomCode}` +
+      `🏥 Chào mừng quý bệnh nhân đến khám tại ${esc(state.clinicName)}` +
+      `&nbsp;&nbsp;&nbsp;&nbsp;Phòng: ${esc(state.roomCode)}` +
       `&nbsp;&nbsp;&nbsp;&nbsp;Vui lòng chú ý lắng nghe để vào khám đúng giờ` +
       `&nbsp;&nbsp;&nbsp;&nbsp;Cảm ơn quý bệnh nhân đã tin tưởng sử dụng dịch vụ`;
 
@@ -738,7 +748,7 @@
       idle.style.display    = 'none';
       calling.style.display = 'block';
       document.getElementById('patientSTT').textContent  = state.current.stt;
-      document.getElementById('patientName').textContent = state.current.name.toUpperCase();
+      document.getElementById('patientName').textContent = String(state.current.name || '').toUpperCase();
       document.getElementById('patientCode').textContent = state.current.code
         ? `Mã: ${state.current.code}` : '';
     } else {
@@ -758,8 +768,8 @@
     } else {
       tbody.innerHTML = waiting.slice(0, 20).map(p => `
         <tr>
-          <td><span class="stt-badge">${p.stt}</span></td>
-          <td>${p.name}</td>
+          <td><span class="stt-badge">${esc(p.stt)}</span></td>
+          <td>${esc(p.name)}</td>
           <td style="color:#1a7a4a;font-weight:600;font-size:0.78rem;">⏳ Đang chờ</td>
         </tr>
       `).join('');
@@ -771,8 +781,8 @@
       const items = [...all, ...all];
       document.getElementById('tickerList').innerHTML = items.map(p => `
         <div class="ticker-item">
-          <div class="ticker-item-stt">STT: ${p.stt}</div>
-          <div class="ticker-item-name">${p.name}</div>
+          <div class="ticker-item-stt">STT: ${esc(p.stt)}</div>
+          <div class="ticker-item-name">${esc(p.name)}</div>
         </div>
       `).join('');
     } else {

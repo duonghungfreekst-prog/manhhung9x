@@ -11,7 +11,7 @@ const { app } = require('electron');
  */
 
 // Chạy PowerShell script mã hóa UTF-16LE an toàn với UTF-8 console output
-const runPSToolScript = (psScript, timeoutMs = 60000) => {
+const runPSToolScript = (psScript, timeoutMs = 60000, customEnv = {}) => {
   return new Promise((resolve) => {
     const fullScript = `
       [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -25,7 +25,7 @@ const runPSToolScript = (psScript, timeoutMs = 60000) => {
       '-NonInteractive',
       '-ExecutionPolicy', 'Bypass',
       '-EncodedCommand', b64
-    ], { windowsHide: true, maxBuffer: 25 * 1024 * 1024, encoding: 'utf8', timeout: timeoutMs }, (err, stdout, stderr) => {
+    ], { windowsHide: true, maxBuffer: 25 * 1024 * 1024, encoding: 'utf8', timeout: timeoutMs, env: { ...process.env, ...customEnv } }, (err, stdout, stderr) => {
       if (err) {
         resolve({ ok: false, error: err.message || String(stderr) });
       } else {

@@ -62,10 +62,35 @@ function sortPatients(list: Patient[], sortMode: 'stt_then_time' | 'time_only' =
   });
 }
 
+function obfuscateConfig(cfg: HisConfig): string {
+  try {
+    const copy = { ...cfg };
+    if (copy.dbConnStr) {
+      copy.dbConnStr = 'ENC:' + btoa(encodeURIComponent(copy.dbConnStr));
+    }
+    return JSON.stringify(copy);
+  } catch {
+    return JSON.stringify(cfg);
+  }
+}
+
+function deobfuscateConfig(raw: string): Partial<HisConfig> {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.dbConnStr && typeof parsed.dbConnStr === 'string' && parsed.dbConnStr.startsWith('ENC:')) {
+      parsed.dbConnStr = decodeURIComponent(atob(parsed.dbConnStr.slice(4)));
+    }
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
 function loadConfig(): HisConfig {
   try { 
-    const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
-    let shouldResave = false;
+    const raw = localStorage.getItem(LS_KEY) || '{}';
+    const saved = deobfuscateConfig(raw);
+    let shouldResave = !raw.includes('"ENC:'); // Nâng cấp các bản lưu cũ chưa mã hóa
 
     // Dọn sạch dữ liệu thử nghiệm nội bộ cũ nếu còn lưu trong localStorage (dùng base64 để không lộ ký tự trong bundle)
     const isLegacyInternal = (val: string) => {
@@ -105,7 +130,7 @@ function loadConfig(): HisConfig {
 
     const merged = { ...DEFAULT_CFG, ...saved, logoUrl: saved.logoUrl || DEFAULT_CFG.logoUrl };
     if (shouldResave) {
-      try { localStorage.setItem(LS_KEY, JSON.stringify(merged)); } catch {}
+      try { localStorage.setItem(LS_KEY, obfuscateConfig(merged)); } catch {}
     }
     return merged; 
   }
@@ -236,14 +261,10 @@ export function HisCallTab() {
 
   // ── Fetch patients from DB ──────────────────────────────────────────────────
   const fetchPatientsFromDB = useCallback(async (silent = false) => {
-    const api = eAPI();
-    if (!api?.fetchHisPatients) {
-      if (!silent) addLog('Giả lập: hiển thị dữ liệu mẫu', 'success');
-      setPatients(sortPatients([
-        { id: 'BN001', queueNumber: 1, fullName: 'Nguyễn Văn An',  status: 'waiting', roomCode: '1', registrationTime: '07:30:10' },
-        { id: 'BN002', queueNumber: 1, fullName: 'Trần Thị Bình', status: 'waiting', roomCode: '2', registrationTime: '07:30:25' },
-        { id: 'BN003', queueNumber: 2, fullName: 'Lê Văn Cường',  status: 'waiting', roomCode: '1', registrationTime: '07:45:00' },
-      ], config.sortMode));
+    const fetchFn = window.electronAPI?.his?.fetchPatients || (window.electronAPI as any)?.fetchHisPatients;
+    if (!fetchFn) {
+      if (!silent) addLog('Không tìm thấy giao diện gọi API HIS của hệ thống.', 'error');
+      setPatients([]);
       return;
     }
 
@@ -257,7 +278,7 @@ export function HisCallTab() {
     const roomLabel = config.roomCode.includes(',') ? `[${config.roomCode}]` : `phòng ${config.roomCode}`;
     if (!silent) addLog(`Đang tải danh sách ${roomLabel}...`);
     try {
-      const res = await api.fetchHisPatients(config.dbConnStr, config.roomCode);
+      const res = await fetchFn(config.dbConnStr, config.roomCode);
       if (res.ok) {
         const mapped: Patient[] = res.data.map((r: any) => {
           // DaKham co the la: 1 (int), true (bool), '1' (string), 0, false, null
@@ -340,7 +361,7 @@ export function HisCallTab() {
 
   // ── Save config ─────────────────────────────────────────────────────────────
   const handleSaveConfig = () => {
-    localStorage.setItem(LS_KEY, JSON.stringify(config));
+    localStorage.setItem(LS_KEY, obfuscateConfig(config));
     addLog(`Đã lưu cấu hình: ${config.ip}:${config.port} | Phòng: ${config.roomCode}`);
     showToast.success(`Đã lưu cấu hình phòng khám (Phòng: ${config.roomCode})!`);
     syncQueueDisplay(calledPt, patients);
@@ -350,14 +371,14 @@ export function HisCallTab() {
   // ── Test TCP ────────────────────────────────────────────────────────────────
   const testTcp = async () => {
     addLog(`Kiểm tra kết nối TCP ${config.ip}:${config.port}...`);
-    const api = eAPI();
-    if (!api?.sendTcpCommand) {
-      addLog('Kiểm tra giả lập: TCP kết nối thành công', 'success');
-      setTcpStatus('ok');
-      showToast.info('Kiểm tra giả lập: TCP kết nối thành công');
+    const sendTcpFn = window.electronAPI?.his?.sendTcpCommand || (window.electronAPI as any)?.sendTcpCommand;
+    if (!sendTcpFn) {
+      addLog('Không tìm thấy giao diện TCP của hệ thống DMH_Tools.', 'error');
+      setTcpStatus('err');
+      showToast.error('Không tìm thấy giao diện TCP của hệ thống DMH_Tools.');
       return;
     }
-    const r = await api.sendTcpCommand(config.ip, config.port, 'PING');
+    const r = await sendTcpFn(config.ip, config.port, 'PING');
     if (r.ok) {
       addLog('✓ Kết nối TCP thành công!');
       setTcpStatus('ok');
@@ -377,15 +398,15 @@ export function HisCallTab() {
 
   // ── Fetch room list từ CSDL ──────────────────────────────────────────────────
   const fetchRoomsFromDB = async () => {
-    const api = eAPI();
-    if (!api?.fetchHisRooms) { addLog('Chức năng này chỉ khả dụng trong phần mềm cài đặt', 'error'); return; }
+    const fetchRoomsFn = window.electronAPI?.his?.fetchRooms || (window.electronAPI as any)?.fetchHisRooms;
+    if (!fetchRoomsFn) { addLog('Chức năng này chỉ khả dụng trong phần mềm cài đặt', 'error'); return; }
     try {
-      const r = await (api as any).fetchHisRooms(config.dbConnStr);
-      if (r.ok && r.data.length > 0) {
+      const r = await fetchRoomsFn(config.dbConnStr);
+      if (r.ok && r.data && r.data.length > 0) {
         const roomList = r.data.map((row: { maphong: string; tenphong: string }) => `${row.maphong} - ${row.tenphong}`).join(', ');
         addLog(`✓ Danh sách phòng trong CSDL hôm nay: ${roomList}`);
         addLog(`Nhập số mã phòng vào ô "Mã Phòng Khám", ví dụ: ${r.data[0].maphong}`);
-      } else if (r.ok && r.data.length === 0) {
+      } else if (r.ok && (!r.data || r.data.length === 0)) {
         addLog('Hàng đợi hôm nay chưa có bệnh nhân nào hoặc CSDL chưa có dữ liệu phòng.', 'error');
       } else {
         addLog(`Lỗi tải danh sách phòng: ${r.error}`, 'error');
@@ -509,9 +530,10 @@ export function HisCallTab() {
     const packet = `${config.displayCode}|${patient.queueNumber}|${patient.fullName}`;
     addLog(isRecall ? `↩ Gọi lại STT ${patient.queueNumber}: ${patient.fullName}` : `→ Gọi STT ${patient.queueNumber}: ${patient.fullName}`);
     const api = eAPI();
+    const sendTcpFn = window.electronAPI?.his?.sendTcpCommand || api?.sendTcpCommand;
     // Gửi TCP sang bảng LED — nếu lỗi chỉ warn, không block việc gọi
-    if (api?.sendTcpCommand) {
-      api.sendTcpCommand(config.ip, config.port, packet)
+    if (sendTcpFn) {
+      sendTcpFn(config.ip, config.port, packet)
         .then((r: { ok: boolean; error?: string }) => { if (!r.ok) addLog(`⚠ TCP (bảng LED) không phản hồi: ${r.error}`, 'error'); })
         .catch(() => {});
     }
@@ -536,8 +558,9 @@ export function HisCallTab() {
         tvOpen: queueDisplayOpen,
       });
     }
-    if (api?.updateHisPatientStatus) {
-      const r = await api.updateHisPatientStatus(config.dbConnStr, patient.id);
+    const updatePatientStatusFn = window.electronAPI?.his?.updatePatientStatus || api?.updateHisPatientStatus;
+    if (updatePatientStatusFn) {
+      const r = await updatePatientStatusFn(config.dbConnStr, patient.id);
       if (r.ok) { addLog(`CSDL cập nhật: ${patient.fullName} → Đã gọi`); } else { addLog(`CSDL lỗi cập nhật: ${r.error}`, 'error'); }
     }
   };
@@ -551,7 +574,8 @@ export function HisCallTab() {
     if (!calledPt) { addLog('Chưa có bệnh nhân nào được gọi để gọi lại.', 'error'); return; }
     const packet = `${config.displayCode}|${calledPt.queueNumber}|${calledPt.fullName}`;
     addLog(`↩ Gọi lại: ${calledPt.fullName}`);
-    eAPI()?.sendTcpCommand?.(config.ip, config.port, packet);
+    const sendTcpFn = window.electronAPI?.his?.sendTcpCommand || eAPI()?.sendTcpCommand;
+    sendTcpFn?.(config.ip, config.port, packet);
     speakText(buildTtsText(calledPt));
   };
 

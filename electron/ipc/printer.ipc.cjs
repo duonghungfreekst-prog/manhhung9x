@@ -1128,27 +1128,33 @@ pause
     }
   });
 
-  // Lưu thông tin danh tính Windows Credentials (cmdkey) - Khắc phục lỗi xác thực truy cập máy chủ LAN (tham khảo kinh nghiệm Sài Gòn Computer)
+  // Lưu thông tin danh tính Windows Credentials (cmdkey) - Khắc phục lỗi xác thực truy cập máy chủ LAN
   ipcMain.handle('printer:save-windows-credential', async (_event, params) => {
     const { host, username, password } = params || {};
     if (!host) return { ok: false, error: 'Thiếu địa chỉ IP hoặc tên máy chủ.' };
     const cleanHost = String(host).replace(/^\\\\+/, '').trim();
+    if (!/^[a-zA-Z0-9.:_-]+$/.test(cleanHost)) {
+      return { ok: false, error: 'Địa chỉ máy chủ không hợp lệ' };
+    }
     const user = username ? String(username).trim() : 'Guest';
-    const pass = password ? String(password).trim() : '';
+    const pass = password ? String(password) : '';
 
-    const ps = `
-      $ErrorActionPreference = 'SilentlyContinue'
-      cmdkey /add:"${cleanHost.replace(/"/g, '`"')}" /user:"${user.replace(/"/g, '`"')}" /pass:"${pass.replace(/"/g, '`"')}" 2>&1 | Out-Null
-      net use "\\\\${cleanHost.replace(/"/g, '`"')}\\IPC$" /user:"${user.replace(/"/g, '`"')}" "${pass.replace(/"/g, '`"')}" /persistent:yes 2>&1 | Out-Null
-      [PSCustomObject]@{
-        ok = $true
-        success = $true
-        message = "Đã khai báo Windows Credential cho máy chủ ${cleanHost.replace(/"/g, '`"')} (User: ${user.replace(/"/g, '`"')}) thành công!"
-      } | ConvertTo-Json -Compress
-    `;
-    const res = await runPSToolScript(ps);
-    if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+    const { execFile } = require('child_process');
+
+    return new Promise((resolve) => {
+      execFile('cmdkey.exe', [`/add:${cleanHost}`, `/user:${user}`, `/pass:${pass}`], { windowsHide: true, timeout: 10000 }, (cmdErr) => {
+        if (cmdErr) {
+          return resolve({ ok: false, error: 'Lỗi thêm credential qua cmdkey: ' + cmdErr.message });
+        }
+        execFile('net.exe', ['use', `\\\\${cleanHost}\\IPC$`, `/user:${user}`, pass, '/persistent:yes'], { windowsHide: true, timeout: 15000 }, () => {
+          resolve({
+            ok: true,
+            success: true,
+            message: `Đã khai báo Windows Credential an toàn cho máy chủ ${cleanHost} (User: ${user}) thành công!`
+          });
+        });
+      });
+    });
   });
 
   // Lấy danh sách Driver máy in đã cài trên hệ thống
@@ -1182,19 +1188,36 @@ pause
     const cleanShare = String(shareName).replace(/^\\\\+/, '').trim();
     const cleanPName = (printerName || `${cleanShare} (LAN)`).trim();
     const cleanDName = String(driverName).trim();
-    const portName = `\\\\${cleanHost}\\${cleanShare}`;
     const credUser = username ? String(username).trim() : '';
     const credPass = password ? String(password).trim() : '';
 
+    if (!/^[a-zA-Z0-9_.-]{1,64}$/.test(cleanHost)) {
+      return { ok: false, error: 'Địa chỉ IP hoặc tên máy chủ không hợp lệ' };
+    }
+    if (!/^[a-zA-Z0-9_ .()-]{1,128}$/.test(cleanShare)) {
+      return { ok: false, error: 'Tên chia sẻ máy in không hợp lệ' };
+    }
+    if (!/^[a-zA-Z0-9_ .()-]{1,128}$/.test(cleanPName)) {
+      return { ok: false, error: 'Tên máy in không hợp lệ' };
+    }
+    if (!/^[a-zA-Z0-9_ .()/-]{1,128}$/.test(cleanDName)) {
+      return { ok: false, error: 'Tên Driver máy in không hợp lệ' };
+    }
+    if (credUser && !/^[a-zA-Z0-9_ .\\-]{1,64}$/.test(credUser)) {
+      return { ok: false, error: 'Tên tài khoản không hợp lệ' };
+    }
+
+    const portName = `\\\\${cleanHost}\\${cleanShare}`;
+
     const ps = `
       $ErrorActionPreference = 'Stop'
-      $portName = "${portName.replace(/\\/g, '\\\\')}"
-      $pName = "${cleanPName.replace(/"/g, '`"')}"
-      $dName = "${cleanDName.replace(/"/g, '`"')}"
-      $hostTarget = "${cleanHost.replace(/"/g, '`"')}"
-      $shareTarget = "${cleanShare.replace(/"/g, '`"')}"
-      $credUser = "${credUser.replace(/"/g, '`"')}"
-      $credPass = "${credPass.replace(/"/g, '`"')}"
+      $portName = $env:DMH_PORT_NAME
+      $pName = $env:DMH_PRINTER_NAME
+      $dName = $env:DMH_DRIVER_NAME
+      $hostTarget = $env:DMH_HOST_TARGET
+      $shareTarget = $env:DMH_SHARE_TARGET
+      $credUser = $env:DMH_CRED_USER
+      $credPass = $env:DMH_CRED_PASS
 
       # 1. Khắc phục môi trường mạng chống lỗi 0x00000040 & 0x00000709
       Get-NetConnectionProfile -ErrorAction SilentlyContinue | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
@@ -1266,7 +1289,15 @@ pause
       } | ConvertTo-Json -Compress
     `;
 
-    const res = await runPSToolScript(ps);
+    const res = await runPSToolScript(ps, {
+      DMH_PORT_NAME: portName,
+      DMH_PRINTER_NAME: cleanPName,
+      DMH_DRIVER_NAME: cleanDName,
+      DMH_HOST_TARGET: cleanHost,
+      DMH_SHARE_TARGET: cleanShare,
+      DMH_CRED_USER: credUser,
+      DMH_CRED_PASS: credPass
+    });
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
@@ -1599,8 +1630,14 @@ pause
   // ── PRINTER SUITE: Xóa một lệnh in cụ thể (Delete Single Print Job) ────────
   ipcMain.handle('printer:delete-job', async (_event, printerName, jobId) => {
     if (!printerName || jobId === undefined) return { ok: false, error: 'Thiếu tham số tên máy in hoặc mã lệnh in' };
-    const safeName = String(printerName).replace(/["']/g, '');
+    const safeName = String(printerName).trim();
+    if (!/^[a-zA-Z0-9_ .()-]{1,128}$/.test(safeName)) {
+      return { ok: false, error: 'Tên máy in không hợp lệ (chứa ký tự không được phép)' };
+    }
     const safeId = parseInt(jobId, 10);
+    if (isNaN(safeId) || safeId < 0) {
+      return { ok: false, error: 'Mã lệnh in không hợp lệ' };
+    }
     const ps = `
       $ErrorActionPreference = 'SilentlyContinue'
 
@@ -1608,8 +1645,8 @@ pause
       Remove-PrintJob -PrinterName "${safeName}" -ID ${safeId} -Force -ErrorAction SilentlyContinue
 
       # 2. Thử xóa qua Win32_PrintJob WMI
-      Get-WmiObject -Class Win32_PrintJob -ErrorAction SilentlyContinue | Where-Object { $_.JobId -eq ${safeId} } | ForEach-Object {
-        $_.Delete() | Out-Null
+      Get-CimInstance -ClassName Win32_PrintJob -ErrorAction SilentlyContinue | Where-Object { $_.JobId -eq ${safeId} } | ForEach-Object {
+        Remove-CimInstance -InputObject $_ -ErrorAction SilentlyContinue
       }
 
       Start-Sleep -Milliseconds 400
@@ -1642,7 +1679,11 @@ pause
 
   // ── PRINTER SUITE: Xóa sạch toàn bộ hàng đợi in (Clear All Print Jobs) ────
   ipcMain.handle('printer:clear-queue', async (_event, printerName) => {
-    const safeName = printerName ? String(printerName).replace(/["']/g, '') : '';
+    const rawName = printerName ? String(printerName).trim() : '';
+    if (rawName && !/^[a-zA-Z0-9_ .()-]{1,128}$/.test(rawName)) {
+      return { ok: false, error: 'Tên máy in không hợp lệ' };
+    }
+    const safeName = rawName;
     const ps = `
       $ErrorActionPreference = 'SilentlyContinue'
 
@@ -1661,8 +1702,8 @@ pause
       if (-not (Test-Path $spoolDir)) { New-Item -Path $spoolDir -ItemType Directory -Force | Out-Null }
       Remove-Item -Path "$spoolDir\\*.*" -Force -Recurse -ErrorAction SilentlyContinue
 
-      # Cấp lại toàn quyền cho thư mục PRINTERS
-      & icacls $spoolDir /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" /grant "Users:(OI)(CI)F" /grant "EVERYONE:(OI)(CI)M" /T /C /Q | Out-Null
+      # Cấp lại quyền tiêu chuẩn cho thư mục PRINTERS (Chỉ cấp SYSTEM và Administrators)
+      & icacls $spoolDir /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" /grant "Users:(OI)(CI)RX" /T /C /Q | Out-Null
 
       # Khởi động lại dịch vụ Print Spooler
       Start-Service -Name "Spooler" -ErrorAction SilentlyContinue

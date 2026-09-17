@@ -197,6 +197,10 @@ function registerSystemIPC() {
         show: false,
         webPreferences: {
           offscreen: true,
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+          webSecurity: true,
         },
       });
       await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
@@ -216,109 +220,8 @@ function registerSystemIPC() {
     }
   });
 
-
   // ── PC TOOLS (KỸ THUẬT MÁY TÍNH - BTP PRO ALL-IN-ONE) ─────────────────────────
   // ══════════════════════════════════════════════════════════════════════════════
-
-  // Helper: Chạy PowerShell script mã hóa UTF-16LE an toàn với UTF-8 console output
-  const runPSToolScript = (psScript) => {
-    return new Promise((resolve) => {
-      const fullScript = `
-        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-        $OutputEncoding = [System.Text.Encoding]::UTF8
-        ${psScript}
-      `;
-      const buffer = Buffer.from(fullScript, 'utf16le');
-      const b64 = buffer.toString('base64');
-      execFile('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy', 'Bypass',
-        '-EncodedCommand', b64
-      ], { windowsHide: true, maxBuffer: 25 * 1024 * 1024, encoding: 'utf8' }, (err, stdout, stderr) => {
-        if (err) {
-          resolve({ ok: false, error: err.message || String(stderr) });
-        } else {
-          resolve({ ok: true, output: (stdout || '').trim() });
-        }
-      });
-    });
-  };
-
-  // Helper: Kiểm tra quyền Administrator thực tế của tiến trình
-  const isProcessElevated = () => {
-    try {
-      const { execSync } = require('child_process');
-      execSync('net session', { stdio: 'ignore' });
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  // Helper: Chạy PowerShell script với quyền Administrator (tự động kích hoạt UAC nếu cần)
-  const runElevatedPSToolScript = (psScript) => {
-    if (isProcessElevated()) {
-      return runPSToolScript(psScript);
-    }
-    return new Promise((resolve) => {
-      const tempScriptPath = path.join(app.getPath('temp'), `dmh_admin_${Date.now()}.ps1`);
-      const tempOutPath = path.join(app.getPath('temp'), `dmh_admin_out_${Date.now()}.json`);
-
-      const wrappedScript = `
-        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-        $OutputEncoding = [System.Text.Encoding]::UTF8
-        $ErrorActionPreference = 'SilentlyContinue'
-        try {
-          $output = & {
-            ${psScript}
-          }
-          $jsonOut = if ($output -is [array]) { ($output | Where-Object { $_ -and $_.ToString().Trim().StartsWith('{') } | Select-Object -Last 1) } else { $output }
-          if (-not $jsonOut -and $output) { $jsonOut = ($output | Out-String).Trim() }
-          if ($jsonOut) {
-            [System.IO.File]::WriteAllText('${tempOutPath.replace(/\\/g, '\\\\')}', $jsonOut.ToString(), [System.Text.Encoding]::UTF8)
-          }
-        } catch {
-          $errObj = [PSCustomObject]@{ ok = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
-          [System.IO.File]::WriteAllText('${tempOutPath.replace(/\\/g, '\\\\')}', $errObj, [System.Text.Encoding]::UTF8)
-        }
-      `;
-
-      try {
-        fs.writeFileSync(tempScriptPath, wrappedScript, 'utf8');
-      } catch (e) {
-        return resolve(runPSToolScript(psScript));
-      }
-
-      const launcher = `Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${tempScriptPath.replace(/'/g, "''")}' -Verb RunAs -Wait -WindowStyle Hidden`;
-
-      execFile('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy', 'Bypass',
-        '-Command', launcher
-      ], { windowsHide: true, timeout: 60000 }, (err) => {
-        let output = '';
-        try {
-          if (fs.existsSync(tempOutPath)) {
-            output = fs.readFileSync(tempOutPath, 'utf8').trim();
-            fs.unlinkSync(tempOutPath);
-          }
-          if (fs.existsSync(tempScriptPath)) {
-            fs.unlinkSync(tempScriptPath);
-          }
-        } catch {}
-
-        if (output) {
-          resolve({ ok: true, output });
-        } else if (err) {
-          resolve({ ok: false, error: 'Cần quyền Administrator để thực hiện thao tác hệ thống này: ' + err.message });
-        } else {
-          resolve(runPSToolScript(psScript));
-        }
-      });
-    });
-  };
 
   // 1. Lấy thông tin cấu hình & sức khỏe phần cứng
   ipcMain.handle('pctools:get-hardware-info', async () => {
@@ -1131,21 +1034,70 @@ function registerSystemIPC() {
 
   ipcMain.handle('pctools:manage-user', async (_event, params = {}) => {
     const { action, username, password, newComputerName, isAdmin, active } = params;
-    let ps = '';
-    if (action === 'rename-computer' && newComputerName) {
-      ps = `Rename-Computer -NewName "${newComputerName.replace(/"/g, '`"')}" -Force -ErrorAction Stop; "Đã đổi tên máy thành ${newComputerName}. Vui lòng khởi động lại máy để áp dụng."`;
-    } else if (action === 'change-password' && username && password) {
-      ps = `net user "${username.replace(/"/g, '`"')}" "${password.replace(/"/g, '`"')}"; "Đã đổi mật khẩu tài khoản ${username} thành công."`;
-    } else if (action === 'toggle-account' && username) {
-      const act = active ? 'yes' : 'no';
-      ps = `net user "${username.replace(/"/g, '`"')}" /active:${act}; "Đã ${active ? 'kích hoạt' : 'vô hiệu hóa'} tài khoản ${username}."`;
-    } else if (action === 'create-user' && username && password) {
-      ps = `net user "${username.replace(/"/g, '`"')}" "${password.replace(/"/g, '`"')}" /add; ${isAdmin ? `net localgroup administrators "${username.replace(/"/g, '`"')}" /add;` : ''} "Đã tạo tài khoản ${username} thành công."`;
-    } else {
-      return { ok: false, error: 'Hành động không hợp lệ' };
+    const { execFile } = require('child_process');
+
+    const cleanUser = typeof username === 'string' ? username.trim() : '';
+    const cleanPass = typeof password === 'string' ? password : '';
+    const cleanComp = typeof newComputerName === 'string' ? newComputerName.trim() : '';
+
+    if (action === 'rename-computer') {
+      if (!cleanComp || !/^[a-zA-Z0-9-]{1,15}$/.test(cleanComp)) {
+        return { ok: false, error: 'Tên máy tính không hợp lệ (1-15 ký tự, chữ, số và dấu gạch ngang)' };
+      }
+      return new Promise((resolve) => {
+        execFile('powershell.exe', [
+          '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+          '-Command', 'param($n) Rename-Computer -NewName $n -Force -ErrorAction Stop',
+          cleanComp
+        ], { windowsHide: true, timeout: 15000 }, (err) => {
+          if (err) resolve({ ok: false, error: 'Lỗi đổi tên máy (cần quyền Admin): ' + err.message });
+          else resolve({ ok: true, message: `Đã đổi tên máy thành ${cleanComp}. Vui lòng khởi động lại máy để áp dụng.` });
+        });
+      });
     }
-    const res = await runPSToolScript(ps);
-    return { ok: res.ok, message: res.output || res.error };
+
+    if (!cleanUser || !/^[a-zA-Z0-9_.-]{1,32}$/.test(cleanUser)) {
+      return { ok: false, error: 'Tên người dùng không hợp lệ (chỉ chứa chữ cái, số, _, . hoặc -)' };
+    }
+
+    if (action === 'change-password') {
+      if (!cleanPass) return { ok: false, error: 'Mật khẩu mới không được để trống' };
+      return new Promise((resolve) => {
+        execFile('net.exe', ['user', cleanUser, cleanPass], { windowsHide: true, timeout: 10000 }, (err) => {
+          if (err) resolve({ ok: false, error: 'Lỗi đổi mật khẩu: ' + err.message });
+          else resolve({ ok: true, message: `Đã đổi mật khẩu tài khoản ${cleanUser} thành công.` });
+        });
+      });
+    }
+
+    if (action === 'toggle-account') {
+      const act = active ? 'yes' : 'no';
+      return new Promise((resolve) => {
+        execFile('net.exe', ['user', cleanUser, `/active:${act}`], { windowsHide: true, timeout: 10000 }, (err) => {
+          if (err) resolve({ ok: false, error: 'Lỗi thay đổi trạng thái tài khoản: ' + err.message });
+          else resolve({ ok: true, message: `Đã ${active ? 'kích hoạt' : 'vô hiệu hóa'} tài khoản ${cleanUser}.` });
+        });
+      });
+    }
+
+    if (action === 'create-user') {
+      if (!cleanPass) return { ok: false, error: 'Mật khẩu không được để trống khi tạo tài khoản' };
+      return new Promise((resolve) => {
+        execFile('net.exe', ['user', cleanUser, cleanPass, '/add'], { windowsHide: true, timeout: 10000 }, (err) => {
+          if (err) return resolve({ ok: false, error: 'Lỗi tạo tài khoản: ' + err.message });
+          if (isAdmin) {
+            execFile('net.exe', ['localgroup', 'administrators', cleanUser, '/add'], { windowsHide: true, timeout: 10000 }, (admErr) => {
+              if (admErr) resolve({ ok: true, message: `Đã tạo tài khoản ${cleanUser}, nhưng chưa cấp được quyền Admin: ${admErr.message}` });
+              else resolve({ ok: true, message: `Đã tạo tài khoản Quản trị viên ${cleanUser} thành công.` });
+            });
+          } else {
+            resolve({ ok: true, message: `Đã tạo tài khoản ${cleanUser} thành công.` });
+          }
+        });
+      });
+    }
+
+    return { ok: false, error: 'Hành động không hợp lệ' };
   });
 
   // 11. Kiểm tra sức khỏe Laptop & Lịch sử phần cứng (Đã sửa chữa chưa?)
@@ -1366,16 +1318,51 @@ function registerSystemIPC() {
   // 14. Cài đặt app tùy chỉnh (Silent Installer)
   ipcMain.handle('pctools:install-custom-app', async (_event, options = {}) => {
     const { filePath, args = '/S', wingetId } = options;
-    let ps = '';
+    const { execFile } = require('child_process');
+
     if (wingetId) {
-      ps = `winget install --id "${wingetId.replace(/"/g, '`"')}" --silent --accept-package-agreements --accept-source-agreements --disable-interactivity`;
-    } else if (filePath) {
-      ps = `Start-Process -FilePath "${filePath.replace(/"/g, '`"')}" -ArgumentList "${args.replace(/"/g, '`"')}" -Wait; "Đã chạy cài đặt phần mềm hoàn tất."`;
-    } else {
-      return { ok: false, error: 'Thiếu thông tin file cài đặt hoặc ID winget' };
+      if (typeof wingetId !== 'string' || !/^[a-zA-Z0-9_.-]+$/.test(wingetId.trim())) {
+        return { ok: false, error: 'Mã Winget ID không hợp lệ' };
+      }
+      return new Promise((resolve) => {
+        execFile('winget.exe', [
+          'install', '--id', wingetId.trim(),
+          '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity'
+        ], { windowsHide: true, timeout: 180000 }, (err, stdout, stderr) => {
+          if (err) resolve({ ok: false, error: 'Lỗi winget: ' + (err.message || stderr) });
+          else resolve({ ok: true, message: 'Đã hoàn tất cài đặt gói phần mềm qua Winget.' });
+        });
+      });
     }
-    const res = await runPSToolScript(ps);
-    return { ok: res.ok, message: res.output || res.error };
+
+    if (filePath) {
+      if (typeof filePath !== 'string' || !fs.existsSync(filePath)) {
+        return { ok: false, error: 'Tệp cài đặt không tồn tại trên hệ thống' };
+      }
+      const ext = path.extname(filePath).toLowerCase();
+      if (!['.exe', '.msi'].includes(ext)) {
+        return { ok: false, error: 'Định dạng tệp cài đặt không được hỗ trợ (chỉ chấp nhận .exe hoặc .msi)' };
+      }
+      const safeArgs = typeof args === 'string'
+        ? args.trim().split(/\s+/).filter(a => /^[a-zA-Z0-9/=_-]+$/.test(a))
+        : ['/S'];
+
+      return new Promise((resolve) => {
+        if (ext === '.msi') {
+          execFile('msiexec.exe', ['/i', filePath, '/qn', '/norestart'], { windowsHide: true, timeout: 180000 }, (err) => {
+            if (err) resolve({ ok: false, error: 'Lỗi cài đặt MSI: ' + err.message });
+            else resolve({ ok: true, message: 'Đã hoàn tất cài đặt gói phần mềm MSI.' });
+          });
+        } else {
+          execFile(filePath, safeArgs, { windowsHide: true, timeout: 180000 }, (err) => {
+            if (err) resolve({ ok: false, error: 'Lỗi khởi chạy bộ cài đặt: ' + err.message });
+            else resolve({ ok: true, message: 'Đã chạy cài đặt phần mềm hoàn tất.' });
+          });
+        }
+      });
+    }
+
+    return { ok: false, error: 'Thiếu thông tin file cài đặt hoặc ID winget' };
   });
 
   // 15. Quét và trích xuất mật khẩu Wi-Fi đã lưu trên hệ thống
@@ -2027,12 +2014,15 @@ function registerSystemIPC() {
   // 27. Kiểm tra độ trễ & Chất lượng mạng (Ping Latency Test)
   ipcMain.handle('pctools:ping-test', async (_event, customTarget) => {
     const cleanCustom = customTarget && typeof customTarget === 'string' ? customTarget.trim() : '';
+    if (cleanCustom && !/^[a-zA-Z0-9.:-]+$/.test(cleanCustom)) {
+      return { ok: false, error: 'Địa chỉ IP hoặc tên máy chủ không hợp lệ (chặn ký tự đặc biệt)', targets: [], results: [] };
+    }
     const ps = `
       $ErrorActionPreference = 'SilentlyContinue'
       $targets = @('8.8.8.8', '1.1.1.1')
       $gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty NextHop)
       if ($gw) { $targets += $gw }
-      ${cleanCustom ? `$targets += "${cleanCustom.replace(/"/g, '`"')}"` : ''}
+      ${cleanCustom ? `$targets += "${cleanCustom}"` : ''}
 
       $results = @()
       foreach ($t in $targets) {
@@ -2809,7 +2799,14 @@ function registerSystemIPC() {
 
       let installerPath = path.isAbsolute(installerName) ? installerName : path.join(baseDir, cleanFileName);
 
-      if (!fs.existsSync(installerPath)) {
+      // Chặn đứng Path Traversal và chỉ cho phép chạy các bộ cài đặt nằm trong thư mục baseDir của ứng dụng
+      const resolvedInstaller = path.resolve(installerPath);
+      const resolvedBase = path.resolve(baseDir);
+      if (!resolvedInstaller.toLowerCase().startsWith(resolvedBase.toLowerCase())) {
+        return { ok: false, error: 'Bảo vệ Sandbox: Chỉ cho phép khởi chạy bộ cài đặt nằm trong thư mục module được cấp phép!' };
+      }
+
+      if (!fs.existsSync(resolvedInstaller)) {
         // Tìm trong các thư mục con update_*
         const entries = fs.readdirSync(baseDir, { withFileTypes: true });
         for (const entry of entries) {
@@ -2829,11 +2826,12 @@ function registerSystemIPC() {
         }
       }
 
-      if (!fs.existsSync(installerPath)) {
-        return { ok: false, error: 'Không tìm thấy tệp bộ cài đặt: ' + cleanFileName };
+      const finalPath = path.resolve(installerPath);
+      if (!fs.existsSync(finalPath) || !finalPath.toLowerCase().startsWith(resolvedBase.toLowerCase())) {
+        return { ok: false, error: 'Không tìm thấy tệp bộ cài đặt hợp lệ trong kho lưu trữ an toàn: ' + cleanFileName };
       }
 
-      console.log('[UPDATE] Khởi chạy an toàn bộ cài đặt cập nhật:', installerPath);
+      console.log('[UPDATE] Khởi chạy an toàn bộ cài đặt cập nhật:', finalPath);
 
       // Khởi chạy an toàn bằng mảng tham số (không chèn chuỗi nội suy)
       execFile('powershell.exe', [
@@ -2842,11 +2840,11 @@ function registerSystemIPC() {
         '-Command',
         'Start-Process',
         '-FilePath',
-        installerPath
+        finalPath
       ], (psErr) => {
         if (psErr) {
           console.warn('[UPDATE] Start-Process lỗi, thử lại bằng shell.openPath:', psErr);
-          shell.openPath(installerPath);
+          shell.openPath(finalPath);
         }
       });
 
