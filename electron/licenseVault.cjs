@@ -367,9 +367,15 @@ function markUninstalled() {
 
 /**
  * Ký điện tử HMAC-SHA256 bảo vệ tính toàn vẹn của mốc dùng thử HWID
+ * Sử dụng Dynamic Per-Machine Salt (kết hợp thông tin máy tính cá nhân hóa)
  */
+function getDynamicSalt() {
+  const seed = `${os.hostname()}_${os.userInfo().username}_${os.arch()}_${HWID_SECRET}`;
+  return crypto.createHash('sha256').update(seed).digest('hex');
+}
+
 function signHWIDRecord(hwid, firstSeenSec, lastSeenSec, expired) {
-  return crypto.createHmac('sha256', HWID_SECRET)
+  return crypto.createHmac('sha256', getDynamicSalt())
     .update(`${hwid}:${firstSeenSec}:${lastSeenSec}:${expired ? 1 : 0}`)
     .digest('hex');
 }

@@ -71,16 +71,25 @@ const DEFAULT_API_KEYS: string[] = [
 const DEFAULT_MODEL = 'gemini-3.6-flash';
 const FALLBACK_MODELS = ['gemini-3.6-flash', 'gemini-flash-latest'];
 
+const _obfuscate = (s: string) => {
+  try { return btoa(encodeURIComponent(s)); } catch { return s; }
+};
+const _deobfuscate = (s: string) => {
+  try { return decodeURIComponent(atob(s)); } catch { return s; }
+};
+
 export class GeminiService {
   static getApiKey(): string {
-    return localStorage.getItem(STORAGE_KEY_API_KEY) || DEFAULT_API_KEYS[0];
+    const stored = localStorage.getItem(STORAGE_KEY_API_KEY);
+    if (stored) return _deobfuscate(stored);
+    return DEFAULT_API_KEYS[0];
   }
 
   static setApiKey(key: string): void {
     if (!key) {
       localStorage.removeItem(STORAGE_KEY_API_KEY);
     } else {
-      localStorage.setItem(STORAGE_KEY_API_KEY, key.trim());
+      localStorage.setItem(STORAGE_KEY_API_KEY, _obfuscate(key.trim()));
     }
   }
 

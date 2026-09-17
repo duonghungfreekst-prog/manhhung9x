@@ -91,9 +91,18 @@ function registerCaIPC() {
   ipcMain.handle('ca:sign-xml', async (_event, payload) => {
     try {
       const { filePath, xmlContent, thumbprint, targetTag = 'CHUKYDONVI', customOutputPath } = payload || {};
-      if (!thumbprint) {
+      if (!thumbprint || typeof thumbprint !== 'string') {
         return { ok: false, error: 'Chưa chọn chứng thư số để ký!' };
       }
+      const cleanThumbprint = thumbprint.trim().toUpperCase();
+      if (!/^[A-F0-9]{40}$/.test(cleanThumbprint)) {
+        return { ok: false, error: 'Thumbprint chứng thư số không đúng định dạng chuẩn 40 ký tự hex!' };
+      }
+
+      const safeTargetTag = (typeof targetTag === 'string' && /^[a-zA-Z0-9_]{1,64}$/.test(targetTag))
+        ? targetTag
+        : 'CHUKYDONVI';
+
       let inPath = filePath;
       let isTempIn = false;
       if (!inPath && xmlContent) {
@@ -109,14 +118,17 @@ function registerCaIPC() {
         ? filePath.replace(/\.xml$/i, '_signed.xml')
         : path.join(os.tmpdir(), `dmh_signed_${Date.now()}.xml`));
 
+      const inPathB64 = Buffer.from(inPath, 'utf8').toString('base64');
+      const outPathB64 = Buffer.from(outPath, 'utf8').toString('base64');
+
       const psScript = `
         Add-Type -AssemblyName System.Security
         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-        $thumbprint = "${thumbprint.replace(/"/g, '`"')}"
-        $xmlInPath = "${inPath.replace(/\\/g, '\\\\').replace(/"/g, '`"')}"
-        $xmlOutPath = "${outPath.replace(/\\/g, '\\\\').replace(/"/g, '`"')}"
-        $targetTag = "${(targetTag || 'CHUKYDONVI').replace(/"/g, '`"')}"
+        $thumbprint = "${cleanThumbprint}"
+        $xmlInPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("${inPathB64}"))
+        $xmlOutPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("${outPathB64}"))
+        $targetTag = "${safeTargetTag}"
 
         if (-not (Test-Path $xmlInPath)) {
           throw "Tệp XML nguồn không tồn tại: $xmlInPath"
@@ -220,11 +232,13 @@ function registerCaIPC() {
         return { ok: false, error: 'Không tìm thấy tệp XML cần kiểm tra!' };
       }
 
+      const inPathB64 = Buffer.from(inPath, 'utf8').toString('base64');
+
       const psScript = `
         Add-Type -AssemblyName System.Security
         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-        $xmlInPath = "${inPath.replace(/\\/g, '\\\\').replace(/"/g, '`"')}"
+        $xmlInPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("${inPathB64}"))
         $xmlDoc = New-Object System.Xml.XmlDocument
         $xmlDoc.PreserveWhitespace = $true
         $xmlDoc.Load($xmlInPath)

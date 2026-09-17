@@ -8,6 +8,7 @@ const sql = require('mssql');
 class HISConnectionManager {
   constructor() {
     this.pools = new Map();
+    this.connectingPromises = new Map();
   }
 
   async getPool(connStr) {
@@ -16,6 +17,7 @@ class HISConnectionManager {
     }
     const key = connStr.trim();
 
+    // 1. Nếu pool đã kết nối sẵn sàng, tái sử dụng ngay lập tức
     if (this.pools.has(key)) {
       const existing = this.pools.get(key);
       if (existing && existing.connected) {
@@ -27,11 +29,17 @@ class HISConnectionManager {
       this.pools.delete(key);
     }
 
-    // Cấu hình pool tối ưu cho ứng dụng phòng khám/bệnh viện
-    let pool;
-    if (key.includes(';') || key.startsWith('mssql://') || key.startsWith('Server=')) {
-      pool = new sql.ConnectionPool({
-        connectionString: key,
+    // 2. Chống Race Condition: Nếu có một luồng đang kết nối với cùng key, chờ Promise đó
+    if (this.connectingPromises.has(key)) {
+      return await this.connectingPromises.get(key);
+    }
+
+    // 3. Khởi tạo Promise kết nối mới có serialize
+    const connectPromise = (async () => {
+      let pool;
+      const baseOptions = {
+        connectionTimeout: 10000, // 10 giây kết nối
+        requestTimeout: 25000,    // 25 giây cho mỗi truy vấn
         pool: {
           max: 10,
           min: 1,
@@ -42,19 +50,34 @@ class HISConnectionManager {
           trustServerCertificate: true,
           enableArithAbort: true,
         }
+      };
+
+      if (key.includes(';') || key.startsWith('mssql://') || key.startsWith('Server=')) {
+        pool = new sql.ConnectionPool({
+          connectionString: key,
+          ...baseOptions,
+        });
+      } else {
+        pool = new sql.ConnectionPool(key);
+      }
+
+      pool.on('error', (err) => {
+        console.warn('[HIS_SQL_POOL_WARN]', err?.message || err);
+        this.pools.delete(key);
       });
-    } else {
-      pool = new sql.ConnectionPool(key);
+
+      await pool.connect();
+      this.pools.set(key, pool);
+      return pool;
+    })();
+
+    this.connectingPromises.set(key, connectPromise);
+
+    try {
+      return await connectPromise;
+    } finally {
+      this.connectingPromises.delete(key);
     }
-
-    pool.on('error', (err) => {
-      console.warn('[HIS_SQL_POOL_WARN]', err?.message || err);
-      this.pools.delete(key);
-    });
-
-    await pool.connect();
-    this.pools.set(key, pool);
-    return pool;
   }
 
   async closePool(connStr) {

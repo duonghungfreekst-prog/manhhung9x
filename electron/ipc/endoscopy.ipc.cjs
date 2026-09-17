@@ -87,146 +87,130 @@ function registerEndoscopyIPC() {
     }
   });
 
-  // ── Endoscopy Local Database & Capture ────────────────────────────────────
+  // ── Endoscopy SQLite Database & Image Storage ──────────────────────────────
+  const { getEndoscopyRepository } = require('../repositories/endoscopy.repository.cjs');
+  const { createEndoscopyBackup, restoreEndoscopyBackup } = require('../services/endoscopy/endoscopyBackup.cjs');
   const ENDOSCOPY_DB_PATH = path.join(app.getPath('userData'), 'endoscopy_db.json');
-  const ENDOSCOPY_IMG_ROOT = path.join(app.getPath('pictures'), 'DMH_Endoscopy_Images');
 
-  function loadEndoDb() {
-    try {
-      if (fs.existsSync(ENDOSCOPY_DB_PATH)) {
-        return JSON.parse(fs.readFileSync(ENDOSCOPY_DB_PATH, 'utf8'));
-      }
-    } catch (e) { console.error('Lỗi đọc Endoscopy DB:', e); }
-    return { patients: [], sessions: [], images: [], seq: { patients: 0, sessions: 0, images: 0 } };
+  // Tự động phát hiện ổ dữ liệu (D:, E:, F:) để tránh ghi đầy ổ C hệ thống (Quy tắc 1.4)
+  function getEndoscopyImageRoot() {
+    const driveCandidates = ['D:', 'E:', 'F:'];
+    for (const drive of driveCandidates) {
+      try {
+        const rootPath = `${drive}\\`;
+        if (fs.existsSync(rootPath)) {
+          const dataFolder = path.join(rootPath, 'DMH_Endoscopy_Images');
+          if (!fs.existsSync(dataFolder)) {
+            try { fs.mkdirSync(dataFolder, { recursive: true }); } catch {}
+          }
+          if (fs.existsSync(dataFolder)) {
+            console.log(`[EndoStorage] Đã chọn ổ lưu trữ dữ liệu ảnh nội soi: ${dataFolder}`);
+            return dataFolder;
+          }
+        }
+      } catch {}
+    }
+    const fallback = path.join(app.getPath('pictures'), 'DMH_Endoscopy_Images');
+    if (!fs.existsSync(fallback)) {
+      try { fs.mkdirSync(fallback, { recursive: true }); } catch {}
+    }
+    return fallback;
   }
 
-  function saveEndoDb(db) {
-    try { fs.writeFileSync(ENDOSCOPY_DB_PATH, JSON.stringify(db, null, 2)); }
-    catch (e) { console.error('Lỗi ghi Endoscopy DB:', e); }
+  const ENDOSCOPY_IMG_ROOT = getEndoscopyImageRoot();
+  const repo = getEndoscopyRepository();
+
+  // Tự động chuyển đổi dữ liệu cũ từ endoscopy_db.json sang SQLite (nếu có)
+  try {
+    repo.migrateFromJson(ENDOSCOPY_DB_PATH);
+  } catch (migErr) {
+    console.warn('[EndoDB] Migration check:', migErr.message);
   }
 
   ipcMain.handle('endoscopy:db-stats', async () => {
-    const db = loadEndoDb();
-    let totalSize = 0;
-    db.images.forEach(i => totalSize += (i.file_size_kb || 0));
-    return {
-      total_patients: db.patients.length,
-      total_sessions: db.sessions.length,
-      total_images: db.images.length,
-      total_size_mb: Math.round(totalSize / 1024)
-    };
+    try {
+      return repo.getStats();
+    } catch (e) {
+      return { total_patients: 0, total_sessions: 0, total_images: 0, total_size_mb: 0 };
+    }
   });
 
   ipcMain.handle('endoscopy:get-patients', async (_e, q) => {
-    const db = loadEndoDb();
-    let pts = db.patients;
-    if (q) {
-      const lowerQ = q.toLowerCase();
-      pts = pts.filter(p => p.full_name.toLowerCase().includes(lowerQ) || (p.patient_code && p.patient_code.toLowerCase().includes(lowerQ)));
+    try {
+      const pts = repo.getPatients(q);
+      return { patients: pts };
+    } catch (e) {
+      console.error('[EndoDB] Lỗi lấy danh sách bệnh nhân:', e);
+      return { patients: [] };
     }
-    pts.sort((a, b) => b.id - a.id);
-    return { patients: pts };
   });
 
   ipcMain.handle('endoscopy:add-patient', async (_e, data) => {
-    const db = loadEndoDb();
-    db.seq.patients++;
-    const p = {
-      id: db.seq.patients,
-      full_name: data.full_name || '',
-      birth_year: data.birth_year || '',
-      gender: data.gender || 'Nam',
-      patient_code: data.patient_code || ('BN' + String(db.seq.patients).padStart(5, '0')),
-      phone: data.phone || '',
-      created_at: new Date().toISOString()
-    };
-    db.patients.push(p);
-    saveEndoDb(db);
-    return { ok: true, patient: p };
+    try {
+      const p = repo.addPatient(data);
+      return { ok: true, patient: p };
+    } catch (e) {
+      console.error('[EndoDB] Lỗi thêm bệnh nhân:', e);
+      return { ok: false, error: e.message };
+    }
   });
 
   ipcMain.handle('endoscopy:get-sessions', async (_e, patient_id) => {
-    const db = loadEndoDb();
-    const sessions = db.sessions.filter(s => s.patient_id === patient_id);
-    sessions.sort((a, b) => b.id - a.id);
-    sessions.forEach(s => {
-      s.image_count = db.images.filter(i => i.session_id === s.id).length;
-    });
-    return { sessions };
+    try {
+      const sessions = repo.getSessions(patient_id);
+      return { sessions };
+    } catch (e) {
+      console.error('[EndoDB] Lỗi lấy phiên khám:', e);
+      return { sessions: [] };
+    }
   });
 
   ipcMain.handle('endoscopy:create-session', async (_e, data) => {
-    const db = loadEndoDb();
-    const pt = db.patients.find(p => p.id === data.patient_id);
-    if (!pt) return { ok: false, error: 'Không tìm thấy bệnh nhân' };
-
-    db.seq.sessions++;
-    const sDate = new Date();
-    const dateStr = sDate.toLocaleDateString('vi-VN');
-    const folderName = `${pt.patient_code}_${pt.full_name.replace(/[^a-z0-9]/gi, '_')}_${sDate.getTime()}`;
-    const folderPath = path.join(ENDOSCOPY_IMG_ROOT, folderName);
-    
-    if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
-
-    const s = {
-      id: db.seq.sessions,
-      patient_id: data.patient_id,
-      exam_type: data.exam_type || 'Nội soi',
-      doctor_name: data.doctor_name || '',
-      exam_date: dateStr,
-      folder_path: folderPath,
-      created_at: sDate.toISOString()
-    };
-    db.sessions.push(s);
-    saveEndoDb(db);
-    return { ok: true, session: s };
+    try {
+      const s = repo.createSession(data, ENDOSCOPY_IMG_ROOT);
+      return { ok: true, session: s };
+    } catch (e) {
+      console.error('[EndoDB] Lỗi tạo phiên khám:', e);
+      return { ok: false, error: e.message };
+    }
   });
 
   ipcMain.handle('endoscopy:get-images', async (_e, session_id) => {
-    const db = loadEndoDb();
-    const imgs = db.images.filter(i => i.session_id === session_id);
-    imgs.sort((a, b) => a.id - b.id);
-    return { images: imgs };
+    try {
+      const imgs = repo.getImages(session_id);
+      return { images: imgs };
+    } catch (e) {
+      console.error('[EndoDB] Lỗi lấy ảnh phiên khám:', e);
+      return { images: [] };
+    }
   });
 
   ipcMain.handle('endoscopy:toggle-fav', async (_e, image_id) => {
-    const db = loadEndoDb();
-    const img = db.images.find(i => i.id === image_id);
-    if (!img) return { ok: false };
-    img.is_favorite = img.is_favorite ? 0 : 1;
-    saveEndoDb(db);
-    return { ok: true, is_favorite: img.is_favorite === 1 };
+    try {
+      const isFav = repo.toggleFavorite(image_id);
+      return { ok: true, is_favorite: isFav };
+    } catch (e) {
+      return { ok: false };
+    }
   });
 
   ipcMain.handle('endoscopy:save-capture', async (_e, session_id, base64Data, resolution) => {
-    const db = loadEndoDb();
-    const sess = db.sessions.find(s => s.id === session_id);
-    if (!sess) return { ok: false, error: 'Session không tồn tại' };
+    try {
+      const img = repo.saveCapture(session_id, base64Data, resolution);
+      return { ok: true, image: img };
+    } catch (e) {
+      console.error('[EndoDB] Lỗi lưu ảnh chụp:', e);
+      return { ok: false, error: e.message };
+    }
+  });
 
-    db.seq.images++;
-    const imgId = db.seq.images;
-    const fileName = `IMG_${imgId}_${Date.now()}.jpg`;
-    const filePath = path.join(sess.folder_path, fileName);
-    
-    const buffer = Buffer.from(base64Data.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-    fs.writeFileSync(filePath, buffer);
-    const sizeKb = Math.round(buffer.length / 1024);
+  // ── Backup & Restore Endoscopy Data ───────────────────────────────────────
+  ipcMain.handle('endoscopy:backup', async (_e, targetZipPath) => {
+    return await createEndoscopyBackup(targetZipPath);
+  });
 
-    const img = {
-      id: imgId,
-      session_id: session_id,
-      original_path: filePath,
-      processed_path: filePath,
-      thumbnail_path: filePath,
-      file_size_kb: sizeKb,
-      resolution: resolution || '1920x1080',
-      trigger_type: 'Software',
-      is_favorite: 0,
-      captured_at: new Date().toLocaleTimeString('vi-VN')
-    };
-    db.images.push(img);
-    saveEndoDb(db);
-    return { ok: true, image: img };
+  ipcMain.handle('endoscopy:restore', async (_e, sourceZipPath) => {
+    return await restoreEndoscopyBackup(sourceZipPath);
   });
 
   // ── OCR AI Nhận diện vùng nội soi ─────────────────────────────────────────
@@ -344,7 +328,9 @@ function registerEndoscopyIPC() {
     if (!folderPath || typeof folderPath !== 'string') return { ok: false };
     const home = os.homedir();
     const resolved = path.resolve(folderPath);
-    if (!resolved.startsWith(home)) return { ok: false, error: 'Đường dẫn không hợp lệ' };
+    if (!resolved.startsWith(home) && !resolved.startsWith(ENDOSCOPY_IMG_ROOT)) {
+      return { ok: false, error: 'Đường dẫn không hợp lệ (Chặn truy cập ngoài phạm vi)' };
+    }
     shell.openPath(resolved);
     return { ok: true };
   });
@@ -353,7 +339,9 @@ function registerEndoscopyIPC() {
     if (!filePath || typeof filePath !== 'string') return { ok: false };
     const home = os.homedir();
     const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(home)) return { ok: false, error: 'Đường dẫn không hợp lệ' };
+    if (!resolved.startsWith(home) && !resolved.startsWith(ENDOSCOPY_IMG_ROOT)) {
+      return { ok: false, error: 'Đường dẫn không hợp lệ (Chặn truy cập ngoài phạm vi)' };
+    }
     shell.openPath(resolved);
     return { ok: true };
   });

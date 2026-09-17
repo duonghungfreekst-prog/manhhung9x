@@ -2623,22 +2623,48 @@ function registerSystemIPC() {
     return result;
   });
 
-  // 2. Tải và cài đặt module từ GitHub Releases
-  ipcMain.handle('module:download-github', async (event, { moduleId, downloadUrl, assetName }) => {
+  // Whitelist domain an toàn cho việc tải module và cập nhật
+  function isAllowedDownloadUrl(u) {
     try {
+      const parsed = new URL(u);
+      if (parsed.protocol !== 'https:') return false;
+      const host = parsed.hostname.toLowerCase();
+      return (
+        host === 'github.com' ||
+        host === 'raw.githubusercontent.com' ||
+        host === 'objects.githubusercontent.com' ||
+        host === 'github-releases.githubusercontent.com' ||
+        host.endsWith('.githubusercontent.com')
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  // 2. Tải và cài đặt module từ GitHub Releases (Bảo mật Whitelist & Sanitize)
+  ipcMain.handle('module:download-github', async (event, { moduleId, downloadUrl, assetName, expectedSha256 }) => {
+    try {
+      if (!moduleId || typeof moduleId !== 'string' || !/^[a-zA-Z0-9_.-]{1,64}$/.test(moduleId)) {
+        return { ok: false, error: 'Tên moduleId không hợp lệ (chỉ chấp nhận ký tự a-z, 0-9, _, -, .)' };
+      }
+      if (!downloadUrl || typeof downloadUrl !== 'string' || !isAllowedDownloadUrl(downloadUrl)) {
+        return { ok: false, error: 'URL tải về không thuộc nguồn GitHub chính thức được cấp phép (Bảo vệ SSRF)' };
+      }
+
       const baseDir = getModulesBaseDir();
       const modFolder = path.join(baseDir, moduleId);
       if (!fs.existsSync(modFolder)) {
         fs.mkdirSync(modFolder, { recursive: true });
       }
 
-      const isExe = (assetName && assetName.toLowerCase().endsWith('.exe')) || downloadUrl.toLowerCase().includes('.exe');
+      const safeAssetName = assetName ? path.basename(assetName) : '';
+      const isExe = (safeAssetName && safeAssetName.toLowerCase().endsWith('.exe')) || downloadUrl.toLowerCase().includes('.exe');
       
       if (isExe) {
-        // Đây là bộ cài đặt cập nhật (.exe) -> Tải trực tiếp không cần giải nén
-        const targetExeName = assetName || 'installer.exe';
+        // Bộ cài đặt cập nhật (.exe) -> Tải trực tiếp không cần giải nén
+        const targetExeName = safeAssetName || 'installer.exe';
         const destExe = path.join(modFolder, targetExeName);
-        console.log(`[UPDATE] Đang tải bộ cài đặt .exe ${moduleId} về: ${destExe}`);
+        console.log(`[UPDATE] Đang tải bộ cài đặt an toàn .exe ${moduleId} về: ${destExe}`);
 
         await downloadFileWithRedirect(downloadUrl, destExe, (progress) => {
           try {
@@ -2653,15 +2679,24 @@ function registerSystemIPC() {
           } catch {}
         });
 
+        // Kiểm tra tính toàn vẹn SHA-256 nếu có mã đối soát
+        if (expectedSha256 && typeof expectedSha256 === 'string' && expectedSha256.trim().length >= 32) {
+          const fileBuf = fs.readFileSync(destExe);
+          const actualHash = crypto.createHash('sha256').update(fileBuf).digest('hex').toLowerCase();
+          if (actualHash !== expectedSha256.trim().toLowerCase()) {
+            try { fs.unlinkSync(destExe); } catch {}
+            return { ok: false, error: 'Mã băm SHA-256 không khớp! Tệp có dấu hiệu bị can thiệp hoặc tải không trọn vẹn.' };
+          }
+        }
+
         console.log(`[UPDATE] Tải hoàn tất bộ cài đặt: ${destExe}`);
-        return { ok: true, installerPath: destExe, message: 'Đã tải xong bộ cài đặt cập nhật!' };
+        return { ok: true, installerPath: destExe, message: 'Đã tải xong bộ cài đặt cập nhật an toàn!' };
       }
 
       // Trường hợp gói module nén (.zip)
       const tempZip = path.join(baseDir, `temp_${moduleId}_${Date.now()}.zip`);
       console.log(`[MODULE] Đang tải ${moduleId} từ ${downloadUrl}`);
 
-      // Tải tệp với tiến trình
       await downloadFileWithRedirect(downloadUrl, tempZip, (progress) => {
         try {
           if (event.sender && !event.sender.isDestroyed()) {
@@ -2675,12 +2710,20 @@ function registerSystemIPC() {
         } catch {}
       });
 
-      console.log(`[MODULE] Đang giải nén ${tempZip} vào ${modFolder}`);
+      console.log(`[MODULE] Đang giải nén an toàn ${tempZip} vào ${modFolder}`);
 
-      // Giải nén tệp zip vào modFolder bằng PowerShell Expand-Archive
-      const extractScript = `Expand-Archive -LiteralPath '${tempZip}' -DestinationPath '${modFolder}' -Force`;
+      // Dùng tham số mảng an toàn với Expand-Archive (không nối chuỗi lệnh)
       await new Promise((resolve, reject) => {
-        execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', extractScript], (err) => {
+        execFile('powershell.exe', [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy', 'Bypass',
+          '-Command',
+          'Expand-Archive',
+          '-LiteralPath', tempZip,
+          '-DestinationPath', modFolder,
+          '-Force'
+        ], (err) => {
           try { fs.unlinkSync(tempZip); } catch {}
           if (err) return reject(new Error('Giải nén module thất bại: ' + err.message));
           resolve();
@@ -2698,8 +2741,14 @@ function registerSystemIPC() {
   // 3. Gỡ cài đặt module (xóa thư mục để giải phóng ổ cứng)
   ipcMain.handle('module:uninstall', async (_event, moduleId) => {
     try {
+      if (!moduleId || typeof moduleId !== 'string' || !/^[a-zA-Z0-9_.-]{1,64}$/.test(moduleId)) {
+        return { ok: false, error: 'Tên moduleId không hợp lệ' };
+      }
       const baseDir = getModulesBaseDir();
-      const modFolder = path.join(baseDir, moduleId);
+      const modFolder = path.resolve(baseDir, moduleId);
+      if (!modFolder.startsWith(baseDir)) {
+        return { ok: false, error: 'Đường dẫn module không hợp lệ' };
+      }
       if (fs.existsSync(modFolder)) {
         fs.rmSync(modFolder, { recursive: true, force: true });
       }
@@ -2714,27 +2763,30 @@ function registerSystemIPC() {
     return getModulesBaseDir();
   });
 
-  // 5. Khởi chạy bộ cài đặt cập nhật và đóng ứng dụng an toàn
+  // 5. Khởi chạy bộ cài đặt cập nhật và đóng ứng dụng an toàn (Chống Command Injection)
   ipcMain.handle('system:run-installer', async (_event, installerName) => {
     try {
-      const baseDir = getModulesBaseDir();
-      let installerPath = path.isAbsolute(installerName) ? installerName : path.join(baseDir, installerName);
-
-      if (!fs.existsSync(installerPath) && fs.existsSync(installerName)) {
-        installerPath = installerName;
+      if (!installerName || typeof installerName !== 'string') {
+        return { ok: false, error: 'Tên bộ cài đặt không hợp lệ' };
       }
+      const baseDir = getModulesBaseDir();
+      const cleanFileName = path.basename(installerName);
+      if (!cleanFileName.toLowerCase().endsWith('.exe')) {
+        return { ok: false, error: 'Tệp cập nhật bắt buộc phải có định dạng thực thi .exe' };
+      }
+
+      let installerPath = path.isAbsolute(installerName) ? installerName : path.join(baseDir, cleanFileName);
 
       if (!fs.existsSync(installerPath)) {
         // Tìm trong các thư mục con update_*
         const entries = fs.readdirSync(baseDir, { withFileTypes: true });
         for (const entry of entries) {
           if (entry.isDirectory()) {
-            const p = path.join(baseDir, entry.name, path.basename(installerName));
+            const p = path.join(baseDir, entry.name, cleanFileName);
             if (fs.existsSync(p)) {
               installerPath = p;
               break;
             }
-            // Fallback: Tìm file .exe bất kỳ trong thư mục update này
             const subEntries = fs.readdirSync(path.join(baseDir, entry.name));
             const foundExe = subEntries.find(f => f.toLowerCase().endsWith('.exe'));
             if (foundExe) {
@@ -2746,16 +2798,22 @@ function registerSystemIPC() {
       }
 
       if (!fs.existsSync(installerPath)) {
-        return { ok: false, error: 'Không tìm thấy tệp bộ cài đặt vừa tải về: ' + installerName };
+        return { ok: false, error: 'Không tìm thấy tệp bộ cài đặt: ' + cleanFileName };
       }
 
-      console.log('[UPDATE] Khởi chạy bộ cài đặt cập nhật:', installerPath);
+      console.log('[UPDATE] Khởi chạy an toàn bộ cài đặt cập nhật:', installerPath);
 
-      // Khởi chạy bộ cài đặt bằng PowerShell Start-Process để kích hoạt UAC Administrator chuẩn
-      const psCmd = `Start-Process -FilePath "${installerPath}"`;
-      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psCmd], (psErr) => {
+      // Khởi chạy an toàn bằng mảng tham số (không chèn chuỗi nội suy)
+      execFile('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'Start-Process',
+        '-FilePath',
+        installerPath
+      ], (psErr) => {
         if (psErr) {
-          console.warn('[UPDATE] PowerShell Start-Process lỗi, thử lại bằng shell.openPath:', psErr);
+          console.warn('[UPDATE] Start-Process lỗi, thử lại bằng shell.openPath:', psErr);
           shell.openPath(installerPath);
         }
       });

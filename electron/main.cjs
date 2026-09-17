@@ -85,6 +85,8 @@ app.whenReady().then(() => {
 app.on('before-quit', async () => {
   console.log('[MAIN] Đang dọn dẹp tài nguyên trước khi thoát...');
   try {
+    const { closeSqliteDb } = require('./database/sqliteClient.cjs');
+    closeSqliteDb();
     stopTtsServer();
     await stopAllPythonServers();
     await hisConnManager.closeAll();

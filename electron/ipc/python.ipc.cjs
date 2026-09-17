@@ -2,9 +2,14 @@ const { ipcMain, app } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
+const { logAudit } = require('../security/auditLogger.cjs');
 
 const isDev = app ? !app.isPackaged : true;
+
+// DMH Session Token bảo vệ cổng Python IPC chống Malware local
+const DMH_SESSION_TOKEN = crypto.randomBytes(32).toString('hex');
 
 // Port cấu hình cho các dịch vụ Python
 const ENDOSCOPY_PORT = 27182;
@@ -83,7 +88,11 @@ function startPythonServer() {
   return new Promise((resolve) => {
     _serverStatus = 'starting';
     const { exe, args, cwd } = getEndoscopyCommand();
-    _pythonProc = spawn(exe, args, { stdio: ['ignore', 'pipe', 'pipe'], cwd });
+    _pythonProc = spawn(exe, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      cwd,
+      env: { ...process.env, DMH_SESSION_TOKEN }
+    });
 
     let resolved = false;
     _pythonProc.stdout.on('data', (data) => {
@@ -91,6 +100,7 @@ function startPythonServer() {
       if (!resolved && (msg.includes('khởi động') || msg.includes('IPC Server'))) {
         _serverStatus = 'running';
         resolved = true;
+        logAudit('python', 'START_ENDOSCOPY_SERVER', `port:${ENDOSCOPY_PORT}`, 'SUCCESS');
         resolve({ ok: true, status: 'running', port: ENDOSCOPY_PORT });
       }
     });
@@ -150,12 +160,19 @@ function startXml3176Server() {
   return new Promise((resolve) => {
     _xml3176Status = 'starting';
     const { exe, args, cwd } = getXml3176Command();
-    _xml3176Proc = spawn(exe, args, { stdio: ['ignore', 'pipe', 'pipe'], cwd });
+    _xml3176Proc = spawn(exe, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      cwd,
+      env: { ...process.env, DMH_SESSION_TOKEN }
+    });
     let resolved = false;
     _xml3176Proc.stdout.on('data', (data) => {
       const msg = data.toString();
       if (!resolved && (msg.includes('khởi động') || msg.includes('HTTP Server'))) {
-        _xml3176Status = 'running'; resolved = true; resolve({ ok: true, status: 'running', port: XML3176_PORT });
+        _xml3176Status = 'running';
+        resolved = true;
+        logAudit('python', 'START_XML3176_SERVER', `port:${XML3176_PORT}`, 'SUCCESS');
+        resolve({ ok: true, status: 'running', port: XML3176_PORT });
       }
     });
     _xml3176Proc.on('exit', () => { _xml3176Status = 'stopped'; _xml3176Proc = null; });
@@ -218,14 +235,20 @@ async function startCompareServer() {
 
   _compareStatus = 'starting';
   const { exe, args, cwd } = getCompareCommand();
-  _compareProc = spawn(exe, args, { stdio: ['ignore', 'pipe', 'pipe'], cwd });
+  _compareProc = spawn(exe, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    cwd,
+    env: { ...process.env, DMH_SESSION_TOKEN }
+  });
 
   return new Promise((resolve) => {
     let resolved = false;
     _compareProc.stdout.on('data', (data) => {
       const msg = data.toString();
       if (!resolved && (msg.includes('27185') || msg.includes('compare') || msg.includes('health'))) {
-        _compareStatus = 'running'; resolved = true;
+        _compareStatus = 'running';
+        resolved = true;
+        logAudit('python', 'START_COMPARE_SERVER', `port:${COMPARE_PORT}`, 'SUCCESS');
         resolve({ ok: true, status: 'running', port: COMPARE_PORT });
       }
     });
@@ -279,8 +302,30 @@ function registerPythonIPC() {
   ipcMain.handle('compare:stop-server', async () => stopCompareServer());
   ipcMain.handle('compare:server-status', async () => ({ status: _compareStatus, port: COMPARE_PORT }));
 
+  // Hàm kiểm tra tệp hợp lệ cho phân hệ đối chiếu hồ sơ (Chống Path Traversal & DoS)
+  function isAllowedCompareFile(filePath) {
+    if (!filePath || typeof filePath !== 'string') return false;
+    if (!fs.existsSync(filePath)) return false;
+    const ext = path.extname(filePath).toLowerCase();
+    const allowed = ['.xml', '.xlsx', '.xls', '.csv', '.json'];
+    if (!allowed.includes(ext)) return false;
+    try {
+      const stat = fs.statSync(filePath);
+      return stat.size <= 200 * 1024 * 1024; // Tối đa 200MB
+    } catch {
+      return false;
+    }
+  }
+
   ipcMain.handle('compare:compare-files', async (_event, { portalPath, internalPath }) => {
     try {
+      if (!isAllowedCompareFile(portalPath)) {
+        return { ok: false, error: 'Tệp cổng giám định không hợp lệ hoặc vượt quá dung lượng 200MB' };
+      }
+      if (!isAllowedCompareFile(internalPath)) {
+        return { ok: false, error: 'Tệp nội bộ bệnh viện không hợp lệ hoặc vượt quá dung lượng 200MB' };
+      }
+
       await startCompareServer();
       await new Promise(r => setTimeout(r, 800));
       const portalB64 = fs.readFileSync(portalPath).toString('base64');
@@ -296,6 +341,9 @@ function registerPythonIPC() {
           res.on('data', chunk => data += chunk);
           res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(e); } });
         });
+        req.setTimeout(120000, () => {
+          req.destroy(new Error('Quá thời gian đối chiếu hồ sơ (Timeout 120s)'));
+        });
         req.on('error', reject);
         req.write(body); req.end();
       });
@@ -306,6 +354,9 @@ function registerPythonIPC() {
 
   ipcMain.handle('compare:compare-b64', async (_event, portalB64, internalB64) => {
     try {
+      if (!portalB64 || !internalB64) {
+        return { ok: false, error: 'Thiếu dữ liệu tệp Base64 cần đối chiếu' };
+      }
       await startCompareServer();
       await new Promise((res) => {
         let elapsed = 0;
@@ -336,6 +387,9 @@ function registerPythonIPC() {
           let data = '';
           res.on('data', chunk => data += chunk);
           res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(e); } });
+        });
+        req.setTimeout(120000, () => {
+          req.destroy(new Error('Quá thời gian đối chiếu hồ sơ (Timeout 120s)'));
         });
         req.on('error', reject);
         req.write(body); req.end();
