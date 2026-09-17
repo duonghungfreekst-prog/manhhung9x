@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Script tự động xuất bản GitHub Release v7.0.0 và tải file .exe lên Assets
  */
 const fs = require('fs');
@@ -169,6 +169,30 @@ async function main() {
   console.log(`✅ Release ID: ${releaseData.id}`);
   console.log(`🔗 Release URL: ${releaseData.html_url}`);
   const uploadUrl = releaseData.upload_url;
+
+  // Xóa các assets cũ trùng tên nếu release đã tồn tại để tải lên bản mới
+  if (Array.isArray(releaseData.assets) && releaseData.assets.length > 0) {
+    for (const asset of releaseData.assets) {
+      if (['DMH_Tools_Setup_7.0.0_Slim.exe', 'DMH_Tools_Setup_7.0.0_Slim.exe.blockmap', 'latest.yml'].includes(asset.name)) {
+        console.log(`Đang xóa asset cũ trên GitHub: ${asset.name} (ID: ${asset.id})...`);
+        try {
+          await makeRequest({
+            hostname: 'api.github.com',
+            path: `/repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset.id}`,
+            method: 'DELETE',
+            headers: {
+              'User-Agent': 'DMH-Tools-Deployer',
+              'Authorization': `token ${TOKEN}`,
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          });
+          console.log(`✅ Đã xóa asset cũ: ${asset.name}`);
+        } catch (err) {
+          console.warn(`Không thể xóa ${asset.name}:`, err.message);
+        }
+      }
+    }
+  }
 
   const releaseDir = path.resolve(__dirname, '../release');
   const exePath = path.join(releaseDir, 'DMH_Tools_Setup_7.0.0_Slim.exe');
