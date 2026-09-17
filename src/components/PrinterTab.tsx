@@ -1921,8 +1921,6 @@ export default function PrinterTab() {
     }
   };
 
-  // Giữ alias cho tương thích ngược
-  const handleWorkflowFixAll = handleWorkflowFixDetectedIssues;
 
   // ── Các Hàm Xử Lý Trí Tuệ Nhân Tạo Gemini AI & Telemetry ─────────────────
   const handleOpenGeminiAI = async () => {
@@ -3541,96 +3539,7 @@ export default function PrinterTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
-      {/* Top Header Bar */}
-      <div className="converter-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '0.85rem 1.25rem', borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', flexWrap: 'wrap', gap: '0.75rem' }}>
-        <div>
-          <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Printer size={20} color="#6366f1" /> Bác Sĩ Máy In - Chẩn Đoán Toàn Bộ Lỗi & Sửa Tự Động 1-Click
-          </h2>
-          <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '2px 0 0' }}>
-            Quét & chẩn đoán toàn diện lỗi hệ thống máy in: Chia sẻ mạng LAN (0x709, 0x11b, 0xbcb), Spooler crash, máy in Offline ảo do SNMP, kẹt lệnh in.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <button 
-            className="btn-primary" 
-            onClick={handleWorkflowDiagnose} 
-            disabled={loading || isWorkflowRunning} 
-            style={{ background: '#4f46e5', borderColor: '#4f46e5', padding: '0.45rem 0.8rem', fontSize: '0.76rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
-            title="Quét và chẩn đoán toàn diện tất cả các lỗi máy in & dịch vụ hệ thống theo quy trình 10 bước"
-          >
-            <RefreshCw size={14} className={(loading || (isWorkflowRunning && workflowMode === 'diagnose')) ? 'spin' : ''} /> 
-            {isWorkflowRunning && workflowMode === 'diagnose' ? 'Đang quét lỗi...' : '🔍 Đọc & Quét Toàn Bộ Lỗi'}
-          </button>
-          
-          <button 
-            onClick={handleWorkflowFixAll} 
-            disabled={loading || isWorkflowRunning} 
-            style={{ 
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
-              color: '#fff', 
-              border: 'none', 
-              borderRadius: 6, 
-              padding: '0.45rem 0.85rem', 
-              fontSize: '0.76rem', 
-              fontWeight: 700, 
-              cursor: (loading || isWorkflowRunning) ? 'not-allowed' : 'pointer', 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: 6,
-              boxShadow: '0 2px 4px rgba(16,185,129,0.25)' 
-            }}
-            title="Tự động sửa toàn bộ các lỗi phát hiện được trong 1 lần bấm theo quy trình 10 bước chuẩn"
-          >
-            <Zap size={14} className={(isWorkflowRunning && workflowMode === 'fix') ? 'spin' : ''} /> 
-            {isWorkflowRunning && workflowMode === 'fix' ? 'Đang sửa tự động...' : '⚡ SỬA TỰ ĐỘNG TẤT CẢ LỖI'}
-            {diagnostics && diagnostics.issueCount > 0 && (
-              <span style={{ background: '#ef4444', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: '0.68rem', fontWeight: 700 }}>
-                {diagnostics.issueCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            className="btn-secondary"
-            onClick={clearPrintQueue}
-            disabled={loading}
-            style={{
-              background: '#fff1f2',
-              borderColor: '#fecdd3',
-              color: '#e11d48',
-              padding: '0.45rem 0.75rem',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4
-            }}
-          >
-            {activeOperationMessage?.includes('Spooler & dọn sạch') ? (
-              <>
-                <Loader2 size={14} className="global-spin" /> Đang xóa kẹt...
-              </>
-            ) : (
-              <>
-                <Trash2 size={14} /> Xóa Kẹt Lệnh In
-              </>
-            )}
-          </button>
-          <button className="btn-secondary" onClick={() => handleOpenWindowsTool('printers')} style={{ padding: '0.45rem 0.7rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }} title="Mở Devices and Printers của Windows">
-            <ExternalLink size={13} /> Devices & Printers
-          </button>
-          <button className="btn-secondary" onClick={() => handleOpenWindowsTool('printmanagement')} style={{ padding: '0.45rem 0.7rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }} title="Mở Trình Quản Trị In Ấn Print Management (msc)">
-            <Settings size={13} /> Print Mgmt
-          </button>
-          <button className="btn-secondary" onClick={() => handleOpenWindowsTool('services')} style={{ padding: '0.45rem 0.7rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }} title="Mở danh sách Services Windows">
-            <Wrench size={13} /> Services
-          </button>
-        </div>
-      </div>
-
-      {/* ── Sub-Tabs Điều Hướng Chuyên Mục: 100% Linh Hoạt, Tự Nhiên & Chống Vỡ Giao Diện ── */}
+      {/* ── Sub-Tabs Điều Hướng Chuyên Mục ── */}
       <div style={{ 
         display: 'flex', 
         gap: 8, 
@@ -3905,6 +3814,44 @@ export default function PrinterTab() {
                 >
                   <Bot size={16} />
                   <span>🤖 GEMINI AI PHÂN TÍCH LỖI</span>
+                </button>
+
+                <div style={{ width: '1px', height: '24px', background: '#cbd5e1', margin: '0 4px' }}></div>
+
+                {/* Các nút công cụ nhanh */}
+                <button
+                  className="btn-secondary"
+                  onClick={clearPrintQueue}
+                  disabled={loading}
+                  style={{
+                    background: '#fff1f2',
+                    borderColor: '#fecdd3',
+                    color: '#e11d48',
+                    padding: '6px 12px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    borderRadius: 8,
+                    border: '1px solid #fecdd3'
+                  }}
+                >
+                  {activeOperationMessage?.includes('Spooler & dọn sạch') ? (
+                    <><Loader2 size={14} className="global-spin" /> Đang xóa kẹt...</>
+                  ) : (
+                    <><Trash2 size={14} /> Xóa Kẹt Lệnh In</>
+                  )}
+                </button>
+                <button className="btn-secondary" onClick={() => handleOpenWindowsTool('printers')} style={{ padding: '6px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontWeight: 500, cursor: 'pointer' }} title="Mở Devices and Printers của Windows">
+                  <ExternalLink size={13} /> Devices & Printers
+                </button>
+                <button className="btn-secondary" onClick={() => handleOpenWindowsTool('printmanagement')} style={{ padding: '6px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontWeight: 500, cursor: 'pointer' }} title="Mở Trình Quản Trị In Ấn Print Management (msc)">
+                  <Settings size={13} /> Print Mgmt
+                </button>
+                <button className="btn-secondary" onClick={() => handleOpenWindowsTool('services')} style={{ padding: '6px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontWeight: 500, cursor: 'pointer' }} title="Mở danh sách Services Windows">
+                  <Wrench size={13} /> Services
                 </button>
               </div>
             </div>
