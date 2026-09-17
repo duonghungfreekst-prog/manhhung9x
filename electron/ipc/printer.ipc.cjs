@@ -2581,11 +2581,15 @@ pause
         $autoCreatedQueue = $false
 
         if ($targetExeFile) {
-          # Mở cửa sổ trực tiếp của bộ cài hãng (KHÔNG dùng WindowStyle Hidden để người dùng nhìn thấy & bấm Install Now)
           $targetExe = $targetExeFile.FullName
-          $proc = Start-Process -FilePath $targetExe -PassThru -ErrorAction SilentlyContinue
+          
+          # TỰ ĐỘNG HÓA 100% - CHẠY NGẦM BỘ CÀI HÃNG (SILENT INSTALL)
+          $silentArgs = if ($targetExe -match '(?i)(xprinter|pos|receipt|label|barcode|printer)') { "/S" } else { "/S /v/qn /quiet /silent" }
+          $proc = Start-Process -FilePath $targetExe -ArgumentList $silentArgs -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
           $executedExes++
-
+          
+          # (Tiến trình giám sát và auto-click phía dưới vẫn giữ lại như fallback đề phòng bộ cài không hỗ trợ silent mode)
+          
           Add-Type -TypeDefinition @"
 using System;
 using System.Text;
@@ -2743,8 +2747,7 @@ public class Win32Helper {
         }
 
         # ── BƯỚC 5: TỰ ĐỘNG TẠO MÁY IN NẾU DRIVER ĐÃ CÓ NHƯNG CHƯA TẠO HÀNG ĐỢI ──
-        $isPosOrBarcode = "${category || ''}" -match 'pos|barcode' -or ($targetKeywords | Where-Object { $_ -match 'XP-|Xprinter|POS|Thermal|Receipt|Barcode|Label' })
-        if (-not $detectedName -and $isPosOrBarcode) {
+        if (-not $detectedName) {
           $allDrivers = @(Get-PrinterDriver -ErrorAction SilentlyContinue)
           $bestDriver = $allDrivers | Where-Object {
             $d = $_
