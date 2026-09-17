@@ -1,7 +1,41 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // ── Existing ──────────────────────────────────────────────────────────────
+  // ── Typed IPC Namespaces (Architecture v7) ──────────────────────────────
+  system: {
+    getHardware: () => ipcRenderer.invoke('system:get-hwid'),
+    checkHealth: () => ipcRenderer.invoke('system:check-health'),
+  },
+
+  his: {
+    fetchPatients: (connStr, roomCode) => ipcRenderer.invoke('his-call:fetch-patients', connStr, roomCode),
+    fetchRooms: (connStr) => ipcRenderer.invoke('his-call:fetch-rooms', connStr),
+    updatePatientStatus: (connStr, maBenhNhan) => ipcRenderer.invoke('his-call:update-patient', connStr, maBenhNhan),
+    latestCalled: (connStr, roomCode) => ipcRenderer.invoke('his-call:latest-called', connStr, roomCode),
+    selectLogo: () => ipcRenderer.invoke('his-call:select-logo'),
+  },
+  endoscopy: {
+    listCameras: () => ipcRenderer.invoke('endoscopy:list-cameras'),
+    getStats: () => ipcRenderer.invoke('endoscopy:db-stats'),
+    getPatients: (q) => ipcRenderer.invoke('endoscopy:get-patients', q),
+    addPatient: (data) => ipcRenderer.invoke('endoscopy:add-patient', data),
+    getSessions: (pid) => ipcRenderer.invoke('endoscopy:get-sessions', pid),
+    createSession: (data) => ipcRenderer.invoke('endoscopy:create-session', data),
+    getImages: (sid) => ipcRenderer.invoke('endoscopy:get-images', sid),
+    toggleFavorite: (id) => ipcRenderer.invoke('endoscopy:toggle-fav', id),
+    saveCapture: (sid, b64, res) => ipcRenderer.invoke('endoscopy:save-capture', sid, b64, res),
+    backup: (path) => ipcRenderer.invoke('endoscopy:backup', path),
+    restore: (path) => ipcRenderer.invoke('endoscopy:restore', path),
+  },
+  license: {
+    verify: (rawKey) => ipcRenderer.invoke('license:verify', rawKey),
+    getHWID: () => ipcRenderer.invoke('system:get-hwid'),
+    checkRevocation: (rawKey) => ipcRenderer.invoke('license:check-revocation', rawKey),
+    bindKey: (rawKey) => ipcRenderer.invoke('license:bind-key', rawKey),
+    getInstanceId: () => ipcRenderer.invoke('license:get-instance-id'),
+  },
+
+  // ── Existing & Legacy Compatibility ──────────────────────────────────────
   invoke:           (channel, ...args) => ipcRenderer.invoke(channel, ...args),
   convertPdfNative: (inputPath) => ipcRenderer.invoke('convert-pdf', inputPath),
   htmlToPdf:        (options)   => ipcRenderer.invoke('html-to-pdf', options),
@@ -186,6 +220,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Printer Repair & LAN Share Suite ──────────────────────────────────────
   printer: {
+    getList:           () => ipcRenderer.invoke('printer:get-printers'),
+    diagnose:          (name) => ipcRenderer.invoke('printer:diagnose', name),
+    repairSpooler:     (mode) => ipcRenderer.invoke('printer:repair-spooler', mode),
+    fix0x11b:          () => ipcRenderer.invoke('printer:fix-0x11b'),
     getPrinters:       () => ipcRenderer.invoke('printer:get-printers'),
     fixShareError:     () => ipcRenderer.invoke('printer:fix-share-error'),
     fixError0x40:      (params) => ipcRenderer.invoke('printer:fix-error-0x40', params),
