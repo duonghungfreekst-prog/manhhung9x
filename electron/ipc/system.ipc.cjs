@@ -79,7 +79,7 @@ function downloadFileWithRedirect(targetUrl, destPath, onProgress) {
       const client = parsed.protocol === 'http:' ? http : https;
       const req = client.get(curUrl, {
         headers: {
-          'User-Agent': 'DMH-Tools-Modular-Engine/' + (app ? app.getVersion() : '6.9.14'),
+          'User-Agent': 'DMH-Tools-Modular-Engine/' + (app ? app.getVersion() : '7.0.0'),
           'Accept': '*/*'
         }
       }, (res) => {

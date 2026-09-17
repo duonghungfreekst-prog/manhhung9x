@@ -1,6 +1,6 @@
-# 📘 HƯỚNG DẪN SỬ DỤNG DMH_TOOLS v6.9.14
+# 📘 HƯỚNG DẪN SỬ DỤNG DMH_TOOLS v7.0.0
 
-DMH_Tools v6.9.14 là bộ công cụ chuyên dụng hỗ trợ xử lý dữ liệu hồ sơ, cứu hộ máy in toàn diện (đặc trị triệt để lỗi 0x00000709, 0x0000011b, 0x00000040), tích hợp AI y tế, ký số XML USB Token, máy chấm công và quản lý hàng đợi phòng khám.
+DMH_Tools v7.0.0 là bộ công cụ chuyên dụng hỗ trợ xử lý dữ liệu hồ sơ, cứu hộ máy in toàn diện (đặc trị triệt để lỗi 0x00000709, 0x0000011b, 0x00000040), tích hợp AI y tế, ký số XML USB Token, máy chấm công và quản lý hàng đợi phòng khám.
 
 ---
 
@@ -189,4 +189,4 @@ Hoặc trong thư mục cài đặt: `resources\scripts\install_tts.bat`
 4. Thiết lập ca làm việc, lịch biểu tuần, tính công tự động và xuất bảng chấm công Excel chi tiết.
 
 ---
-*Phát triển bởi nhóm DMH Hospital Tools — Phiên bản v6.9.14 (2026).*
+*Phát triển bởi nhóm DMH Hospital Tools — Phiên bản v7.0.0 (2026).*

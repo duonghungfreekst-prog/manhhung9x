@@ -84,7 +84,7 @@ export class ErrorTelemetryService {
     const records = this.getHistory();
     const exportPackage = {
       app: 'DMH Tools',
-      version: '6.9.14',
+      version: '7.0.0',
       exportedAt: new Date().toISOString(),
       totalRecords: records.length,
       history: records
