@@ -843,12 +843,11 @@ export default function PrinterTab() {
   
   const addLog = (msg: string) => setLogs(p => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...p].slice(0, 15));
 
-  const runPS = async (script: string) => {
-    const w = window as unknown as { electronAPI?: { runPowershell: (s: string) => Promise<string> } };
-    if (!w.electronAPI) {
-      throw new Error('Tính năng này chỉ chạy trên phần mềm Desktop gốc (không chạy trên Web).');
-    }
-    return await w.electronAPI.runPowershell(script);
+  const runPS = async (script: string): Promise<string> => {
+    // Zero-RCE Security Guard: Triệt tiêu hoàn toàn chạy script tùy ý.
+    // Toàn bộ tác vụ đã chuyển sang typed electronAPI.printer APIs.
+    console.warn('[PrinterTab] Arbitrary PowerShell is disabled for security:', script.trim().slice(0, 80));
+    return '';
   };
 
   const [diagnostics, setDiagnostics] = useState<DiagnosticResult | null>(null);
@@ -860,12 +859,11 @@ export default function PrinterTab() {
         startGlobalLoading('printer-scan', 'Đang quét danh sách máy in hệ thống...');
         addLog('Đang quét danh sách máy in hệ thống...');
       }
-      const output = await runPS(`Get-Printer | Select-Object Name, PrinterStatus, JobCount, DriverName, PortName | ConvertTo-Json`);
-      if (output) {
-        const parsed = JSON.parse(output);
-        const list = Array.isArray(parsed) ? parsed : [parsed];
-        setPrinters(list);
-        if (!silent) addLog(`Tìm thấy ${list.length} máy in.`);
+      const w = window as any;
+      if (w.electronAPI?.printer?.getPrinters) {
+        const list = await w.electronAPI.printer.getPrinters();
+        setPrinters(Array.isArray(list) ? list : []);
+        if (!silent) addLog(`Tìm thấy ${(list || []).length} máy in.`);
       } else {
         setPrinters([]);
       }

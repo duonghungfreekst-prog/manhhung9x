@@ -5,7 +5,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   invoke:           (channel, ...args) => ipcRenderer.invoke(channel, ...args),
   convertPdfNative: (inputPath) => ipcRenderer.invoke('convert-pdf', inputPath),
   htmlToPdf:        (options)   => ipcRenderer.invoke('html-to-pdf', options),
-  runPowershell:    (script)    => ipcRenderer.invoke('run-powershell', script),
   getHWID:          ()          => ipcRenderer.invoke('system:get-hwid'),
   checkLicenseRevocation: (rawKey) => ipcRenderer.invoke('license:check-revocation', rawKey),
   bindLicenseKey:         (rawKey) => ipcRenderer.invoke('license:bind-key', rawKey),
@@ -187,6 +186,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Printer Repair & LAN Share Suite ──────────────────────────────────────
   printer: {
+    getPrinters:       () => ipcRenderer.invoke('printer:get-printers'),
     fixShareError:     () => ipcRenderer.invoke('printer:fix-share-error'),
     fixError0x40:      (params) => ipcRenderer.invoke('printer:fix-error-0x40', params),
     unlockIpc:         (params) => ipcRenderer.invoke('printer:unlock-ipc', params),

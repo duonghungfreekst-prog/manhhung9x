@@ -152,6 +152,85 @@ function cleanKey(k: string): string {
   return k.replace(/-/g, '').toUpperCase();
 }
 
+// ─── Ed25519 Asymmetric Verification (Zero-Secret Client) ──────────────────────
+// Khóa công khai Ed25519 (Public Key) dùng để xác thực chữ ký bản quyền.
+// Client CHỈ giữ Public Key để verify — không chứa bất kỳ secret nào!
+export const ED25519_PUBLIC_KEY_B64 = 'ng4kSG+9zWLnAfqq0FA1gNGctLPAEoFZPJBBPjUA6dQ=';
+
+export function base64UrlToUint8Array(b64url: string): Uint8Array {
+  let b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4 !== 0) b64 += '=';
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+export function uint8ArrayToBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export async function verifyEd25519License(keyStr: string): Promise<{ valid: boolean; payload: LicensePayload | null; errorMsg?: string }> {
+  try {
+    const clean = keyStr.trim().replace(/^DMH7[-_]/i, '');
+    const unpacked = base64UrlToUint8Array(clean);
+    if (unpacked.length < 66) {
+      return { valid: false, payload: null, errorMsg: 'Mã Key Ed25519 không đủ độ dài tiêu chuẩn' };
+    }
+
+    const payloadLen = (unpacked[0] << 8) | unpacked[1];
+    if (payloadLen <= 0 || 2 + payloadLen + 64 > unpacked.length) {
+      return { valid: false, payload: null, errorMsg: 'Cấu trúc gói mã khóa Ed25519 không hợp lệ' };
+    }
+
+    const payloadBytes = unpacked.subarray(2, 2 + payloadLen);
+    const signatureBytes = unpacked.subarray(2 + payloadLen);
+
+    const pubKeyBytes = base64UrlToUint8Array(ED25519_PUBLIC_KEY_B64);
+    const pubKey = await crypto.subtle.importKey('raw', pubKeyBytes as unknown as BufferSource, { name: 'Ed25519' }, false, ['verify']);
+
+    const isSigValid = await crypto.subtle.verify(
+      { name: 'Ed25519' },
+      pubKey,
+      signatureBytes as unknown as BufferSource,
+      payloadBytes as unknown as BufferSource
+    );
+    if (!isSigValid) {
+      return { valid: false, payload: null, errorMsg: 'Chữ ký bản quyền Ed25519 không hợp lệ hoặc đã bị giả mạo!' };
+    }
+
+    const payloadStr = new TextDecoder().decode(payloadBytes);
+    const parts = payloadStr.split('|');
+    if (parts.length < 7 || parts[0] !== 'DMH7') {
+      return { valid: false, payload: null, errorMsg: 'Nội dung payload Ed25519 không đúng định dạng' };
+    }
+
+    const mask = parseInt(parts[1], 10);
+    const expiry = parseInt(parts[2], 10);
+    const maxUses = parseInt(parts[3], 10);
+    const targetHwid = parts[4] || 'ALL';
+    const tier = (parts[5] as LicenseTier) || 'HOSPITAL_ENTERPRISE';
+    const customerName = decodeURIComponent(parts.slice(6).join('|')) || 'Cơ sở Y tế';
+
+    if (isNaN(mask) || isNaN(expiry) || isNaN(maxUses)) {
+      return { valid: false, payload: null, errorMsg: 'Thông số phân quyền trong mã bản quyền không hợp lệ' };
+    }
+
+    return {
+      valid: true,
+      payload: { salt: 'ED25519', mask, expiry, maxUses, targetHwid, tier, customerName }
+    };
+  } catch (err: any) {
+    return { valid: false, payload: null, errorMsg: 'Lỗi xác minh chữ ký số Ed25519: ' + (err?.message || String(err)) };
+  }
+}
+
 // ─── Crypto ───────────────────────────────────────────────────────────────────
 async function deriveKey(secret: string): Promise<CryptoKey> {
   const enc = new TextEncoder();
@@ -305,23 +384,35 @@ export async function validateLicenseKey(
   });
 
   try {
-    const raw = base32Decode(cleanKey(key));
-    if (raw.length < 13) return FAIL('Mã Key không hợp lệ (độ dài không đủ)');
+    let parsed: LicensePayload | null = null;
+    const isEd25519 = key.trim().toUpperCase().startsWith('DMH7');
 
-    const iv         = raw.slice(0, 12);
-    const cipherData = raw.slice(12);
-    const cryptoKey  = await deriveKey(_buildSecretKey());
+    if (isEd25519) {
+      const edRes = await verifyEd25519License(key);
+      if (!edRes.valid || !edRes.payload) {
+        return FAIL(edRes.errorMsg || 'Mã Key Ed25519 không hợp lệ hoặc đã bị chỉnh sửa!');
+      }
+      parsed = edRes.payload;
+    } else {
+      // Fallback: Hỗ trợ các mã bản quyền phiên bản cũ (Legacy AES-GCM)
+      const raw = base32Decode(cleanKey(key));
+      if (raw.length < 13) return FAIL('Mã Key không hợp lệ (độ dài không đủ)');
 
-    let decrypted: ArrayBuffer;
-    try {
-      decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, cryptoKey, cipherData);
-    } catch {
-      return FAIL('Mã Key không hợp lệ hoặc đã bị chỉnh sửa bất hợp pháp!');
+      const iv         = raw.slice(0, 12);
+      const cipherData = raw.slice(12);
+      const cryptoKey  = await deriveKey(_buildSecretKey());
+
+      let decrypted: ArrayBuffer;
+      try {
+        decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, cryptoKey, cipherData);
+      } catch {
+        return FAIL('Mã Key không hợp lệ hoặc đã bị chỉnh sửa bất hợp pháp!');
+      }
+
+      const payload = new TextDecoder().decode(decrypted);
+      parsed = parsePayload(payload);
+      if (!parsed) return FAIL('Cấu trúc bản quyền không xác định');
     }
-
-    const payload = new TextDecoder().decode(decrypted);
-    const parsed  = parsePayload(payload);
-    if (!parsed) return FAIL('Cấu trúc bản quyền không xác định');
 
     // ── Kiểm tra Persistent Vault: Chống dùng lại key khi app từng bị xóa hoặc gỡ khỏi máy ──
     try {

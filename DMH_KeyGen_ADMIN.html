@@ -200,13 +200,31 @@
       <div class="section-label"># Số lượt kích hoạt / máy</div>
       <div class="expiry-row">
         <label>
-          <input type="checkbox" id="unlimitedUses" onchange="toggleUses()">
+          <input type="checkbox" id="unlimitedUses" onchange="toggleUses()" checked>
           Không giới hạn
         </label>
-        <div style="display:flex;align-items:center;gap:8px;" id="usesRow">
+        <div style="display:none;align-items:center;gap:8px;" id="usesRow">
           <input type="number" class="days-input" id="maxUses" value="1" min="1" max="9999">
           <span style="color:#64748b;font-size:0.875rem;">lượt</span>
           <span class="uses-hint" id="usesHint">(Key dùng được tối đa 1 lần trên mỗi máy)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Khóa HWID & Khách hàng v7 -->
+    <div>
+      <div class="section-label"># Khóa Thiết Bị (HWID) & Thông Tin Khách Hàng</div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;gap:10px;">
+          <input type="text" id="targetHwid" value="ALL" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid #374151;background:#0f172a;color:#e2e8f0;font-size:0.875rem;" placeholder="Khóa HWID (Để ALL hoặc nhập mã máy)">
+          <input type="text" id="customerName" value="Bệnh Viện Đa Khoa" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid #374151;background:#0f172a;color:#e2e8f0;font-size:0.875rem;" placeholder="Tên Bệnh Viện / Khách Hàng">
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:0.8rem;color:#94a3b8;">Chuẩn mã hóa:</span>
+          <select id="keyAlgo" style="flex:1;padding:6px 10px;border-radius:8px;border:1px solid #4f46e5;background:#1e1b4b;color:#a5b4fc;font-size:0.8rem;font-weight:600;">
+            <option value="ED25519" selected>🛡️ Ed25519 Bất Đối Xứng (Chuẩn v7 Chống Crack Tuyệt Đối)</option>
+            <option value="LEGACY">⚡ Legacy AES-GCM (Tương thích máy cài v5/v6)</option>
+          </select>
         </div>
       </div>
     </div>
@@ -314,6 +332,46 @@ function randomSalt(len=6) {
   const c='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   return Array.from(crypto.getRandomValues(new Uint8Array(len))).map(b=>c[b%c.length]).join('');
 }
+// ─── Chuẩn Chữ Ký Bất Đối Xứng Ed25519 (ADMIN PRIVATE KEY) ───────────────────
+// Private Key CHỈ nằm tại file Admin này — Tuyệt đối KHÔNG đưa vào client app!
+const ADMIN_PRIVATE_KEY_B64 = 'MC4CAQAwBQYDK2VwBCIEIK2qejQQh6kgf5FY7fY9aVziJ/HQ2hnjyalgRAUuxaev';
+
+function base64UrlToUint8Array(b64url) {
+  let b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4 !== 0) b64 += '=';
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function uint8ArrayToBase64Url(bytes) {
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function generateEd25519Key(mask, expiry, maxUses, targetHwid = 'ALL', tier = 'HOSPITAL_ENTERPRISE', customerName = 'Khách hàng VIP') {
+  const privKeyBytes = base64UrlToUint8Array(ADMIN_PRIVATE_KEY_B64);
+  const privKey = await crypto.subtle.importKey('pkcs8', privKeyBytes, { name: 'Ed25519' }, false, ['sign']);
+
+  const payloadStr = `DMH7|${mask}|${expiry}|${maxUses}|${targetHwid.toUpperCase().trim()}|${tier}|${encodeURIComponent(customerName.trim())}`;
+  const payloadBytes = new TextEncoder().encode(payloadStr);
+  const sig = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, privKey, payloadBytes));
+
+  const combined = new Uint8Array(2 + payloadBytes.length + sig.length);
+  combined[0] = (payloadBytes.length >> 8) & 0xff;
+  combined[1] = payloadBytes.length & 0xff;
+  combined.set(payloadBytes, 2);
+  combined.set(sig, 2 + payloadBytes.length);
+
+  return 'DMH7-' + uint8ArrayToBase64Url(combined);
+}
+
 async function generateKey(mask, expiry, maxUses) {
   const payload = `${randomSalt()}-${mask}-${expiry}-${maxUses}`;
   const enc = new TextEncoder();
@@ -383,20 +441,28 @@ async function generate() {
   const expiry    = forever ? 0 : Math.floor(Date.now()/1000) + days*86400;
   const unlimited = document.getElementById('unlimitedUses').checked;
   const maxUses   = unlimited ? 0 : (parseInt(document.getElementById('maxUses').value) || 1);
+  const targetHwid = (document.getElementById('targetHwid')?.value || 'ALL').trim();
+  const customerName = (document.getElementById('customerName')?.value || 'Khách Hàng VIP').trim();
+  const algo = document.getElementById('keyAlgo')?.value || 'ED25519';
 
   try {
-    currentKey = await generateKey(mask, expiry, maxUses);
+    if (algo === 'ED25519') {
+      currentKey = await generateEd25519Key(mask, expiry, maxUses, targetHwid, 'HOSPITAL_ENTERPRISE', customerName);
+    } else {
+      currentKey = await generateKey(mask, expiry, maxUses);
+    }
 
     const tabNames  = ALL_TABS.filter(t=>(mask & TAB_BITS[t])).map(t=>TAB_LABELS[t]);
     const expiryStr = forever ? 'Vĩnh viễn' : new Date(expiry*1000).toLocaleDateString('vi-VN');
     const usesStr   = unlimited ? 'Không giới hạn lượt' : `Tối đa ${maxUses} lượt/máy`;
+    const algoLabel = algo === 'ED25519' ? '<span style="color:#10b981;font-weight:700;">Ed25519 Bất Đối Xứng (v7)</span>' : '<span style="color:#eab308;">Legacy AES-GCM (v5/v6)</span>';
 
     document.getElementById('keyDisplay').textContent = currentKey;
     document.getElementById('keyMeta').innerHTML =
-      `<strong>Tabs:</strong> ${tabNames.join(', ')}<br>` +
-      `<strong>Hạn dùng:</strong> ${expiryStr} &nbsp;|&nbsp; ` +
-      `<strong>Lượt:</strong> <span style="color:#f59e0b">${usesStr}</span> &nbsp;|&nbsp; ` +
-      `<strong>Bitmask:</strong> ${mask}`;
+      `<strong>Loại mã:</strong> ${algoLabel} &nbsp;|&nbsp; <strong>Khách hàng:</strong> ${customerName}<br>` +
+      `<strong>Khóa HWID:</strong> <span style="color:#38bdf8;">${targetHwid}</span> &nbsp;|&nbsp; <strong>Hạn dùng:</strong> ${expiryStr}<br>` +
+      `<strong>Lượt máy:</strong> <span style="color:#f59e0b">${usesStr}</span> &nbsp;|&nbsp; <strong>Bitmask:</strong> ${mask} (${tabNames.length} tabs)<br>` +
+      `<strong>Phân hệ:</strong> ${tabNames.join(', ')}`;
 
     document.getElementById('resultBox').className = 'result-box show';
     document.getElementById('copyBtn').className = 'copy-btn';
