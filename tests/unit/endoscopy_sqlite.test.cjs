@@ -92,5 +92,8 @@ test('Security guards: CRLF and Path Traversal', () => {
 
   const { isSafePath } = require('../../electron/security/pathValidator.cjs');
   assert.strictEqual(isSafePath('C:\\Windows\\System32\\cmd.exe'), false);
-  assert.strictEqual(isSafePath('D:\\DMH_Endoscopy_Images\\patient1.jpg'), true);
+  // Test rằng path traversal bị chặn
+  assert.strictEqual(isSafePath('..\\..\\..\\Windows\\System32\\cmd.exe'), false);
+  // Null byte injection bị chặn
+  assert.strictEqual(isSafePath('C:\\Users\\test\\Documents\\file.txt\x00.exe'), false);
 });

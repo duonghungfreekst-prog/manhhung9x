@@ -54,20 +54,8 @@ export interface DiagnosticTelemetryPayload {
 const STORAGE_KEY_API_KEY = 'dmh_gemini_api_key';
 const STORAGE_KEY_MODEL = 'dmh_gemini_model';
 
-// Danh sách Key Pool dự phòng tự động đảo chiều (Multi-Key Failover & Load Balancing)
-const _decodeSafe = (b: string) => {
-  try {
-    return typeof atob !== 'undefined' ? atob(b) : Buffer.from(b, 'base64').toString('binary');
-  } catch {
-    return '';
-  }
-};
-
-const DEFAULT_API_KEYS: string[] = [
-  _decodeSafe('QVEuQWI4Uk42TDV5U2t2UGk1ekwtWjhLQm1KdjQ2TlN2TWtxVjhJSkN1MmJZVUx5S29FbkE='),
-  _decodeSafe('***REMOVED_API_KEY***'),
-  _decodeSafe('***REMOVED_API_KEY***')
-].filter(Boolean);
+// API keys phải được người dùng tự nhập qua Settings — KHÔNG hard-code trong source
+const DEFAULT_API_KEYS: string[] = [];
 const DEFAULT_MODEL = 'gemini-3.6-flash';
 const FALLBACK_MODELS = ['gemini-3.6-flash', 'gemini-flash-latest'];
 

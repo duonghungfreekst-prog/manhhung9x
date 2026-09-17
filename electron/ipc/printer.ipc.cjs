@@ -580,9 +580,8 @@ function registerPrinterIPC() {
   // ── PRINTER SUITE: Mở nhanh Windows Credential Manager (control keymgr.dll) ──
   ipcMain.handle('printer:open-credential-manager', async () => {
     try {
-      const { exec } = require('child_process');
-      exec('control keymgr.dll', (err) => {
-        if (err) console.error('Failed to open Credential Manager:', err);
+      execFile('control.exe', ['keymgr.dll'], { windowsHide: false }, (err) => {
+        if (err) console.error('[PRINTER] open-credential-manager error:', err.message);
       });
       return { ok: true };
     } catch (e) {
@@ -1137,9 +1136,15 @@ pause
       return { ok: false, error: 'Địa chỉ máy chủ không hợp lệ' };
     }
     const user = username ? String(username).trim() : 'Guest';
+    // Validate username: chỉ cho phép domain\user hoặc user đơn giản
+    if (user !== 'Guest' && !/^[a-zA-Z0-9_.\\-]{1,64}$/.test(user)) {
+      return { ok: false, error: 'Tên người dùng không hợp lệ (chỉ cho phép chữ, số, dấu chấm, gạch ngang, gạch dưới)' };
+    }
     const pass = password ? String(password) : '';
-
-    const { execFile } = require('child_process');
+    // Chặn ký tự điều khiển trong password (CR, LF, NULL, DEL)
+    if (/[\x00-\x1F\x7F]/.test(pass)) {
+      return { ok: false, error: 'Mật khẩu chứa ký tự không hợp lệ' };
+    }
 
     return new Promise((resolve) => {
       execFile('cmdkey.exe', [`/add:${cleanHost}`, `/user:${user}`, `/pass:${pass}`], { windowsHide: true, timeout: 10000 }, (cmdErr) => {

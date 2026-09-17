@@ -13,7 +13,7 @@
 
 **DMH_Tools** là giải pháp phần mềm máy tính chuyên dụng được thiết kế cho môi trường y tế, phòng khám đa khoa, bệnh viện và các kỹ thuật viên IT. Ứng dụng giải quyết bài toán phức hợp giữa **quản lý dữ liệu khám chữa bệnh (HIS/BHYT)**, **nội soi can thiệp hình ảnh y tế chuẩn 4K**, **điều khiển tự động thiết bị phần cứng (Máy in mã vạch, máy chấm công, camera DirectShow)** và **bộ công cụ cứu hộ hệ điều hành Windows**.
 
-Phiên bản **v7 Enterprise** đánh dấu bước chuyển mình quan trọng về mặt kiến trúc: xóa bỏ hoàn toàn các god-files, module hóa 100% IPC, chuyển đổi cơ sở dữ liệu nội soi sang SQLite chuẩn ACID và áp dụng chữ ký số bất đối xứng Ed25519.
+Phiên bản **v7 Enterprise** đánh dấu bước chuyển mình quan trọng về mặt kiến trúc: module hóa IPC theo Typed Namespace, chuyển đổi cơ sở dữ liệu nội soi sang SQLite chuẩn ACID và áp dụng chữ ký số bất đối xứng Ed25519.
 
 ---
 
@@ -50,7 +50,7 @@ Phiên bản **v7 Enterprise** đánh dấu bước chuyển mình quan trọng 
 
 | # | Phân Hệ | Mô Tả & Năng Lực Kỹ Thuật |
 |:---|:---|:---|
-| 1 | **Đối Chiếu Hồ Sơ BHYT** | Đối chiếu tự động hồ sơ XML (3176, 4210) với dữ liệu xuất từ phần mềm HIS; phát hiện sai lệch chi phí, thuốc, VTYT, ngày giường với độ chính xác tuyệt đối. |
+| 1 | **Đối Chiếu Hồ Sơ BHYT** | Đối chiếu tự động hồ sơ XML (3176, 4210) với dữ liệu xuất từ phần mềm HIS; phát hiện sai lệch chi phí, thuốc, VTYT, ngày giường với độ chính xác cao. |
 | 2 | **Nội Soi AI 4K** | Bắt hình camera y tế UVC/DirectShow độ phân giải tới 4K. CSDL nhúng **SQLite WAL Mode** quản lý bệnh nhân, phiên khám, hình ảnh kèm mã băm SHA-256 bảo vệ toàn vẹn. Hỗ trợ sao lưu/khôi phục tệp nén `.dmhbk`. |
 | 3 | **Gọi Bệnh Nhân HIS & TV** | Kết nối trực tiếp SQL Server bệnh viện qua Connection Pool tối ưu B-Tree Index (`WHERE ngaydk >= @start AND ngaydk < @end`). Tích hợp đọc loa giọng Việt tự nhiên (Piper TTS Offline) và xuất màn hình chờ TV. |
 | 4 | **Máy In & Spooler** | Chẩn đoán lỗi in ấn 3 cấp độ (Diagnostic -> Safe Fix -> Advanced Fix). Tự động cấu hình cài đặt máy in nhiệt Xprinter, sửa lỗi chia sẻ mạng `0x0000011b`, dọn dẹp hàng đợi kẹt và sao lưu Registry trước khi can thiệp. |
@@ -71,7 +71,7 @@ Phiên bản **v7 Enterprise** đánh dấu bước chuyển mình quan trọng 
 ## 4. Bảo Mật & Tiêu Chuẩn Kỹ Thuật Doanh Nghiệp
 
 ### 4.1. Cơ Chế Bản Quyền Chữ Ký Bất Đối Xứng Ed25519
-- **Public-Key Cryptography (RFC 8410)**: Ứng dụng Client (`DMH_Tools`) chỉ chứa **Public Key** dùng để xác minh tính hợp lệ của giấy phép. Không chứa bất kỳ Secret hay Private Key nào.
+- **Public-Key Cryptography (RFC 8410)**: Ứng dụng Client (`DMH_Tools`) chỉ chứa **Public Key** dùng để xác minh tính hợp lệ của giấy phép. Private Key được cách ly hoàn toàn tại server phát hành.
 - **Private Key Isolation**: Khóa bí mật ký số chỉ được lưu trữ an toàn tại máy chủ phát hành / công cụ Quản Trị Admin (`scripts/generate_license.cjs`). Kẻ tấn công dù dịch ngược toàn bộ mã nguồn cũng không thể giả mạo chữ ký bản quyền.
 - **HWID Locking**: Khóa bản quyền được gắn chặt với Hardware Fingerprint (Mainboard Serial, CPU ID, UUID).
 - **Lưu trữ Cục Bộ An Toàn**: Chuỗi bản quyền dự phòng được tự động mã hóa bằng **AES-256-GCM** với khóa dẫn xuất trực tiếp từ HWID máy trạm.
@@ -81,9 +81,9 @@ Phiên bản **v7 Enterprise** đánh dấu bước chuyển mình quan trọng 
 - **WAL Mode (Write-Ahead Logging)**: Hỗ trợ đọc ghi đồng thời cực đại, chống nghẽn I/O khi lưu trữ hàng nghìn khung hình y tế.
 - **Foreign Key Constraints**: Bảo đảm toàn vẹn tham chiếu bệnh nhân - phiên khám - hình ảnh y tế.
 
-### 4.3. Preload An Toàn Tuyệt Đối & Chromium Sandbox
-- **Zero-Backdoor IPC**: Đã loại bỏ 100% hàm generic `electronAPI.invoke()`. Toàn bộ 15 phân hệ đều bắt buộc giao tiếp qua **Typed Namespace** (`electronAPI.his.*`, `electronAPI.endoscopy.*`, `electronAPI.printer.*`, `electronAPI.pctools.*`, v.v.).
-- **Chromium Sandbox Kích Hoạt**: Tất cả các cửa sổ `BrowserWindow` đều thiết lập `sandbox: true`, ngăn chặn mọi mã độc nếu có từ renderer thoát ra hệ điều hành.
+### 4.3. Preload Tăng Cường Bảo Mật & Chromium Sandbox
+- **Typed Namespace IPC**: Đã chuyển đổi từ hàm generic `electronAPI.invoke()` sang **Typed Namespace** (`electronAPI.his.*`, `electronAPI.endoscopy.*`, `electronAPI.printer.*`, `electronAPI.pctools.*`, v.v.), giảm đáng kể bề mặt tấn công từ renderer process.
+- **Chromium Sandbox Kích Hoạt**: Tất cả các cửa sổ `BrowserWindow` đều thiết lập `sandbox: true`, hạn chế khả năng mã độc từ renderer thoát ra hệ điều hành.
 
 ### 4.4. Bảo Vệ Python IPC với Dynamic Port & Session Token Bearer Auth
 - **Cổng Động (Dynamic Port Allocation)**: Thay vì cố định cổng (27182, 27183, 27185), ứng dụng tự động cấp phát cổng rảnh ngẫu nhiên khi khởi chạy.
@@ -94,7 +94,7 @@ Phiên bản **v7 Enterprise** đánh dấu bước chuyển mình quan trọng 
 
 ### 4.6. Nhật Ký Kiểm Toán (Audit Logging)
 - Toàn bộ thao tác nhạy cảm (Sửa Registry, Khởi động lại máy chấm công, Cập nhật trạng thái khám bệnh, Nạp License) đều được tự động ghi nhận vào `userData/logs/audit-YYYY-MM-DD.log`.
-- Tự động lọc sạch ký tự `\r`, `\n` để ngăn chặn triệt để tấn công **Log Injection (CRLF)**.
+- Tự động lọc sạch ký tự `\r`, `\n` để giảm thiểu rủi ro tấn công **Log Injection (CRLF)**.
 
 ---
 

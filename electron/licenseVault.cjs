@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const { execSync } = require('child_process');
 
 const REG_KEY = 'HKCU\\Software\\DMH_Tools\\License';
@@ -17,7 +18,10 @@ const HWID_VAULT_FILE = path.join(PROGRAM_DATA_DIR, '.hwid_sys');
 const PUBLIC_DATA_DIR = path.join(process.env.PUBLIC || 'C:\\Users\\Public', 'Documents');
 const PUBLIC_VAULT_FILE = path.join(PUBLIC_DATA_DIR, '.sys_dmh_lic');
 
-const HWID_SECRET = 'DMH_TRIAL_HWID_IMMUTABLE_2026';
+// Derive HWID_SECRET từ machine-specific data thay vì hard-code chuỗi tĩnh
+const HWID_SECRET = crypto.createHash('sha256')
+  .update(`DMH_${process.env.COMPUTERNAME || 'DEFAULT'}_${process.arch}_TRIAL_IMMUTABLE`)
+  .digest('hex').slice(0, 32);
 const TRIAL_DURATION_DAYS = 3;
 
 function cleanKey(rawKey) {
@@ -251,7 +255,7 @@ function verifyEd25519LicenseKey(rawKey, hwid) {
 function encryptLicenseWithHwid(rawKey, hwid) {
   try {
     const salt = crypto.randomBytes(16);
-    const key = crypto.pbkdf2Sync(hwid || 'DMH_DEFAULT_HWID', salt, 10000, 32, 'sha256');
+    const key = crypto.pbkdf2Sync(hwid || 'DMH_DEFAULT_HWID', salt, 310000, 32, 'sha256');
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
     let encrypted = cipher.update(rawKey, 'utf8');
@@ -273,7 +277,7 @@ function decryptLicenseWithHwid(encStr, hwid) {
     const iv = Buffer.from(parts[2], 'hex');
     const tag = Buffer.from(parts[3], 'hex');
     const data = Buffer.from(parts[4], 'hex');
-    const key = crypto.pbkdf2Sync(hwid || 'DMH_DEFAULT_HWID', salt, 10000, 32, 'sha256');
+    const key = crypto.pbkdf2Sync(hwid || 'DMH_DEFAULT_HWID', salt, 310000, 32, 'sha256');
     const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
     decipher.setAuthTag(tag);
     let decrypted = decipher.update(data);

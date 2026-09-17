@@ -309,12 +309,14 @@ function registerEndoscopyIPC() {
   });
 
   ipcMain.handle('endoscopy:open-device-manager', async () => {
-    exec('devmgmt.msc', { windowsHide: false });
+    execFile('mmc.exe', ['devmgmt.msc'], { windowsHide: false }, (err) => {
+      if (err) console.error('[ENDOSCOPY] open-device-manager error:', err.message);
+    });
     return { ok: true };
   });
 
   ipcMain.handle('endoscopy:open-camera-app', async () => {
-    exec('start microsoft.windows.camera:', { shell: true, windowsHide: false });
+    shell.openExternal('microsoft.windows.camera:');
     return { ok: true };
   });
 

@@ -8,6 +8,7 @@ const https = require('https');
 const { execFile, spawn, exec, execSync } = require('child_process');
 const { runPSToolScript, isProcessElevated, runElevatedPSToolScript } = require('../services/system/powerShellExecutor.cjs');
 const windowManager = require('../windows/windowManager.cjs');
+const { isSafePath } = require('../security/pathValidator.cjs');
 
 const isDev = app ? !app.isPackaged : true;
 
@@ -160,6 +161,7 @@ function registerSystemIPC() {
     return new Promise((resolve, reject) => {
       if (typeof inputPath !== 'string') return reject('inputPath không hợp lệ');
       const normalizedInput = path.resolve(inputPath);
+      if (!isSafePath(normalizedInput))  return reject('Đường dẫn file không được phép truy cập');
       const ext = path.extname(normalizedInput).toLowerCase();
       if (ext !== '.pdf')              return reject('Chỉ hỗ trợ file PDF (.pdf)');
       if (!fs.existsSync(normalizedInput)) return reject('File không tồn tại: ' + normalizedInput);
@@ -951,7 +953,6 @@ function registerSystemIPC() {
 
   // 7. Khởi chạy công cụ Windows (Device Manager, DxDiag, TaskMgr, ...)
   ipcMain.handle('pctools:launch-external', async (_event, toolKey) => {
-    const { exec } = require('child_process');
     const toolMap = {
       devmgmt: 'devmgmt.msc',
       dxdiag: 'dxdiag.exe',
@@ -1034,7 +1035,6 @@ function registerSystemIPC() {
 
   ipcMain.handle('pctools:manage-user', async (_event, params = {}) => {
     const { action, username, password, newComputerName, isAdmin, active } = params;
-    const { execFile } = require('child_process');
 
     const cleanUser = typeof username === 'string' ? username.trim() : '';
     const cleanPass = typeof password === 'string' ? password : '';
@@ -1318,7 +1318,6 @@ function registerSystemIPC() {
   // 14. Cài đặt app tùy chỉnh (Silent Installer)
   ipcMain.handle('pctools:install-custom-app', async (_event, options = {}) => {
     const { filePath, args = '/S', wingetId } = options;
-    const { execFile } = require('child_process');
 
     if (wingetId) {
       if (typeof wingetId !== 'string' || !/^[a-zA-Z0-9_.-]+$/.test(wingetId.trim())) {
@@ -1503,16 +1502,14 @@ function registerSystemIPC() {
     };
     const cmd = toolMap[toolId];
     if (!cmd) return { ok: false, error: 'Không tìm thấy công cụ yêu cầu' };
-    const { exec } = require('child_process');
-    exec(`start ${cmd}`, (err) => {
-      if (err) console.error('Launch tool error:', err);
+    execFile('cmd.exe', ['/c', 'start', '', cmd], { windowsHide: true }, (err) => {
+      if (err) console.error('[ENGINE] launch-tool error:', err.message);
     });
     return { ok: true, message: `Đã kích hoạt ${cmd}` };
   });
 
   // 19. Kiểm tra bản quyền Windows & Microsoft Office (Thuật toán Thẩm Định Thông Minh Đa Tầng)
   ipcMain.handle('pctools:check-license', async () => {
-    const { exec } = require('child_process');
     const util = require('util');
     const execPromise = util.promisify(exec);
 
@@ -1762,28 +1759,28 @@ function registerSystemIPC() {
   // 21. Điều khiển nguồn: Khởi động thẳng vào BIOS / Hẹn giờ tắt máy
   ipcMain.handle('pctools:power-action', async (_event, payload = {}) => {
     const { action, minutes = 30 } = payload;
-    const { exec } = require('child_process');
 
     if (action === 'reboot-bios') {
-      exec('shutdown /r /fw /t 3', (err) => {
+      execFile('shutdown.exe', ['/r', '/fw', '/t', '3'], (err) => {
         if (err) {
-          exec('shutdown /r /o /t 3');
+          execFile('shutdown.exe', ['/r', '/o', '/t', '3']);
         }
       });
       return { ok: true, message: 'Máy tính sẽ tự khởi động vào màn hình BIOS/UEFI sau 3 giây!' };
     }
 
     if (action === 'schedule-shutdown') {
-      const sec = Math.max(10, Math.floor(minutes * 60));
-      exec(`shutdown /s /t ${sec} /c "DMH Tools: He thong se tu dong tat nguon sau ${minutes} phut."`, (err) => {
-        if (err) console.error(err);
+      const safeMinutes = Math.max(1, Math.min(1440, parseInt(minutes, 10) || 30));
+      const sec = String(safeMinutes * 60);
+      execFile('shutdown.exe', ['/s', '/t', sec, '/c', `DMH Tools: He thong se tu dong tat nguon sau ${safeMinutes} phut.`], (err) => {
+        if (err) console.error('[ENGINE] power-action schedule-shutdown error:', err.message);
       });
-      return { ok: true, message: `Đã thiết lập hẹn giờ tắt máy sau ${minutes} phút (${sec} giây)!` };
+      return { ok: true, message: `Đã thiết lập hẹn giờ tắt máy sau ${safeMinutes} phút (${sec} giây)!` };
     }
 
     if (action === 'cancel-shutdown') {
-      exec('shutdown /a', (err) => {
-        if (err) console.error(err);
+      execFile('shutdown.exe', ['/a'], (err) => {
+        if (err) console.error('[ENGINE] power-action cancel-shutdown error:', err.message);
       });
       return { ok: true, message: 'Đã hủy lệnh hẹn giờ tắt máy thành công!' };
     }
@@ -1907,8 +1904,9 @@ function registerSystemIPC() {
   });
 
   ipcMain.handle('pctools:open-restore-gui', async () => {
-    const { exec } = require('child_process');
-    exec('rstrui.exe');
+    execFile('rstrui.exe', [], { windowsHide: false }, (err) => {
+      if (err) console.error('[ENGINE] open-restore-gui error:', err.message);
+    });
     return { ok: true };
   });
 
@@ -1992,7 +1990,8 @@ function registerSystemIPC() {
   });
 
   ipcMain.handle('pctools:open-file-location', async (_event, filePath) => {
-    if (filePath && fs.existsSync(filePath)) {
+    if (!filePath || !isSafePath(filePath)) return { ok: false, error: 'Đường dẫn không được phép truy cập' };
+    if (fs.existsSync(filePath)) {
       shell.showItemInFolder(filePath);
       return { ok: true };
     }
@@ -2000,7 +1999,8 @@ function registerSystemIPC() {
   });
 
   ipcMain.handle('pctools:delete-file', async (_event, filePath) => {
-    if (filePath && fs.existsSync(filePath)) {
+    if (!filePath || !isSafePath(filePath)) return { ok: false, error: 'Đường dẫn không được phép truy cập' };
+    if (fs.existsSync(filePath)) {
       try {
         await shell.trashItem(filePath);
         return { ok: true, message: 'Đã chuyển tệp tin vào Thùng rác (Recycle Bin) an toàn!' };
