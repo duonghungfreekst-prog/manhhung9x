@@ -64,6 +64,17 @@ function registerLicenseIPC() {
     return getSystemHwid();
   });
 
+  // Xác minh bản quyền chuẩn Asymmetric Ed25519
+  ipcMain.handle('license:verify', async (_event, rawKey) => {
+    try {
+      const hwid = await getSystemHwid();
+      return licenseVault.verifyEd25519LicenseKey(rawKey, hwid);
+    } catch (e) {
+      console.error('[Vault] Lỗi verifyEd25519:', e);
+      return { valid: false, error: e.message };
+    }
+  });
+
   // Quản lý Bản Quyền Bền Vững (Chống Kích Hoạt Lại Khi Xóa App)
   ipcMain.handle('license:check-revocation', async (_event, rawKey) => {
     try {
@@ -93,7 +104,8 @@ function registerLicenseIPC() {
 
   ipcMain.handle('license:save-backup-key', async (_event, rawKey) => {
     try {
-      licenseVault.saveBackupKey(rawKey);
+      const hwid = await getSystemHwid();
+      licenseVault.saveBackupKey(rawKey, hwid);
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e.message };
@@ -102,7 +114,8 @@ function registerLicenseIPC() {
 
   ipcMain.handle('license:get-backup-key', async () => {
     try {
-      const key = licenseVault.getBackupKey();
+      const hwid = await getSystemHwid();
+      const key = licenseVault.getBackupKey(hwid);
       return { ok: true, key };
     } catch (e) {
       return { ok: false, error: e.message, key: null };
@@ -112,15 +125,6 @@ function registerLicenseIPC() {
   ipcMain.handle('license:clear-backup-key', async () => {
     try {
       licenseVault.clearBackupKey();
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e.message };
-    }
-  });
-
-  ipcMain.handle('license:clean-revoked-key', async (_event, rawKey) => {
-    try {
-      licenseVault.cleanRevokedKey(rawKey);
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e.message };

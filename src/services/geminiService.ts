@@ -143,8 +143,8 @@ export class GeminiService {
           }
 
           // Cách 1: Gọi qua Electron IPC Proxy (Node.js backend) - Không bị chặn bởi CORS/CSP
-          if (w?.electronAPI?.invoke) {
-            const proxyRes = await w.electronAPI.invoke('gemini:proxy-generate', { key, model, bodyPayload });
+          if (w?.electronAPI?.gemini?.proxyGenerate) {
+            const proxyRes = await w.electronAPI.gemini.proxyGenerate({ key, model, bodyPayload });
             if (proxyRes?.ok && proxyRes.content) {
               return {
                 ok: true,
@@ -242,8 +242,8 @@ ${additionalNotes ? `\nGhi chú thêm từ người dùng: ${additionalNotes}` :
           };
 
           // Gọi qua Electron IPC Proxy nếu có
-          if (w?.electronAPI?.invoke) {
-            const proxyRes = await w.electronAPI.invoke('gemini:proxy-generate', { key, model, bodyPayload });
+          if (w?.electronAPI?.gemini?.proxyGenerate) {
+            const proxyRes = await w.electronAPI.gemini.proxyGenerate({ key, model, bodyPayload });
             if (proxyRes?.ok && proxyRes.content) {
               return {
                 ok: true,

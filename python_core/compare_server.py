@@ -376,7 +376,18 @@ class CompareHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
+    def _check_auth(self):
+        token = os.environ.get("DMH_SESSION_TOKEN", "")
+        if token:
+            auth = self.headers.get("Authorization", "")
+            if auth != f"Bearer {token}":
+                _send_json(self, 401, {'ok': False, 'error': 'Unauthorized: Yêu cầu Session Token hợp lệ'})
+                return False
+        return True
+
     def do_GET(self):
+        if not self._check_auth():
+            return
         if self.path == '/health':
             _send_json(self, 200, {'ok': True, 'service': 'compare_server', 'port': PORT})
         elif self.path == '/quit':
@@ -390,6 +401,8 @@ class CompareHandler(BaseHTTPRequestHandler):
             _send_json(self, 404, {'ok': False, 'error': 'Not found'})
 
     def do_POST(self):
+        if not self._check_auth():
+            return
         if self.path == '/compare':
             try:
                 length = int(self.headers.get('Content-Length', 0))
@@ -416,6 +429,9 @@ class CompareHandler(BaseHTTPRequestHandler):
             _send_json(self, 404, {'ok': False, 'error': 'Not found'})
 
 def main():
+    global PORT
+    if len(sys.argv) > 1 and sys.argv[1].isdigit():
+        PORT = int(sys.argv[1])
     server = HTTPServer(('127.0.0.1', PORT), CompareHandler)
     logger.info(f"[CompareServer] Khởi động tại http://127.0.0.1:{PORT}")
     logger.info(f"[CompareServer] Endpoint: POST /compare  |  GET /health")

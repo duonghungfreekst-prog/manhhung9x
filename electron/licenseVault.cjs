@@ -202,33 +202,118 @@ function getAppInstanceId(userDataPath) {
   return newId;
 }
 
+const PUBLIC_KEY_SPKI_B64 = 'MCowBQYDK2VwAyEAd+sO1Fu+IKcbWW8fdeXsJf9Taf9cUA7yx1SqLH3Tz5o=';
+
+/**
+ * Xác minh mã bản quyền Ed25519 (Asymmetric - Client Zero-Secret)
+ */
+function verifyEd25519LicenseKey(rawKey, hwid) {
+  try {
+    if (!rawKey || typeof rawKey !== 'string') return { valid: false, error: 'Mã bản quyền rỗng' };
+    const clean = rawKey.trim();
+    if (!clean.startsWith('DMH7-')) return { valid: false, error: 'Định dạng mã bản quyền v7 không hợp lệ' };
+    const parts = clean.substring(5).split('-');
+    if (parts.length < 2) return { valid: false, error: 'Cấu trúc mã bản quyền không đủ thành phần' };
+
+    const payloadBuf = Buffer.from(parts[0], 'base64url');
+    const sigBuf = Buffer.from(parts.slice(1).join('-'), 'base64url');
+
+    const pubKeyObj = crypto.createPublicKey({
+      key: Buffer.from(PUBLIC_KEY_SPKI_B64, 'base64'),
+      format: 'der',
+      type: 'spki'
+    });
+
+    const isSigValid = crypto.verify(null, payloadBuf, pubKeyObj, sigBuf);
+    if (!isSigValid) {
+      return { valid: false, error: 'Chữ ký số Ed25519 không hợp lệ hoặc đã bị chỉnh sửa!' };
+    }
+
+    const payload = JSON.parse(payloadBuf.toString('utf8'));
+    if (payload.hwid && payload.hwid !== 'ALL' && hwid && payload.hwid.toUpperCase() !== hwid.toUpperCase()) {
+      return { valid: false, error: 'Mã bản quyền này được cấp cho máy tính khác (HWID không khớp)!' };
+    }
+
+    if (payload.exp && payload.exp < Date.now()) {
+      return { valid: false, error: 'Mã bản quyền đã hết hạn sử dụng!' };
+    }
+
+    return { valid: true, payload };
+  } catch (err) {
+    return { valid: false, error: 'Lỗi giải mã bản quyền Ed25519: ' + err.message };
+  }
+}
+
+/**
+ * Mã hóa khóa bản quyền cục bộ bằng AES-256-GCM với Key dẫn xuất từ HWID
+ * Đảm bảo file hoặc Registry không chứa plaintext key (chống sao chép sang máy khác)
+ */
+function encryptLicenseWithHwid(rawKey, hwid) {
+  try {
+    const salt = crypto.randomBytes(16);
+    const key = crypto.pbkdf2Sync(hwid || 'DMH_DEFAULT_HWID', salt, 10000, 32, 'sha256');
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    let encrypted = cipher.update(rawKey, 'utf8');
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `ENC:${salt.toString('hex')}:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+  } catch {
+    return rawKey;
+  }
+}
+
+function decryptLicenseWithHwid(encStr, hwid) {
+  if (!encStr || typeof encStr !== 'string') return null;
+  if (!encStr.startsWith('ENC:')) return encStr; // Hỗ trợ tương thích ngược
+  try {
+    const parts = encStr.split(':');
+    if (parts.length < 5) return null;
+    const salt = Buffer.from(parts[1], 'hex');
+    const iv = Buffer.from(parts[2], 'hex');
+    const tag = Buffer.from(parts[3], 'hex');
+    const data = Buffer.from(parts[4], 'hex');
+    const key = crypto.pbkdf2Sync(hwid || 'DMH_DEFAULT_HWID', salt, 10000, 32, 'sha256');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    let decrypted = decipher.update(data);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Lưu chuỗi Key bản quyền dự phòng vào đa tầng (Windows Registry + ProgramData)
- * Đảm bảo khi localStorage bị xóa/dọn rác, app tự phục hồi 100%
+ * Tự động mã hóa AES-256-GCM gắn chặt với HWID máy
  */
-function saveBackupKey(rawKey) {
+function saveBackupKey(rawKey, hwid) {
   if (!rawKey || typeof rawKey !== 'string') return;
   const clean = rawKey.trim();
+  const cipherText = encryptLicenseWithHwid(clean, hwid);
+
   // 1. Lưu Registry HKCU
-  writeRegistryValue('SavedKey', clean);
+  writeRegistryValue('SavedKey', cipherText);
 
   // 2. Lưu ProgramData
   try {
     const vault = loadVaultState();
-    vault.savedKey = clean;
+    vault.savedKey = cipherText;
     saveVaultState(vault);
   } catch {}
 }
 
 /**
- * Đọc chuỗi Key bản quyền dự phòng từ Windows Registry hoặc ProgramData
+ * Đọc chuỗi Key bản quyền dự phòng và tự động giải mã theo HWID máy
  */
-function getBackupKey() {
+function getBackupKey(hwid) {
   // 1. Thử đọc từ Registry HKCU
   try {
     const regKey = readRegistryValue('SavedKey');
     if (regKey && regKey.length >= 16) {
-      return regKey.trim();
+      const dec = decryptLicenseWithHwid(regKey.trim(), hwid);
+      if (dec) return dec;
     }
   } catch {}
 
@@ -236,7 +321,8 @@ function getBackupKey() {
   try {
     const vault = loadVaultState();
     if (vault.savedKey && typeof vault.savedKey === 'string' && vault.savedKey.length >= 16) {
-      return vault.savedKey.trim();
+      const dec = decryptLicenseWithHwid(vault.savedKey.trim(), hwid);
+      if (dec) return dec;
     }
   } catch {}
 
@@ -255,34 +341,6 @@ function clearBackupKey() {
     delete vault.savedKey;
     saveVaultState(vault);
   } catch {}
-}
-
-/**
- * Làm sạch danh sách đen RevokedKeys cho key hợp lệ trên máy tính này
- */
-function cleanRevokedKey(rawKey) {
-  if (!rawKey) return;
-  const kHash = hashKey(rawKey);
-  const vault = loadVaultState();
-  let changed = false;
-
-  if (vault.revokedKeys.includes(kHash)) {
-    vault.revokedKeys = vault.revokedKeys.filter(h => h !== kHash);
-    changed = true;
-  }
-  if (vault.uninstalledAt > 0) {
-    vault.uninstalledAt = 0;
-    changed = true;
-  }
-
-  if (changed) {
-    saveVaultState(vault);
-    try {
-      writeRegistryValue('RevokedKeys', vault.revokedKeys.join(','));
-      writeRegistryValue('UninstalledAt', '0');
-      writeRegistryValue('Status', 'ACTIVE');
-    } catch {}
-  }
 }
 
 /**
@@ -640,5 +698,6 @@ module.exports = {
   saveBackupKey,
   getBackupKey,
   clearBackupKey,
-  cleanRevokedKey,
+  verifyEd25519LicenseKey,
+  PUBLIC_KEY_SPKI_B64,
 };

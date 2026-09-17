@@ -71,21 +71,30 @@ Phiên bản **v7 Enterprise** đánh dấu bước chuyển mình quan trọng 
 ## 4. Bảo Mật & Tiêu Chuẩn Kỹ Thuật Doanh Nghiệp
 
 ### 4.1. Cơ Chế Bản Quyền Chữ Ký Bất Đối Xứng Ed25519
-- **Public-Key Cryptography**: Ứng dụng Client (`DMH_Tools`) chỉ chứa **Public Key** dùng để xác minh tính hợp lệ của giấy phép.
-- **Private Key Isolation**: Khóa bí mật chỉ được lưu trữ an toàn tại máy chủ phát hành / công cụ Quản Trị KeyGen (`DMH_KeyGen_ADMIN.html`). Kẻ tấn công dù có trích xuất toàn bộ mã nguồn cũng không thể giả mạo chữ ký bản quyền.
-- **HWID Locking**: Khóa bản quyền được gắn chặt với Hardware Fingerprint (Mainboard UUID, CPU Serial, Disk Serial).
+- **Public-Key Cryptography (RFC 8410)**: Ứng dụng Client (`DMH_Tools`) chỉ chứa **Public Key** dùng để xác minh tính hợp lệ của giấy phép. Không chứa bất kỳ Secret hay Private Key nào.
+- **Private Key Isolation**: Khóa bí mật ký số chỉ được lưu trữ an toàn tại máy chủ phát hành / công cụ Quản Trị Admin (`scripts/generate_license.cjs`). Kẻ tấn công dù dịch ngược toàn bộ mã nguồn cũng không thể giả mạo chữ ký bản quyền.
+- **HWID Locking**: Khóa bản quyền được gắn chặt với Hardware Fingerprint (Mainboard Serial, CPU ID, UUID).
+- **Lưu trữ Cục Bộ An Toàn**: Chuỗi bản quyền dự phòng được tự động mã hóa bằng **AES-256-GCM** với khóa dẫn xuất trực tiếp từ HWID máy trạm.
 
-### 4.2. Nhật Ký Kiểm Toán (Audit Logging)
+### 4.2. Cơ Sở Dữ Liệu SQLite Chuẩn ACID (Native Zero-Dependency)
+- **Engine**: Sử dụng module tích hợp chuẩn nhân Node.js core **`node:sqlite` (DatabaseSync)**, không phụ thuộc package nhị phân bên ngoài (như `better-sqlite3` hay `sqlite3`), loại bỏ hoàn toàn rủi ro lỗi biên dịch `node-gyp` trên Windows.
+- **WAL Mode (Write-Ahead Logging)**: Hỗ trợ đọc ghi đồng thời cực đại, chống nghẽn I/O khi lưu trữ hàng nghìn khung hình y tế.
+- **Foreign Key Constraints**: Bảo đảm toàn vẹn tham chiếu bệnh nhân - phiên khám - hình ảnh y tế.
+
+### 4.3. Preload An Toàn Tuyệt Đối & Chromium Sandbox
+- **Zero-Backdoor IPC**: Đã loại bỏ 100% hàm generic `electronAPI.invoke()`. Toàn bộ 15 phân hệ đều bắt buộc giao tiếp qua **Typed Namespace** (`electronAPI.his.*`, `electronAPI.endoscopy.*`, `electronAPI.printer.*`, `electronAPI.pctools.*`, v.v.).
+- **Chromium Sandbox Kích Hoạt**: Tất cả các cửa sổ `BrowserWindow` đều thiết lập `sandbox: true`, ngăn chặn mọi mã độc nếu có từ renderer thoát ra hệ điều hành.
+
+### 4.4. Bảo Vệ Python IPC với Dynamic Port & Session Token Bearer Auth
+- **Cổng Động (Dynamic Port Allocation)**: Thay vì cố định cổng (27182, 27183, 27185), ứng dụng tự động cấp phát cổng rảnh ngẫu nhiên khi khởi chạy.
+- **Session Token**: Mã phiên ngẫu nhiên `DMH_SESSION_TOKEN` (32 bytes crypto) được sinh mới mỗi lần mở app. Mọi request HTTP từ Electron sang Python bắt buộc phải có header `Authorization: Bearer <token>`, từ chối 401 với mọi truy cập trái phép.
+
+### 4.5. Xác Thực Chuỗi Tin Cậy (Trust Manifest) Khi Tải Module
+- Mọi gói module tải về hoặc bản cập nhật `.exe` / `.zip` đều được kiểm tra mã băm SHA-256 đối soát và xác thực chữ ký số Ed25519 của nhà phát hành trước khi thực thi hoặc giải nén.
+
+### 4.6. Nhật Ký Kiểm Toán (Audit Logging)
 - Toàn bộ thao tác nhạy cảm (Sửa Registry, Khởi động lại máy chấm công, Cập nhật trạng thái khám bệnh, Nạp License) đều được tự động ghi nhận vào `userData/logs/audit-YYYY-MM-DD.log`.
-- Định dạng chuẩn:
-  ```
-  [2026-09-17T10:30:00.000Z] [USER:ADMIN] [MOD:HIS] [ACT:UPDATE_PATIENT_CALLED] [TARGET:BN00123] [RES:SUCCESS]
-  ```
 - Tự động lọc sạch ký tự `\r`, `\n` để ngăn chặn triệt để tấn công **Log Injection (CRLF)**.
-
-### 4.3. Bảo Vệ Python IPC với Session Token
-- Khi khởi động dịch vụ Python (`endoscopy_server.py`, `xml3176_server.py`, `compare_server.py`), Electron tự động sinh ngẫu nhiên mã phiên bảo mật `DMH_SESSION_TOKEN`.
-- Cổng HTTP nội bộ (27182, 27183, 27185) được bảo vệ, ngăn chặn mã độc bên ngoài máy local gửi lệnh can thiệp.
 
 ---
 

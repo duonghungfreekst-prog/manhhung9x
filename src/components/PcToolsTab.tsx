@@ -1196,7 +1196,7 @@ export function PcToolsTab() {
   const handleFetchSavedWifi = async () => {
     setIsLoadingWifi(true);
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:get-saved-wifi');
+      const res = await (window as any).electronAPI?.pcTools?.getSavedWifi();
       if (res?.ok && Array.isArray(res.data)) {
         setSavedWifiList(res.data);
       } else {
@@ -1220,7 +1220,7 @@ export function PcToolsTab() {
     setIsFixingNet(true);
     setNetFixStatus(null);
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:network-fix');
+      const res = await (window as any).electronAPI?.pcTools?.networkFix();
       setNetFixStatus(res?.message || (res?.ok ? 'Đã đặt lại mạng thành công!' : 'Có lỗi khi đặt lại mạng'));
     } catch (err: any) {
       setNetFixStatus('Lỗi: ' + (err?.message || 'Không thể thực thi'));
@@ -1233,7 +1233,7 @@ export function PcToolsTab() {
     setIsFixingPrinter(true);
     setPrinterFixStatus(null);
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:fix-lan-printer');
+      const res = await (window as any).electronAPI?.pcTools?.fixLanPrinter();
       setPrinterFixStatus(res?.message || (res?.ok ? 'Đã sửa lỗi máy in mạng LAN thành công!' : 'Có lỗi khi sửa lỗi'));
     } catch (err: any) {
       setPrinterFixStatus('Lỗi: ' + (err?.message || 'Không thể thực thi'));
@@ -1244,7 +1244,7 @@ export function PcToolsTab() {
 
   const handleLaunchWinTool = async (toolId: string) => {
     try {
-      await (window as any).electronAPI?.invoke('pctools:launch-win-tool', toolId);
+      await (window as any).electronAPI?.pcTools?.launchWinTool(toolId);
     } catch (err) {
       console.error('Failed to launch tool', err);
     }
@@ -1490,7 +1490,7 @@ export function PcToolsTab() {
   const handleCheckLicense = async () => {
     setIsLoadingLicense(true);
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:check-license');
+      const res = await (window as any).electronAPI?.pcTools?.checkLicense();
       if (res?.ok && res.data) {
         setLicenseData(res.data);
       }
@@ -1593,7 +1593,7 @@ export function PcToolsTab() {
     setIsBackingUpDrivers(true);
     setBackupDriverMsg(null);
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:backup-drivers');
+      const res = await (window as any).electronAPI?.pcTools?.backupDrivers();
       if (res?.ok) {
         setBackupDriverDir(res.targetDir);
         setBackupDriverMsg(res.message || `Đã sao lưu thành công vào ${res.targetDir}`);
@@ -1620,7 +1620,7 @@ export function PcToolsTab() {
       if (!confirmed) return;
     }
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:power-action', { action, minutes });
+      const res = await (window as any).electronAPI?.pcTools?.powerAction( { action, minutes });
       setPowerMsg(res?.message || 'Đã thực hiện lệnh thành công!');
       showToast.info(res?.message || 'Đã thực hiện lệnh nguồn thành công!');
       setTimeout(() => setPowerMsg(null), 5000);
@@ -1634,7 +1634,7 @@ export function PcToolsTab() {
   const handleGetOemKey = async () => {
     setIsLoadingOemKey(true);
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:get-oem-key');
+      const res = await (window as any).electronAPI?.pcTools?.getOemKey();
       if (res?.ok && res.data) {
         setOemKeyData(res.data);
       }
@@ -1649,7 +1649,7 @@ export function PcToolsTab() {
   const handleScanLan = async () => {
     setIsScanningLan(true);
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:scan-lan');
+      const res = await (window as any).electronAPI?.pcTools?.scanLan();
       if (res?.ok && Array.isArray(res.devices)) {
         setLanDevices(res.devices);
       }
@@ -1664,7 +1664,7 @@ export function PcToolsTab() {
   const handleGetRestorePoints = async () => {
     setIsLoadingRestore(true);
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:get-restore-points');
+      const res = await (window as any).electronAPI?.pcTools?.getRestorePoints();
       if (res?.ok && Array.isArray(res.data)) {
         setRestorePoints(res.data);
       }
@@ -1680,7 +1680,7 @@ export function PcToolsTab() {
     setIsCreatingRestore(true);
     setRestoreStatusMsg('Đang tạo điểm khôi phục hệ thống...');
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:create-restore-point', newRestoreDesc.trim());
+      const res = await (window as any).electronAPI?.pcTools?.createRestorePoint( newRestoreDesc.trim());
       setRestoreStatusMsg(res?.message || 'Đã tạo điểm phục hồi thành công!');
       handleGetRestorePoints();
       setTimeout(() => setRestoreStatusMsg(null), 5000);
@@ -1693,7 +1693,7 @@ export function PcToolsTab() {
 
   const handleOpenRestoreGui = async () => {
     try {
-      await (window as any).electronAPI?.invoke('pctools:open-restore-gui');
+      await (window as any).electronAPI?.pcTools?.openRestoreGui();
     } catch (e: any) {
       showAlert({
         title: 'System Restore GUI',
@@ -1707,7 +1707,7 @@ export function PcToolsTab() {
   const handleGetStartupApps = async () => {
     setIsLoadingStartup(true);
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:get-startup-apps');
+      const res = await (window as any).electronAPI?.pcTools?.getStartupApps();
       if (res?.ok && Array.isArray(res.apps)) {
         setStartupApps(res.apps);
       }
@@ -1728,7 +1728,7 @@ export function PcToolsTab() {
     });
     if (!confirmed) return;
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:remove-startup-app', { name, scope });
+      const res = await (window as any).electronAPI?.pcTools?.removeStartupApp( { name, scope });
       setStartupStatusMsg(res?.message || `Đã xóa ${name}`);
       showToast.success(res?.message || `Đã xóa ${name} khỏi khởi động Windows!`);
       handleGetStartupApps();
@@ -1744,7 +1744,7 @@ export function PcToolsTab() {
     setIsScanningLargeFiles(true);
     setLargeFileMsg(null);
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:scan-large-files');
+      const res = await (window as any).electronAPI?.pcTools?.scanLargeFiles();
       if (res?.ok && Array.isArray(res.files)) {
         setLargeFiles(res.files);
         if (res.files.length === 0) {
@@ -1768,7 +1768,7 @@ export function PcToolsTab() {
 
   const handleOpenFileLocation = async (filePath: string) => {
     try {
-      await (window as any).electronAPI?.invoke('pctools:open-file-location', filePath);
+      await (window as any).electronAPI?.pcTools?.openFileLocation( filePath);
     } catch (e: any) {
       console.error(e);
     }
@@ -1784,7 +1784,7 @@ export function PcToolsTab() {
     });
     if (!confirmed) return;
     try {
-      const res = await (window as any).electronAPI?.invoke('pctools:delete-file', filePath);
+      const res = await (window as any).electronAPI?.pcTools?.deleteFile( filePath);
       if (res?.ok) {
         setLargeFiles(prev => prev.filter(f => f.FullName !== filePath));
         setLargeFileMsg(`✓ ${res.message}`);
@@ -2242,6 +2242,7 @@ export function PcToolsTab() {
         if (typeof removeListener === 'function') removeListener();
       };
     }
+    return undefined;
   }, []);
 
   // ── Launch Tools ──

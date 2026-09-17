@@ -17,9 +17,18 @@ process.on('unhandledRejection', (reason) => {
   console.error('[CRASH_GUARD] Đã bắt unhandledRejection:', reason);
 });
 
-// ── GPU Crash Guard & Windows Elevation Compatibility ───────────────────────
-app.commandLine.appendSwitch('disable-gpu-sandbox');
-app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
+// ── GPU Crash Guard & Dynamic Compatibility ─────────────────────────────────
+if (process.argv.includes('--compatibility-mode') || process.argv.includes('--fallback-gpu')) {
+  console.log('[MAIN] Khởi động với chế độ GPU Compatibility Fallback.');
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+  app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
+}
+
+app.on('child-process-gone', (_event, details) => {
+  if (details.type === 'GPU') {
+    console.warn('[GPU_GUARD] GPU process gặp sự cố:', details.reason, '- App tự động điều tiết.');
+  }
+});
 
 // ── Single Instance Lock: Ngăn chặn chạy đè nhiều bản sao ứng dụng ─────────
 const gotTheLock = app.requestSingleInstanceLock();

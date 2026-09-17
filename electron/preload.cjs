@@ -35,8 +35,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getInstanceId: () => ipcRenderer.invoke('license:get-instance-id'),
   },
 
+  gemini: {
+    proxyGenerate: (payload) => ipcRenderer.invoke('gemini:proxy-generate', payload),
+  },
+
   // ── Existing & Legacy Compatibility ──────────────────────────────────────
-  invoke:           (channel, ...args) => ipcRenderer.invoke(channel, ...args),
   convertPdfNative: (inputPath) => ipcRenderer.invoke('convert-pdf', inputPath),
   htmlToPdf:        (options)   => ipcRenderer.invoke('html-to-pdf', options),
   getHWID:          ()          => ipcRenderer.invoke('system:get-hwid'),
@@ -49,7 +52,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveBackupKey:          (rawKey) => ipcRenderer.invoke('license:save-backup-key', rawKey),
   getBackupKey:           ()       => ipcRenderer.invoke('license:get-backup-key'),
   clearBackupKey:         ()       => ipcRenderer.invoke('license:clear-backup-key'),
-  cleanRevokedKey:        (rawKey) => ipcRenderer.invoke('license:clean-revoked-key', rawKey),
 
   // ── Nội Soi AI 4K (Local Database & IPC) ──────────────────────────────────
   getDbStats:   ()           => ipcRenderer.invoke('endoscopy:db-stats'),
@@ -194,7 +196,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     selectInfFile:         () => ipcRenderer.invoke('pctools:select-inf-file'),
     installDriverInf:      (infPath) => ipcRenderer.invoke('pctools:install-driver-inf', infPath),
     restartNetworkAdapter: () => ipcRenderer.invoke('pctools:restart-network-adapter'),
+    getSavedWifi:          () => ipcRenderer.invoke('pctools:get-saved-wifi'),
+    networkFix:            () => ipcRenderer.invoke('pctools:network-fix'),
+    fixLanPrinter:         () => ipcRenderer.invoke('pctools:fix-lan-printer'),
+    launchWinTool:         (toolId) => ipcRenderer.invoke('pctools:launch-win-tool', toolId),
+    checkLicense:          () => ipcRenderer.invoke('pctools:check-license'),
+    powerAction:           (params) => ipcRenderer.invoke('pctools:power-action', params),
   },
+
+  // Alias pctools (lowercase) đồng bộ chuẩn namespace Enterprise
+  get pctools() { return this.pcTools; },
 
   // ── DMH Modular On-Demand Suite ───────────────────────────────────────────
   modules: {

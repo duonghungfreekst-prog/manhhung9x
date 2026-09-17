@@ -34,7 +34,7 @@ function createMainWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       preload: path.join(__dirname, '../preload.cjs'),
     },
     backgroundColor: '#f0fdf4',
@@ -173,7 +173,7 @@ function createFloatWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       preload: path.join(__dirname, '../preload-float.cjs'),
     },
   });
@@ -225,7 +225,7 @@ function openQueueDisplay(options) {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       preload: path.join(__dirname, '../preload-queue.cjs'),
     },
     autoHideMenuBar: true,

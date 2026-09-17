@@ -1696,8 +1696,6 @@ export default function PrinterTab() {
       let fixRes: any = null;
       if (w.electronAPI?.printer?.unlockIpc) {
         fixRes = await w.electronAPI.printer.unlockIpc({ host: cleanH });
-      } else if (w.electronAPI?.invoke) {
-        fixRes = await w.electronAPI.invoke('printer:unlock-ipc', { host: cleanH });
       } else if (w.electronAPI?.printer?.fixError0x40) {
         fixRes = await w.electronAPI.printer.fixError0x40({ host: cleanH });
       } else {

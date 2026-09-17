@@ -2689,6 +2689,28 @@ function registerSystemIPC() {
           }
         }
 
+        // Xác minh Chữ ký số Ed25519 của nhà phát hành tin cậy (nếu có chữ ký đính kèm)
+        if (expectedSignature && typeof expectedSignature === 'string') {
+          const fileBuf = fs.readFileSync(destExe);
+          const { PUBLIC_KEY_SPKI_B64 } = require('../licenseVault.cjs');
+          try {
+            const pubKeyObj = crypto.createPublicKey({
+              key: Buffer.from(PUBLIC_KEY_SPKI_B64, 'base64'),
+              format: 'der',
+              type: 'spki'
+            });
+            const sigBuf = Buffer.from(expectedSignature, 'base64url');
+            const isSigValid = crypto.verify(null, fileBuf, pubKeyObj, sigBuf);
+            if (!isSigValid) {
+              try { fs.unlinkSync(destExe); } catch {}
+              return { ok: false, error: 'Chữ ký số Ed25519 của bộ cài đặt không hợp lệ! Từ chối thực thi để bảo vệ hệ thống.' };
+            }
+          } catch (sigErr) {
+            try { fs.unlinkSync(destExe); } catch {}
+            return { ok: false, error: 'Lỗi xác minh chữ ký số của nhà phát hành: ' + sigErr.message };
+          }
+        }
+
         console.log(`[UPDATE] Tải hoàn tất bộ cài đặt: ${destExe}`);
         return { ok: true, installerPath: destExe, message: 'Đã tải xong bộ cài đặt cập nhật an toàn!' };
       }
@@ -2709,6 +2731,16 @@ function registerSystemIPC() {
           }
         } catch {}
       });
+
+      // Kiểm tra tính toàn vẹn SHA-256 của gói ZIP trước khi giải nén
+      if (expectedSha256 && typeof expectedSha256 === 'string' && expectedSha256.trim().length >= 32) {
+        const fileBuf = fs.readFileSync(tempZip);
+        const actualHash = crypto.createHash('sha256').update(fileBuf).digest('hex').toLowerCase();
+        if (actualHash !== expectedSha256.trim().toLowerCase()) {
+          try { fs.unlinkSync(tempZip); } catch {}
+          return { ok: false, error: 'Mã băm SHA-256 của gói module không khớp! Đã hủy cài đặt.' };
+        }
+      }
 
       console.log(`[MODULE] Đang giải nén an toàn ${tempZip} vào ${modFolder}`);
 

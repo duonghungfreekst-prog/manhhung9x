@@ -8,13 +8,33 @@ const { logAudit } = require('../security/auditLogger.cjs');
 
 const isDev = app ? !app.isPackaged : true;
 
+const net = require('net');
+
 // DMH Session Token bảo vệ cổng Python IPC chống Malware local
 const DMH_SESSION_TOKEN = crypto.randomBytes(32).toString('hex');
 
-// Port cấu hình cho các dịch vụ Python
-const ENDOSCOPY_PORT = 27182;
-const XML3176_PORT   = 27183;
-const COMPARE_PORT   = 27185;
+// Hàm tìm cổng rảnh tự động (Dynamic Port Allocation)
+function getAvailablePort(preferredPort) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.listen(preferredPort || 0, '127.0.0.1', () => {
+      const port = srv.address().port;
+      srv.close(() => resolve(port));
+    });
+    srv.on('error', () => {
+      const fallbackSrv = net.createServer();
+      fallbackSrv.listen(0, '127.0.0.1', () => {
+        const altPort = fallbackSrv.address().port;
+        fallbackSrv.close(() => resolve(altPort));
+      });
+    });
+  });
+}
+
+// Cổng được cấp phát động cho từng phiên chạy
+let _endoscopyPort = null;
+let _xml3176Port   = null;
+let _comparePort   = null;
 
 let _pythonProc    = null;
 let _serverStatus  = 'stopped';
@@ -65,29 +85,34 @@ function getBundledPythonExe() {
   return process.platform === 'win32' ? 'python' : 'python3';
 }
 
-// ── Endoscopy Server (27182) ──────────────────────────────────────────────────
-function getEndoscopyCommand() {
+// ── Endoscopy Server (Dynamic Port) ──────────────────────────────────────────
+function getEndoscopyCommand(port) {
+  const targetPort = port || _endoscopyPort || 27182;
   const modExe = resolveAssetPath('python_core/endoscopy_server/endoscopy_server.exe');
   if (fs.existsSync(modExe)) {
-    return { exe: modExe, args: [String(ENDOSCOPY_PORT)], cwd: path.dirname(modExe) };
+    return { exe: modExe, args: [String(targetPort)], cwd: path.dirname(modExe) };
   }
   if (!isDev) {
     const bundledExe = path.join(process.resourcesPath, 'python_core', 'endoscopy_server', 'endoscopy_server.exe');
-    if (fs.existsSync(bundledExe)) return { exe: bundledExe, args: [String(ENDOSCOPY_PORT)], cwd: path.dirname(bundledExe) };
+    if (fs.existsSync(bundledExe)) return { exe: bundledExe, args: [String(targetPort)], cwd: path.dirname(bundledExe) };
   }
   const pyExe = process.platform === 'win32' ? 'python' : 'python3';
   const script = path.join(__dirname, '../../python_core/endoscopy_server.py');
-  return { exe: pyExe, args: [script, String(ENDOSCOPY_PORT)], cwd: path.dirname(script) };
+  return { exe: pyExe, args: [script, String(targetPort)], cwd: path.dirname(script) };
 }
 
-function startPythonServer() {
+async function startPythonServer() {
   if (_pythonProc && !_pythonProc.killed) {
-    return Promise.resolve({ ok: true, status: _serverStatus });
+    return { ok: true, status: _serverStatus, port: _endoscopyPort };
+  }
+
+  if (!_endoscopyPort) {
+    _endoscopyPort = await getAvailablePort(27182);
   }
 
   return new Promise((resolve) => {
     _serverStatus = 'starting';
-    const { exe, args, cwd } = getEndoscopyCommand();
+    const { exe, args, cwd } = getEndoscopyCommand(_endoscopyPort);
     _pythonProc = spawn(exe, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd,
@@ -97,11 +122,11 @@ function startPythonServer() {
     let resolved = false;
     _pythonProc.stdout.on('data', (data) => {
       const msg = data.toString();
-      if (!resolved && (msg.includes('khởi động') || msg.includes('IPC Server'))) {
+      if (!resolved && (msg.includes('khởi động') || msg.includes('IPC Server') || msg.includes('http://'))) {
         _serverStatus = 'running';
         resolved = true;
-        logAudit('python', 'START_ENDOSCOPY_SERVER', `port:${ENDOSCOPY_PORT}`, 'SUCCESS');
-        resolve({ ok: true, status: 'running', port: ENDOSCOPY_PORT });
+        logAudit('python', 'START_ENDOSCOPY_SERVER', `port:${_endoscopyPort}`, 'SUCCESS');
+        resolve({ ok: true, status: 'running', port: _endoscopyPort });
       }
     });
 
@@ -116,7 +141,7 @@ function startPythonServer() {
         resolved = true;
         if (_serverStatus === 'starting') {
           _serverStatus = 'running';
-          resolve({ ok: true, status: 'running', port: ENDOSCOPY_PORT });
+          resolve({ ok: true, status: 'running', port: _endoscopyPort });
         }
       }
     }, 15000);
@@ -140,26 +165,32 @@ function stopPythonServer() {
   });
 }
 
-// ── XML3176 Server (27183) ────────────────────────────────────────────────────
-function getXml3176Command() {
+// ── XML3176 Server (Dynamic Port) ────────────────────────────────────────────
+function getXml3176Command(port) {
+  const targetPort = port || _xml3176Port || 27183;
   const modExe = resolveAssetPath('python_core/xml3176_server/xml3176_server.exe');
   if (fs.existsSync(modExe)) {
-    return { exe: modExe, args: [String(XML3176_PORT)], cwd: path.dirname(modExe) };
+    return { exe: modExe, args: [String(targetPort)], cwd: path.dirname(modExe) };
   }
   if (!isDev) {
     const bundledExe = path.join(process.resourcesPath, 'python_core', 'xml3176_server', 'xml3176_server.exe');
-    if (fs.existsSync(bundledExe)) return { exe: bundledExe, args: [String(XML3176_PORT)], cwd: path.dirname(bundledExe) };
+    if (fs.existsSync(bundledExe)) return { exe: bundledExe, args: [String(targetPort)], cwd: path.dirname(bundledExe) };
   }
   const pyExe = process.platform === 'win32' ? 'python' : 'python3';
   const script = path.join(__dirname, '../../python_core/xml3176_server.py');
-  return { exe: pyExe, args: [script, String(XML3176_PORT)], cwd: path.dirname(script) };
+  return { exe: pyExe, args: [script, String(targetPort)], cwd: path.dirname(script) };
 }
 
-function startXml3176Server() {
-  if (_xml3176Proc && !_xml3176Proc.killed) return Promise.resolve({ ok: true, status: _xml3176Status });
+async function startXml3176Server() {
+  if (_xml3176Proc && !_xml3176Proc.killed) return { ok: true, status: _xml3176Status, port: _xml3176Port };
+
+  if (!_xml3176Port) {
+    _xml3176Port = await getAvailablePort(27183);
+  }
+
   return new Promise((resolve) => {
     _xml3176Status = 'starting';
-    const { exe, args, cwd } = getXml3176Command();
+    const { exe, args, cwd } = getXml3176Command(_xml3176Port);
     _xml3176Proc = spawn(exe, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd,
@@ -168,11 +199,11 @@ function startXml3176Server() {
     let resolved = false;
     _xml3176Proc.stdout.on('data', (data) => {
       const msg = data.toString();
-      if (!resolved && (msg.includes('khởi động') || msg.includes('HTTP Server'))) {
+      if (!resolved && (msg.includes('khởi động') || msg.includes('HTTP Server') || msg.includes('http://'))) {
         _xml3176Status = 'running';
         resolved = true;
-        logAudit('python', 'START_XML3176_SERVER', `port:${XML3176_PORT}`, 'SUCCESS');
-        resolve({ ok: true, status: 'running', port: XML3176_PORT });
+        logAudit('python', 'START_XML3176_SERVER', `port:${_xml3176Port}`, 'SUCCESS');
+        resolve({ ok: true, status: 'running', port: _xml3176Port });
       }
     });
     _xml3176Proc.on('exit', () => { _xml3176Status = 'stopped'; _xml3176Proc = null; });
@@ -185,7 +216,7 @@ function startXml3176Server() {
         resolved = true;
         if (_xml3176Status === 'starting') {
           _xml3176Status = 'running';
-          resolve({ ok: true, status: 'running', port: XML3176_PORT });
+          resolve({ ok: true, status: 'running', port: _xml3176Port });
         }
       }
     }, 15000);
@@ -205,36 +236,48 @@ function stopXml3176Server() {
   });
 }
 
-// ── Compare Server (27185) ────────────────────────────────────────────────────
-function getCompareCommand() {
+// ── Compare Server (Dynamic Port) ────────────────────────────────────────────
+function getCompareCommand(port) {
+  const targetPort = port || _comparePort || 27185;
   const modExe = resolveAssetPath('python_core/compare_server/compare_server.exe');
   if (fs.existsSync(modExe)) {
-    return { exe: modExe, args: [], cwd: path.dirname(modExe) };
+    return { exe: modExe, args: [String(targetPort)], cwd: path.dirname(modExe) };
   }
   if (!isDev) {
     const exePath = path.join(process.resourcesPath, 'python_core', 'compare_server', 'compare_server.exe');
-    return { exe: exePath, args: [], cwd: path.dirname(exePath) };
+    return { exe: exePath, args: [String(targetPort)], cwd: path.dirname(exePath) };
   } else {
     const pyExe = getBundledPythonExe();
     const script = path.join(__dirname, '../../python_core/compare_server.py');
-    return { exe: pyExe, args: [script], cwd: path.dirname(script) };
+    return { exe: pyExe, args: [script, String(targetPort)], cwd: path.dirname(script) };
   }
 }
 
 async function startCompareServer() {
-  if (_compareProc && !_compareProc.killed) return { ok: true, status: _compareStatus, port: COMPARE_PORT };
+  if (_compareProc && !_compareProc.killed) return { ok: true, status: _compareStatus, port: _comparePort };
+
+  if (!_comparePort) {
+    _comparePort = await getAvailablePort(27185);
+  }
 
   try {
     await new Promise(r => {
-      const req = http.get(`http://127.0.0.1:${COMPARE_PORT}/quit`, () => r());
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port: _comparePort,
+        path: '/quit',
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${DMH_SESSION_TOKEN}` }
+      }, () => r());
       req.on('error', () => r());
       req.setTimeout(1000, () => { req.destroy(); r(); });
+      req.end();
     });
     await new Promise(r => setTimeout(r, 500));
   } catch (e) {}
 
   _compareStatus = 'starting';
-  const { exe, args, cwd } = getCompareCommand();
+  const { exe, args, cwd } = getCompareCommand(_comparePort);
   _compareProc = spawn(exe, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
     cwd,
@@ -245,11 +288,11 @@ async function startCompareServer() {
     let resolved = false;
     _compareProc.stdout.on('data', (data) => {
       const msg = data.toString();
-      if (!resolved && (msg.includes('27185') || msg.includes('compare') || msg.includes('health'))) {
+      if (!resolved && (msg.includes('Khởi động') || msg.includes('compare') || msg.includes('health') || msg.includes('http://'))) {
         _compareStatus = 'running';
         resolved = true;
-        logAudit('python', 'START_COMPARE_SERVER', `port:${COMPARE_PORT}`, 'SUCCESS');
-        resolve({ ok: true, status: 'running', port: COMPARE_PORT });
+        logAudit('python', 'START_COMPARE_SERVER', `port:${_comparePort}`, 'SUCCESS');
+        resolve({ ok: true, status: 'running', port: _comparePort });
       }
     });
     _compareProc.on('exit', () => { _compareStatus = 'stopped'; _compareProc = null; });
@@ -258,7 +301,7 @@ async function startCompareServer() {
       if (!resolved) { resolved = true; resolve({ ok: false, error: err.message }); }
     });
     setTimeout(() => {
-      if (!resolved) { resolved = true; _compareStatus = 'running'; resolve({ ok: true, status: 'running', port: COMPARE_PORT }); }
+      if (!resolved) { resolved = true; _compareStatus = 'running'; resolve({ ok: true, status: 'running', port: _comparePort }); }
     }, 5000);
   });
 }
@@ -267,9 +310,16 @@ function stopCompareServer() {
   return new Promise((resolve) => {
     if (!_compareProc || _compareProc.killed) { _compareStatus = 'stopped'; resolve({ ok: true }); return; }
     try {
-      const req = http.get(`http://127.0.0.1:${COMPARE_PORT}/quit`, () => {});
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port: _comparePort || 27185,
+        path: '/quit',
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${DMH_SESSION_TOKEN}` }
+      }, () => {});
       req.on('error', () => {});
       req.setTimeout(1000, () => { req.destroy(); });
+      req.end();
     } catch (e) {}
     setTimeout(() => {
       if (_compareProc && !_compareProc.killed) { _compareProc.kill('SIGKILL'); }
@@ -292,15 +342,15 @@ async function stopAllPythonServers() {
 function registerPythonIPC() {
   ipcMain.handle('endoscopy:start-server', async () => startPythonServer());
   ipcMain.handle('endoscopy:stop-server', async () => stopPythonServer());
-  ipcMain.handle('endoscopy:server-status', async () => ({ status: _serverStatus, port: ENDOSCOPY_PORT }));
+  ipcMain.handle('endoscopy:server-status', async () => ({ status: _serverStatus, port: _endoscopyPort || 27182 }));
 
   ipcMain.handle('xml3176:start-server', async () => startXml3176Server());
   ipcMain.handle('xml3176:stop-server', async () => stopXml3176Server());
-  ipcMain.handle('xml3176:server-status', async () => ({ status: _xml3176Status, port: XML3176_PORT }));
+  ipcMain.handle('xml3176:server-status', async () => ({ status: _xml3176Status, port: _xml3176Port || 27183 }));
 
   ipcMain.handle('compare:start-server', async () => startCompareServer());
   ipcMain.handle('compare:stop-server', async () => stopCompareServer());
-  ipcMain.handle('compare:server-status', async () => ({ status: _compareStatus, port: COMPARE_PORT }));
+  ipcMain.handle('compare:server-status', async () => ({ status: _compareStatus, port: _comparePort || 27185 }));
 
   // Hàm kiểm tra tệp hợp lệ cho phân hệ đối chiếu hồ sơ (Chống Path Traversal & DoS)
   function isAllowedCompareFile(filePath) {
@@ -333,9 +383,13 @@ function registerPythonIPC() {
       const body = JSON.stringify({ portalFile: portalB64, internalFile: internalB64 });
       return await new Promise((resolve, reject) => {
         const req = http.request({
-          hostname: '127.0.0.1', port: COMPARE_PORT, path: '/compare',
+          hostname: '127.0.0.1', port: _comparePort || 27185, path: '/compare',
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${DMH_SESSION_TOKEN}`,
+            'Content-Length': Buffer.byteLength(body)
+          },
         }, (res) => {
           let data = '';
           res.on('data', chunk => data += chunk);
@@ -361,7 +415,13 @@ function registerPythonIPC() {
       await new Promise((res) => {
         let elapsed = 0;
         const check = () => {
-          const req = http.get(`http://127.0.0.1:${COMPARE_PORT}/health`, (r) => {
+          const req = http.request({
+            hostname: '127.0.0.1',
+            port: _comparePort || 27185,
+            path: '/health',
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${DMH_SESSION_TOKEN}` }
+          }, (r) => {
             r.resume();
             if (r.statusCode < 500) return res(true);
             elapsed += 100;
@@ -374,15 +434,20 @@ function registerPythonIPC() {
             setTimeout(check, 100);
           });
           req.setTimeout(90, () => { req.destroy(); });
+          req.end();
         };
         check();
       });
       const body = JSON.stringify({ portalFile: portalB64, internalFile: internalB64 });
       return await new Promise((resolve, reject) => {
         const req = http.request({
-          hostname: '127.0.0.1', port: COMPARE_PORT, path: '/compare',
+          hostname: '127.0.0.1', port: _comparePort || 27185, path: '/compare',
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${DMH_SESSION_TOKEN}`,
+            'Content-Length': Buffer.byteLength(body)
+          },
         }, (res) => {
           let data = '';
           res.on('data', chunk => data += chunk);

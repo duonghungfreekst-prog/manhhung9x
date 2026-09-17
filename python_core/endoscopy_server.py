@@ -104,6 +104,14 @@ class EndoscopyHandler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
     def _route(self, method: str, path: str):
+        import os
+        expected_token = os.environ.get("DMH_SESSION_TOKEN", "")
+        if expected_token:
+            auth = self.headers.get("Authorization", "")
+            if auth != f"Bearer {expected_token}":
+                self._json_response({"error": "Unauthorized: Yêu cầu Session Token hợp lệ từ DMH_Tools Electron"}, 401)
+                return
+
         parsed = urlparse(path)
         route  = parsed.path.rstrip("/")
         qs     = parse_qs(parsed.query)
