@@ -1,6 +1,6 @@
-# 📘 HƯỚNG DẪN SỬ DỤNG DMH_TOOLS v6.9.4
+# 📘 HƯỚNG DẪN SỬ DỤNG DMH_TOOLS v6.9.13
 
-DMH_Tools v6.9.4 là bộ công cụ chuyên dụng hỗ trợ xử lý dữ liệu hồ sơ, cứu hộ máy in toàn diện (đặc trị triệt để lỗi 0x00000709, 0x0000011b, 0x00000040), tích hợp AI y tế và quản lý hàng đợi phòng khám.
+DMH_Tools v6.9.13 là bộ công cụ chuyên dụng hỗ trợ xử lý dữ liệu hồ sơ, cứu hộ máy in toàn diện (đặc trị triệt để lỗi 0x00000709, 0x0000011b, 0x00000040), tích hợp AI y tế, ký số XML USB Token, máy chấm công và quản lý hàng đợi phòng khám.
 
 ---
 
@@ -142,19 +142,51 @@ Hoặc trong thư mục cài đặt: `resources\scripts\install_tts.bat`
 
 ---
 
-## 🛠 9. SỬA FILE
+## 🔐 11. KÝ SỐ XML & XÁC THỰC CHỮ KÝ SỐ (USB TOKEN)
 
-*Dùng khi mở file Excel hoặc XML bị báo lỗi "Corrupted".*
-1. Tải file bị lỗi vào.
-2. Chọn thuật toán sửa chữa.
-3. Bấm tải xuống file đã phục hồi.
+*Hỗ trợ ký số hàng loạt hồ sơ XML chuẩn QĐ 130/QĐ-BYT, QĐ 3176, CV 4210 và xác thực chữ ký số XMLDSig Enveloped.*
+
+1. **Chuẩn bị:** Cắm USB Token chứng thư số vào máy tính (VNPT-CA, Viettel-CA, BKAV, FPT, SmartCA, MISA...). Mở tab **Ký Số XML**.
+2. **Chọn chứng thư:** Hệ thống tự động quét Windows Certificate Store. Chọn chứng thư số của bác sĩ hoặc cơ sở khám chữa bệnh từ danh sách.
+3. **Chọn thẻ ký:** Mặc định là `<CHUKYDONVI>` theo chuẩn Quyết định 130/QĐ-BYT, hoặc chọn `<CHUKYBACSI>` hoặc `ROOT`.
+4. **Tải tệp XML:** Bấm **[+ Thêm Tệp XML]** hoặc kéo thả hàng loạt file XML hồ sơ vào danh sách.
+5. **Ký hàng loạt:** Nhấn **[▶ BẮT ĐẦU KÝ SỐ]**. Hệ thống thực hiện ký Enveloped XMLDSig lần lượt từng tệp, hiển thị thanh tiến độ thời gian thực.
+6. **Tải về kết quả:** Nhấn biểu tượng Download để tải từng tệp hoặc bấm **[Tải Về Tất Cả (.zip)]** để xuất file nén trọn bộ.
+7. **Kiểm tra / Xác thực chữ ký:** Chuyển sang tab **[Kiểm Tra / Xác Thực Chữ Ký]**, kéo thả tệp XML bất kỳ vào để kiểm tra ngay tính hợp lệ, tên người ký (Subject), nhà cấp chứng thực (Issuer), số Serial và chứng minh dữ liệu hồ sơ không bị can thiệp sau khi ký.
+
+---
+
+## 📑 12. ĐỐI CHIẾU BẢNG KÊ 01/BH (XML 3176)
+
+1. Tải lên tệp XML chuẩn QĐ 3176.
+2. Hệ thống bóc tách tự động dữ liệu 12 bảng XML (XML1 đến XML12) trên bộ nhớ RAM tốc độ cao.
+3. Nhấn **[Xuất Excel 01BH]** để kết xuất báo cáo đa sheet chuẩn Bộ Y Tế.
 
 ---
 
-## 🤖 10. SELF-BUILT 01 (Cấu trúc XML)
+## 🧮 13. TRA CỨU & TẠO CÔNG THỨC OFFICE
 
-1. Tải 1 file XML lên để phần mềm vẽ cây cấu trúc thư mục (Tree View).
-2. Chỉnh sửa trực tiếp từng thẻ (Tag) và lưu lại chuẩn format Bộ Y Tế.
+1. Tải file Excel hoặc CSV cần tính toán số liệu.
+2. Chọn nghiệp vụ: Tính toán thống kê (SUM, AVG, MIN, MAX), Thống kê có điều kiện (SUMIF, COUNTIF, Pivot theo nhóm), Logic IF, Xử lý chuỗi (chuẩn hóa họ tên Tiếng Việt, loại bỏ dấu), Xử lý ngày tháng (tính tuổi, số ngày nằm viện).
+3. Bấm **[Áp Dụng Công Thức]** và kết xuất bảng tính kết quả mới.
 
 ---
-*Phát triển bởi nhóm DMH Hospital Tools — Phiên bản v6.9.4 (2026).*
+
+## 💻 14. KỸ THUẬT MÁY TÍNH & CỨU HỘ IT PRO
+
+1. **Giám sát phần cứng:** Xem thông số chi tiết CPU, RAM, Bo mạch chủ, GPU, Ổ cứng SSD/HDD thời gian thực qua WMI.
+2. **Benchmark SSD:** Đo tốc độ đọc/ghi tuần tự và 4K ngẫu nhiên của ổ đĩa.
+3. **Tối ưu & Dọn rác:** Dọn dẹp tệp tin rác Windows Temp, Prefetch, Log, giải phóng RAM, tối ưu hóa dịch vụ chạy ngầm.
+4. **Trợ lý Gemini AI Telemetry:** Tự động đọc và phân tích các bản ghi lỗi hệ thống từ Windows Event Viewer, mã lỗi Blue Screen (BSOD) và đề xuất phương án khắc phục chuyên sâu.
+
+---
+
+## ⏰ 15. MÁY CHẤM CÔNG VÂN TAY / KHUÔN MẶT LAN (ZKTECO)
+
+1. Nhập IP máy chấm công nội bộ (ví dụ `192.168.1.201`) và cổng TCP `4370`. Hoặc bấm **[Quét Mạng LAN]** để phần mềm tự động dò tìm máy chấm công.
+2. Bấm **[Kiểm Tra Kết Nối]** để đọc thông tin thiết bị (Model, Firmware, số lượng vân tay, số bản ghi log).
+3. Bấm **[Tải Dữ Liệu Chấm Công]** để kéo toàn bộ lịch sử quẹt thẻ/vân tay về máy tính.
+4. Thiết lập ca làm việc, lịch biểu tuần, tính công tự động và xuất bảng chấm công Excel chi tiết.
+
+---
+*Phát triển bởi nhóm DMH Hospital Tools — Phiên bản v6.9.13 (2026).*

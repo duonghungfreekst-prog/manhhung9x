@@ -167,3 +167,40 @@ export interface AppraisalRule {
   isActive: boolean;
   execute(patient: ClinicalPatientRecord): DiffDetail[];
 }
+
+// ── Digital Signature & PKI Types ──────────────────────────────────────────
+export interface CaCertificate {
+  Subject: string;
+  Issuer: string;
+  SerialNumber: string;
+  Thumbprint: string;
+  NotBefore: string;
+  NotAfter: string;
+  FriendlyName: string;
+  HasPrivateKey: boolean;
+  Store: string;
+}
+
+export interface XmlFileToSign {
+  id: string;
+  name: string;
+  path?: string;
+  content?: string;
+  size: number;
+  status: 'idle' | 'signing' | 'success' | 'error';
+  signedXml?: string;
+  signedPath?: string;
+  error?: string;
+  signedAt?: string;
+}
+
+export interface XmlVerificationResult {
+  isSigned: boolean;
+  isValid: boolean;
+  subject?: string;
+  issuer?: string;
+  serialNumber?: string;
+  validTo?: string;
+  message: string;
+}
+

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * DMH_Tools - Error Telemetry & Diagnostic History Service
  * Quản lý "Sổ tay bệnh án máy tính", lưu trữ lịch sử chẩn đoán lỗi in ấn,
  * kết quả phân tích của Gemini AI và hỗ trợ xuất dữ liệu phục vụ nghiên cứu & hoàn thiện phần mềm.
@@ -84,7 +84,7 @@ export class ErrorTelemetryService {
     const records = this.getHistory();
     const exportPackage = {
       app: 'DMH Tools',
-      version: '6.9.13',
+      version: '6.9.14',
       exportedAt: new Date().toISOString(),
       totalRecords: records.length,
       history: records

@@ -380,7 +380,7 @@ async function convertPdfToPng(file: File): Promise<{ blob: Blob; filename: stri
     if (!ctx) throw new Error('Không thể khởi tạo Canvas 2D');
     canvas.width = viewport.width;
     canvas.height = viewport.height;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     await page.render({ canvasContext: ctx, viewport } as any).promise;
 
     const imgBlob = await new Promise<Blob>((resolve, reject) => {
@@ -399,7 +399,7 @@ async function convertPdfToPng(file: File): Promise<{ blob: Blob; filename: stri
     if (!ctx) continue;
     canvas.width = viewport.width;
     canvas.height = viewport.height;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     await page.render({ canvasContext: ctx, viewport } as any).promise;
 
     const imgBlob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/png'));
@@ -451,7 +451,7 @@ async function convertPdfToDocx(file: File): Promise<{ blob: Blob; filename: str
           if (ctx) {
             canvas.width = viewport.width;
             canvas.height = viewport.height;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             await page.render({ canvasContext: ctx, viewport } as any).promise;
 
             const { data } = await Tesseract.recognize(canvas, 'vie+eng');
@@ -693,10 +693,10 @@ async function rowsToPdf(
   const html = buildPrintHtml(rows, title);
 
   // 1. Electron Native printToPDF
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   if ((window as any).electronAPI?.htmlToPdf) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const uint8 = await (window as any).electronAPI.htmlToPdf({ html, landscape });
       return new Blob([uint8], { type: 'application/pdf' });
     } catch (err) {
@@ -706,7 +706,7 @@ async function rowsToPdf(
 
   // 2. Fallback jsPDF
   const { jsPDF } = await import('jspdf');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const autoTableModule = await import('jspdf-autotable') as any;
   const autoTableFn = autoTableModule.default || autoTableModule;
   
@@ -734,9 +734,9 @@ async function rowsToPdf(
     headStyles: { fillColor: [37, 99, 235] as [number, number, number] },
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   if (typeof (doc as any).autoTable === 'function') {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     (doc as any).autoTable(tableOptions);
   } else if (typeof autoTableFn === 'function') {
     autoTableFn(doc, tableOptions);
@@ -1022,10 +1022,10 @@ async function convertFile(
   // TRƯỜNG HỢP 1: File nguồn là PDF
   if (isPdfSource) {
     if (targetFormat === 'docx') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       if ((window as any).electronAPI && file.path) {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           const uint8Array = await (window as any).electronAPI.convertPdfNative(file.path);
           const blob = new Blob([uint8Array], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
           const filename = `${baseName}_converted.docx`;
@@ -1434,7 +1434,7 @@ export function ConverterTab() {
         showToast.error('Chuyển đổi thất bại', `Không thể chuyển đổi ${errorCount} tệp tin`);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [targetFormat, xmlRootTag, xmlRowTag, excelSheetIndex, csvDelimiter, sqlTableName, pdfLandscape]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {

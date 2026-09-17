@@ -189,6 +189,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   printer: {
     fixShareError:     () => ipcRenderer.invoke('printer:fix-share-error'),
     fixError0x40:      (params) => ipcRenderer.invoke('printer:fix-error-0x40', params),
+    unlockIpc:         (params) => ipcRenderer.invoke('printer:unlock-ipc', params),
     clearSmbCache:     () => ipcRenderer.invoke('printer:clear-smb-cache'),
     openCredentialManager: () => ipcRenderer.invoke('printer:open-credential-manager'),
     getShareRpcStatus: () => ipcRenderer.invoke('printer:get-share-rpc-status'),
@@ -228,15 +229,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
-  // ── Endoscopy Direct Bridge ───────────────────────────────────────────────
-  getDbStats:    () => ipcRenderer.invoke('endoscopy:get-db-stats'),
-  getPatients:   (q) => ipcRenderer.invoke('endoscopy:get-patients', q),
-  addPatient:    (d) => ipcRenderer.invoke('endoscopy:add-patient', d),
-  getSessions:   (patient_id) => ipcRenderer.invoke('endoscopy:get-sessions', patient_id),
-  createSession: (d) => ipcRenderer.invoke('endoscopy:create-session', d),
-  getImages:     (session_id) => ipcRenderer.invoke('endoscopy:get-images', session_id),
-  toggleFav:     (image_id) => ipcRenderer.invoke('endoscopy:toggle-fav', image_id),
-  saveCapture:   (session_id, b64, res) => ipcRenderer.invoke('endoscopy:save-capture', session_id, b64, res),
+  // ── Certificate & Digital Signature (Ký Số XML & USB Token) ───────────────
+  ca: {
+    getCertificates: () => ipcRenderer.invoke('ca:get-certificates'),
+    selectXmlFiles:  () => ipcRenderer.invoke('ca:select-xml-files'),
+    signXml:         (payload) => ipcRenderer.invoke('ca:sign-xml', payload),
+    verifyXml:       (payload) => ipcRenderer.invoke('ca:verify-xml', payload),
+    saveSignedFile:  (payload) => ipcRenderer.invoke('ca:save-signed-file', payload),
+  },
 
   // ── Smart In-App Refresh (Làm Mới Thông Minh Bảo Tồn Vị Trí) ─────────────
   onSmartRefresh: (callback) => {

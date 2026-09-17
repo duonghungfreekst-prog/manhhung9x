@@ -406,7 +406,9 @@ function App() {
         const khongThay = compared.filter(r => r.status === 'KHÔNG THẤY').length;
         const khop = compared.filter(r => r.status === 'KHỚP').length;
         const statsObj: Stats = { total: compared.length, khop, lech, khongThay, totalDiffs: compared.reduce((s, r) => s + r.differences.length, 0), highSeverityDiffs: compared.reduce((s, r) => s + r.differences.filter(d => d.severity === 'high').length, 0) };
-        const histEntry: HistoryEntry = { id: `${Date.now()}`, timestamp: new Date().toLocaleString('vi-VN'), portalFileName: file1.name, internalFileName: file2.name, stats: statsObj, results: compared };
+        // Bảo mật: chỉ lưu HistorySafeResult (không có portalRow/internalRow chứa dữ liệu bệnh nhân đầy đủ)
+        const safeResults = compared.map(r => ({ id: r.id, name: r.name, insuranceCode: r.insuranceCode, timeRange: r.timeRange, status: r.status, differences: r.differences }));
+        const histEntry: HistoryEntry = { id: `${Date.now()}`, timestamp: new Date().toLocaleString('vi-VN'), portalFileName: file1.name, internalFileName: file2.name, stats: statsObj, results: safeResults };
         saveHistory(histEntry);
         if (!silent) {
           if (lech === 0 && khongThay === 0) addToast({ type: 'success', title: '✅ Hoàn hảo!', message: `Tất cả ${compared.length} hồ sơ đều khớp hoàn toàn.` });
@@ -481,6 +483,7 @@ function App() {
         await handleProcess({ preserveView: true, silent });
       }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file1, file2, isProcessing, customPortalMap, customInternalMap]);
 
 

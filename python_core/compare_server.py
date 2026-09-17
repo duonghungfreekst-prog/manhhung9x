@@ -357,7 +357,10 @@ def _send_json(handler, code, obj):
     handler.send_response(code)
     handler.send_header('Content-Type', 'application/json; charset=utf-8')
     handler.send_header('Content-Length', str(len(body)))
-    handler.send_header('Access-Control-Allow-Origin', '*')
+    # Chỉ cho phép localhost — tuân thủ Rule 3.4 (KHONG dung wildcard *)
+    handler.send_header('Access-Control-Allow-Origin', 'http://localhost')
+    handler.send_header('X-Content-Type-Options', 'nosniff')
+    handler.send_header('X-Frame-Options', 'DENY')
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -367,7 +370,8 @@ class CompareHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
+        # Chỉ cho phép localhost — tuân thủ Rule 3.4 (KHONG dung wildcard *)
+        self.send_header('Access-Control-Allow-Origin', 'http://localhost')
         self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()

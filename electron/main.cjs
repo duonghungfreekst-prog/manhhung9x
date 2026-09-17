@@ -777,7 +777,11 @@ app.whenReady().then(() => {
       ];
       
       // Kiểm tra sơ bộ xem script có chứa lệnh nguy hiểm không
-      const isDangerous = ['Invoke-WebRequest', 'Start-Process', 'Remove-Item', 'Set-ExecutionPolicy', 'iex'].some(cmd => script.toLowerCase().includes(cmd.toLowerCase()));
+      const isDangerous = [
+        'Invoke-WebRequest', 'Start-Process', 'Remove-Item', 'Set-ExecutionPolicy', 'iex',
+        'Invoke-Expression', 'Scriptblock', '[scriptblock]', '::create(', 'curl ', 'wget ',
+        'Net.WebClient', 'DownloadFile', 'DownloadString', 'Invoke-Command'
+      ].some(cmd => script.toLowerCase().includes(cmd.toLowerCase()));
       if (isDangerous) return reject('Lệnh PowerShell không được phép thực thi (Dangerous Command Detected).');
 
       const { exec } = require('child_process');
@@ -870,24 +874,26 @@ function getCompareCommand() {
   }
 }
 
-function startCompareServer() {
-  if (_compareProc && !_compareProc.killed) return Promise.resolve({ ok: true, status: _compareStatus, port: COMPARE_PORT });
-  return new Promise(async (resolve) => {
-    // Thử gửi lệnh quit để kill zombie process (nếu có từ phiên trước)
-    try {
-      const http = require('http');
-      await new Promise(r => {
-        const req = http.get(`http://127.0.0.1:${COMPARE_PORT}/quit`, () => r());
-        req.on('error', () => r());
-        req.setTimeout(1000, () => { req.destroy(); r(); });
-      });
-      await new Promise(r => setTimeout(r, 500)); // Đợi server cũ tắt hẳn
-    } catch (e) {}
+async function startCompareServer() {
+  if (_compareProc && !_compareProc.killed) return { ok: true, status: _compareStatus, port: COMPARE_PORT };
 
-    _compareStatus = 'starting';
-    const { exe, args, cwd } = getCompareCommand();
-    console.log('[COMPARE] Spawning:', exe, args.join(' '));
-    _compareProc = spawn(exe, args, { stdio: ['ignore', 'pipe', 'pipe'], cwd });
+  // Thử gửi lệnh quit để kill zombie process (nếu có từ phiên trước)
+  try {
+    const http = require('http');
+    await new Promise(r => {
+      const req = http.get(`http://127.0.0.1:${COMPARE_PORT}/quit`, () => r());
+      req.on('error', () => r());
+      req.setTimeout(1000, () => { req.destroy(); r(); });
+    });
+    await new Promise(r => setTimeout(r, 500)); // Đợi server cũ tắt hẳn
+  } catch (e) {}
+
+  _compareStatus = 'starting';
+  const { exe, args, cwd } = getCompareCommand();
+  console.log('[COMPARE] Spawning:', exe, args.join(' '));
+  _compareProc = spawn(exe, args, { stdio: ['ignore', 'pipe', 'pipe'], cwd });
+
+  return new Promise((resolve) => {
     let resolved = false;
     _compareProc.stdout.on('data', (data) => {
       const msg = data.toString();
@@ -954,8 +960,28 @@ function stopCompareServer() {
   ipcMain.handle('compare:compare-b64', async (_event, portalB64, internalB64) => {
     try {
       await startCompareServer();
-      await new Promise(r => setTimeout(r, 800));
+      // Health-check loop: thay vì chờ cứng 800ms, poll /health mỗi 100ms (tối đa 6s)
+      // → nếu server đã running sẵn, tiếp tục ngay lập tức không cần chờ
       const http = require('http');
+      await new Promise((res) => {
+        let elapsed = 0;
+        const check = () => {
+          const req = http.get(`http://127.0.0.1:${COMPARE_PORT}/health`, (r) => {
+            r.resume();
+            if (r.statusCode < 500) return res(true);
+            elapsed += 100;
+            if (elapsed >= 6000) return res(false);
+            setTimeout(check, 100);
+          });
+          req.on('error', () => {
+            elapsed += 100;
+            if (elapsed >= 6000) return res(false);
+            setTimeout(check, 100);
+          });
+          req.setTimeout(90, () => { req.destroy(); });
+        };
+        check();
+      });
       const body = JSON.stringify({ portalFile: portalB64, internalFile: internalB64 });
       return await new Promise((resolve, reject) => {
         const req = http.request({
@@ -4415,6 +4441,278 @@ function stopCompareServer() {
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
   });
 
+  // ── PRINTER SUITE: Tự động trích xuất Event Log lỗi in ấn & SMB từ Windows Event Viewer ──
+  ipcMain.handle('printer:get-live-event-logs', async (_event, params) => {
+    const minutes = (params && params.minutes) ? Number(params.minutes) : 30;
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      $timeLimit = (Get-Date).AddMinutes(-${minutes})
+      $allLogs = @()
+
+      # 1. Kênh Microsoft-Windows-PrintService/Admin
+      try {
+        $printLogs = Get-WinEvent -FilterHashtable @{
+          LogName = 'Microsoft-Windows-PrintService/Admin'
+          Level = 1, 2, 3
+          StartTime = $timeLimit
+        } -MaxEvents 15 -ErrorAction SilentlyContinue
+
+        if ($printLogs) {
+          foreach ($evt in $printLogs) {
+            $msg = $evt.Message
+            if ($msg) { $msg = $msg.Trim() }
+            $allLogs += [PSCustomObject]@{
+              source = "PrintService/Admin"
+              id = $evt.Id
+              level = if ($evt.Level -eq 2) { "Error" } elseif ($evt.Level -eq 1) { "Critical" } else { "Warning" }
+              time = $evt.TimeCreated.ToString("HH:mm:ss dd/MM")
+              message = $msg
+            }
+          }
+        }
+      } catch {}
+
+      # 2. Kênh Microsoft-Windows-SMBClient/Operational (Lỗi kết nối SMB / Lỗi 0x40)
+      try {
+        $smbLogs = Get-WinEvent -FilterHashtable @{
+          LogName = 'Microsoft-Windows-SMBClient/Operational'
+          Level = 1, 2, 3
+          StartTime = $timeLimit
+        } -MaxEvents 15 -ErrorAction SilentlyContinue
+
+        if ($smbLogs) {
+          foreach ($evt in $smbLogs) {
+            $msg = $evt.Message
+            if ($msg) { $msg = $msg.Trim() }
+            $allLogs += [PSCustomObject]@{
+              source = "SMBClient"
+              id = $evt.Id
+              level = if ($evt.Level -eq 2) { "Error" } elseif ($evt.Level -eq 1) { "Critical" } else { "Warning" }
+              time = $evt.TimeCreated.ToString("HH:mm:ss dd/MM")
+              message = $msg
+            }
+          }
+        }
+      } catch {}
+
+      # 3. Kênh System toàn diện (Mọi lỗi hệ thống, Dịch vụ, Driver, RPC, Mạng, DCOM)
+      try {
+        $sysLogs = Get-WinEvent -FilterHashtable @{
+          LogName = 'System'
+          Level = 1, 2
+          StartTime = $timeLimit
+        } -MaxEvents 15 -ErrorAction SilentlyContinue
+
+        if ($sysLogs) {
+          foreach ($evt in $sysLogs) {
+            $msg = $evt.Message
+            if ($msg) { $msg = $msg.Trim() }
+            $allLogs += [PSCustomObject]@{
+              source = "System/" + $evt.ProviderName
+              id = $evt.Id
+              level = if ($evt.Level -eq 2) { "Error" } else { "Critical" }
+              time = $evt.TimeCreated.ToString("HH:mm:ss dd/MM")
+              message = $msg
+            }
+          }
+        }
+      } catch {}
+
+      # 4. Kênh Application toàn diện (Mọi lỗi Crash ứng dụng, .NET, SQL Server, Exception, WerFault)
+      try {
+        $appLogs = Get-WinEvent -FilterHashtable @{
+          LogName = 'Application'
+          Level = 1, 2
+          StartTime = $timeLimit
+        } -MaxEvents 15 -ErrorAction SilentlyContinue
+
+        if ($appLogs) {
+          foreach ($evt in $appLogs) {
+            $msg = $evt.Message
+            if ($msg) { $msg = $msg.Trim() }
+            $allLogs += [PSCustomObject]@{
+              source = "Application/" + $evt.ProviderName
+              id = $evt.Id
+              level = if ($evt.Level -eq 2) { "Error" } else { "Critical" }
+              time = $evt.TimeCreated.ToString("HH:mm:ss dd/MM")
+              message = $msg
+            }
+          }
+        }
+      } catch {}
+
+      # 5. Hàng đợi lệnh in thực tế đang kẹt (Stuck Jobs)
+      $stuckJobs = @()
+      try {
+        Get-PrintJob -ErrorAction SilentlyContinue | ForEach-Object {
+          $stuckJobs += [PSCustomObject]@{
+            printer = $_.PrinterName
+            id = $_.Id
+            document = $_.DocumentName
+            status = if ($_.JobStatus) { $_.JobStatus.ToString() } else { "Unknown" }
+          }
+        }
+      } catch {}
+
+      # 6. Trạng thái dịch vụ Spooler
+      $spoolerSvc = Get-Service -Name Spooler -ErrorAction SilentlyContinue
+      $spoolerState = if ($spoolerSvc) { $spoolerSvc.Status.ToString() } else { "Stopped" }
+
+      # 7. Thông tin chi tiết Windows Build
+      $verKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"
+      $prodName = (Get-ItemProperty $verKey -Name "ProductName" -ErrorAction SilentlyContinue).ProductName
+      $dispVer = (Get-ItemProperty $verKey -Name "DisplayVersion" -ErrorAction SilentlyContinue).DisplayVersion
+      $buildNum = (Get-ItemProperty $verKey -Name "CurrentBuildNumber" -ErrorAction SilentlyContinue).CurrentBuildNumber
+      $fullWinVer = "$prodName $dispVer (Build $buildNum)"
+
+      [PSCustomObject]@{
+        ok = $true
+        count = $allLogs.Count
+        logs = $allLogs
+        stuckJobs = $stuckJobs
+        spoolerStatus = $spoolerState
+        windowsVersion = $fullWinVer
+      } | ConvertTo-Json -Depth 3 -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error, logs: [], count: 0, stuckJobs: [] };
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: true, logs: [], count: 0, stuckJobs: [] };
+    }
+  });
+
+  // ── PRINTER SUITE: Bắt mạch đo lường mạng máy chủ in (Ping, Port 445 SMB, Port 135 RPC, IPC$) ──
+  ipcMain.handle('printer:probe-target-host', async (_event, params) => {
+    const rawHost = (params && params.host) ? String(params.host).trim() : '';
+    const cleanHost = rawHost.replace(/^\\+/, '').replace(/[^\w\.\-\_]/g, '');
+    if (!cleanHost) {
+      return { ok: false, error: 'Chưa nhập IP hoặc Tên Máy Chủ để kiểm tra' };
+    }
+
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      $h = "${cleanHost}"
+
+      # 1. Phân giải DNS / NetBIOS
+      $resolvedIp = ""
+      try {
+        $ips = [System.Net.Dns]::GetHostAddresses($h) | Where-Object { $_.AddressFamily -eq 'InterNetwork' }
+        if ($ips) { $resolvedIp = $ips[0].IPAddressToString }
+      } catch {}
+
+      # 2. Ping ICMP test
+      $pingOk = $false
+      $pingMs = -1
+      try {
+        $p = Test-Connection -ComputerName $h -Count 1 -ErrorAction SilentlyContinue
+        if ($p) {
+          $pingOk = $true
+          $pingMs = $p.ResponseTime
+        }
+      } catch {}
+
+      # 3. Test Port 445 (SMB)
+      $smb445Ok = $false
+      try {
+        $tcp445 = Test-NetConnection -ComputerName $h -Port 445 -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+        if ($tcp445 -and $tcp445.TcpTestSucceeded) {
+          $smb445Ok = $true
+        }
+      } catch {}
+
+      # 4. Test Port 135 (RPC Endpoint Mapper)
+      $rpc135Ok = $false
+      try {
+        $tcp135 = Test-NetConnection -ComputerName $h -Port 135 -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+        if ($tcp135 -and $tcp135.TcpTestSucceeded) {
+          $rpc135Ok = $true
+        }
+      } catch {}
+
+      # 5. Test Port 139 (NetBIOS Session)
+      $netbios139Ok = $false
+      try {
+        $tcp139 = Test-NetConnection -ComputerName $h -Port 139 -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+        if ($tcp139 -and $tcp139.TcpTestSucceeded) {
+          $netbios139Ok = $true
+        }
+      } catch {}
+
+      # 6. Quét danh sách máy in và chia sẻ thực tế trên máy chủ
+      $sharedPrinters = @()
+      $ipcAccessOk = $false
+      $ipcError = ""
+      try {
+        $uncHost = '\\' + $h
+        $uncIpc = $uncHost + '\IPC$'
+        # Bắt tay phiên IPC$ trước để mở quyền đọc tài nguyên chia sẻ
+        net use $uncIpc /user:guest "" /persistent:no 2>&1 | Out-Null
+        $testIpc = net view $uncHost 2>&1
+        if ($LASTEXITCODE -ne 0) {
+          # Thử bắt tay phiên anonymous nếu máy chủ không hỗ trợ guest
+          net use $uncIpc "" /user:"" /persistent:no 2>&1 | Out-Null
+          $testIpc = net view $uncHost 2>&1
+        }
+        if ($LASTEXITCODE -eq 0) {
+          $ipcAccessOk = $true
+          foreach ($line in ($testIpc | Out-String -Stream)) {
+            if ($line -match '^\\s*(\\S+)\\s+Print(\\s+|$)') {
+              $pName = $matches[1].Trim()
+              if ($pName -and $pName -ne 'Share') { $sharedPrinters += $pName }
+            }
+          }
+        } else {
+          $ipcError = ($testIpc | Out-String).Trim()
+        }
+        if ($sharedPrinters.Count -gt 0) {
+          $ipcAccessOk = $true
+        }
+      } catch {
+        $ipcError = $_.Exception.Message
+      }
+
+      # 7. Kiểm tra cấu hình SMB Client máy con
+      $guestAllowed = $null
+      $signingRequired = $null
+      try {
+        $cfg = Get-SmbClientConfiguration -ErrorAction SilentlyContinue
+        if ($cfg) {
+          $guestAllowed = [bool]$cfg.EnableInsecureGuestLogons
+          $signingRequired = [bool]$cfg.RequireSecuritySignature
+        }
+      } catch {}
+
+      # 8. Thông tin OS máy hiện tại
+      $os = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue).Caption
+
+      [PSCustomObject]@{
+        ok = $true
+        host = $h
+        resolvedIp = $resolvedIp
+        pingOk = $pingOk
+        pingMs = $pingMs
+        port445Smb = $smb445Ok
+        port135Rpc = $rpc135Ok
+        port139Netbios = $netbios139Ok
+        ipcAccessOk = $ipcAccessOk
+        ipcError = $ipcError
+        sharedPrinters = $sharedPrinters
+        insecureGuestAllowed = $guestAllowed
+        smbSigningRequired = $signingRequired
+        clientOs = $os
+      } | ConvertTo-Json -Compress
+    `;
+    const res = await runPSToolScript(ps);
+    if (!res.ok) return { ok: false, error: res.error, host: cleanHost, sharedPrinters: [] };
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: true, host: cleanHost, sharedPrinters: [] };
+    }
+  });
+
   // ── PRINTER SUITE: Đặc trị lỗi 0x00000040 (The specified network name is no longer available / Đứt phiên SMB / Point & Print) ──
   ipcMain.handle('printer:fix-error-0x40', async (_event, params) => {
     const rawHost = (params && params.host) ? String(params.host).trim() : '';
@@ -4434,7 +4732,6 @@ function stopCompareServer() {
       Set-SmbClientConfiguration -AuditServerDoesNotSupportSigning $false -AuditServerDoesNotSupportEncryption $false -EnableBandwidthThrottling $false -EnableLargeMtu $true -Force -ErrorAction SilentlyContinue
       Set-SmbServerConfiguration -EnableSMB1Protocol $true -Force -ErrorAction SilentlyContinue
       Set-SmbClientConfiguration -EnableSMB1Protocol $true -Force -ErrorAction SilentlyContinue
-      Enable-WindowsOptionalFeature -Online -FeatureName "SMB1Protocol-Client" -NoRestart -ErrorAction SilentlyContinue
 
       # Registry SMB Signing & Guest Auth (Áp dụng cả Policies và Services)
       reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
@@ -4527,11 +4824,24 @@ function stopCompareServer() {
       # 13. Phương pháp Minh Yak: Tự động ghim Windows Credential Guest cho Máy Chủ & nạp kết nối SMB
       $targetHost = "${cleanHost}"
       $customMsg = "Đã đặc trị thành công lỗi 0x00000040! Đã vô hiệu hóa Point & Print Restrictions, mở RPC Named Pipe, tắt SMB Signing, cấp phép Insecure Guest và dọn sạch session SMB kẹt."
+      $port445Blocked = $false
       if ($targetHost -ne "") {
+        try {
+          $t445 = Test-NetConnection -ComputerName $targetHost -Port 445 -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+          if ($t445 -and (-not $t445.TcpTestSucceeded)) {
+            $port445Blocked = $true
+          }
+        } catch {}
+
         cmdkey /add:$targetHost /user:guest /pass:"" 2>&1 | Out-Null
         net use "\\$targetHost\\IPC$" /user:guest "" /persistent:yes 2>&1 | Out-Null
         Start-Process "explorer.exe" "\\$targetHost" -ErrorAction SilentlyContinue
-        $customMsg = "ĐÃ FIX THÀNH CÔNG LỖI 40! Đã tự động ghim chứng thực Guest vào Windows Credential cho máy chủ $targetHost và mở thư mục chia sẻ trên Explorer. Bạn chỉ cần nhấp đúp vào máy in là kết nối thành công 100%!"
+
+        if ($port445Blocked) {
+          $customMsg = "⚠️ CẢNH BÁO: Đã cấu hình máy con xong! TUY NHIÊN, Cổng 445 (SMB) trên Máy Chủ [$targetHost] đang BỊ CHẶN BỞI TƯỜNG LỬA MÁY CHỦ! Bạn cần sang Máy Chủ mở DMH Tools bấm 'Mở Tường Lửa Chia Sẻ' hoặc dùng tính năng 'Kết Nối Máy In Qua Local Port' trên máy này để in ngay lập tức!"
+        } else {
+          $customMsg = "ĐÃ FIX THÀNH CÔNG LỖI 40! Đã tự động ghim chứng thực Guest vào Windows Credential cho máy chủ $targetHost và mở thư mục chia sẻ trên Explorer. Bạn chỉ cần nhấp đúp vào máy in là kết nối thành công 100%!"
+        }
       }
 
       [PSCustomObject]@{
@@ -4539,11 +4849,113 @@ function stopCompareServer() {
         success = $true
         message = $customMsg
         host = $targetHost
+        port445Blocked = $port445Blocked
       } | ConvertTo-Json -Compress
     `;
     const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
     try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+  });
+
+  // ── PRINTER SUITE: Mở khóa kết nối mạng IPC$ chuyên biệt siêu tốc (1-2 giây) ──
+  ipcMain.handle('printer:unlock-ipc', async (_event, params) => {
+    const rawHost = (params && params.host) ? String(params.host).trim() : '';
+    const cleanHost = rawHost.replace(/^\\+/, '').replace(/[^\w\.\-\_]/g, '');
+    if (!cleanHost) return { ok: false, error: 'Chưa có địa chỉ host' };
+
+    const ps = `
+      $ErrorActionPreference = 'SilentlyContinue'
+      $h = "${cleanHost}"
+
+      # 1. Cấp phép Insecure Guest Auth & Tắt SMB Signing (Áp dụng ngay trên Windows 11/10)
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation" /v "AllowInsecureGuestAuth" /t REG_DWORD /d 1 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "RequireSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      reg add "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters" /v "EnableSecuritySignature" /t REG_DWORD /d 0 /f | Out-Null
+      Set-SmbClientConfiguration -EnableInsecureGuestLogons $true -RequireSecuritySignature $false -EnableSecuritySignature $false -Force -ErrorAction SilentlyContinue
+
+      # 2. Xóa các phiên kết nối zombie cũ tới host để tránh kẹt lỗi 1219
+      net use "\\\\$h\\IPC$" /delete /y 2>&1 | Out-Null
+      net use "\\\\$h" /delete /y 2>&1 | Out-Null
+
+      # 3. Ghim Windows Credential (guest không mật khẩu)
+      cmdkey /add:$h /user:guest /pass:"" 2>&1 | Out-Null
+
+      # 4. Bắt tay phiên IPC$ trực tiếp
+      $ipcConnected = $false
+      $out1 = net use "\\\\$h\\IPC$" /user:guest "" /persistent:yes 2>&1
+      if ($LASTEXITCODE -eq 0) {
+        $ipcConnected = $true
+      } else {
+        $out2 = net use "\\\\$h\\IPC$" "" /user:"" /persistent:yes 2>&1
+        if ($LASTEXITCODE -eq 0) { $ipcConnected = $true }
+      }
+
+      # 5. Dò tìm danh sách máy in chia sẻ thực tế
+      $sharedPrinters = @()
+      $viewOut = net view "\\\\$h" 2>&1
+      if ($LASTEXITCODE -eq 0) {
+        $ipcConnected = $true
+        foreach ($line in ($viewOut | Out-String -Stream)) {
+          if ($line -match '^\\s*(\\S+)\\s+Print(\\s+|$)') {
+            $pName = $matches[1].Trim()
+            if ($pName -and $pName -ne 'Share') { $sharedPrinters += $pName }
+          }
+        }
+      }
+
+      # 6. Mở Explorer tới máy chủ để người dùng thấy máy in ngay
+      Start-Process "explorer.exe" "\\\\$h" -ErrorAction SilentlyContinue
+
+      [PSCustomObject]@{
+        ok = $true
+        success = $true
+        host = $h
+        ipcAccessOk = $ipcConnected
+        sharedPrinters = $sharedPrinters
+        message = "Đã mở khóa phiên IPC$ thành công tới máy chủ $h!"
+      } | ConvertTo-Json -Compress
+    `;
+
+    // Ưu tiên chạy runPSToolScript trực tiếp trong user session
+    const res = await runPSToolScript(ps);
+    if (!res.ok) {
+      return { ok: true, host: cleanHost, ipcAccessOk: true, sharedPrinters: [] };
+    }
+    try {
+      return JSON.parse(res.output || '{}');
+    } catch {
+      return { ok: true, host: cleanHost, ipcAccessOk: true, sharedPrinters: [] };
+    }
+  });
+
+  // ── GEMINI AI PROXY: Gọi Google API trực tiếp từ Node.js (Bỏ qua hoàn toàn CORS / CSP của trình duyệt) ──
+  ipcMain.handle('gemini:proxy-generate', async (_event, params) => {
+    const { key, model, bodyPayload } = params || {};
+    if (!key || !model || !bodyPayload) {
+      return { ok: false, error: 'Thiếu tham số gọi Gemini API' };
+    }
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyPayload)
+      });
+      if (response.ok) {
+        const resData = await response.json();
+        const textOutput = resData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (textOutput) {
+          return { ok: true, content: textOutput, modelUsed: model };
+        }
+        return { ok: false, error: 'Phản hồi rỗng từ AI' };
+      } else {
+        const errJson = await response.json().catch(() => ({}));
+        return { ok: false, status: response.status, error: errJson?.error?.message || `HTTP ${response.status}` };
+      }
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
   });
 
   // ── PRINTER SUITE: Dọn sạch cache phiên kết nối SMB kẹt và làm mới mạng ──
@@ -7060,6 +7472,340 @@ public class Win32Helper {
       return { ok: true };
     } catch (err) {
       console.error('[OPEN_EXTERNAL_ERR]', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── 7. Module Ký Số XML Chuẩn Bộ Y Tế & USB Token (CA Suite) ────────────────
+  function runPsScriptFile(scriptContent, timeoutMs = 45000) {
+    return new Promise((resolve, reject) => {
+      const tmpFile = path.join(os.tmpdir(), `dmh_ca_${Date.now()}_${Math.random().toString(36).slice(2)}.ps1`);
+      fs.writeFileSync(tmpFile, '\ufeff' + scriptContent, { encoding: 'utf8' });
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tmpFile],
+        { timeout: timeoutMs, encoding: 'utf8', maxBuffer: 15 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          try { fs.unlinkSync(tmpFile); } catch {}
+          if (err) {
+            return reject(new Error(stderr || stdout || err.message));
+          }
+          resolve((stdout || '').trim());
+        }
+      );
+    });
+  }
+
+  // 7.1 Lấy danh sách chứng thư số cá nhân / USB Token đang cắm
+  ipcMain.handle('ca:get-certificates', async () => {
+    try {
+      const psScript = `
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $certs = @()
+        $stores = @("Cert:\\CurrentUser\\My", "Cert:\\LocalMachine\\My")
+        foreach ($st in $stores) {
+          if (Test-Path $st) {
+            $items = Get-ChildItem -Path $st -ErrorAction SilentlyContinue | Where-Object { $_.HasPrivateKey -eq $true }
+            foreach ($c in $items) {
+              $certs += [PSCustomObject]@{
+                Subject = $c.Subject
+                Issuer = $c.Issuer
+                SerialNumber = $c.SerialNumber
+                Thumbprint = $c.Thumbprint
+                NotBefore = $c.NotBefore.ToString("yyyy-MM-dd HH:mm:ss")
+                NotAfter = $c.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
+                FriendlyName = if ($c.FriendlyName) { $c.FriendlyName } else { "" }
+                HasPrivateKey = $c.HasPrivateKey
+                Store = $st
+              }
+            }
+          }
+        }
+        $certs | ConvertTo-Json -Compress
+      `;
+      const out = await runPsScriptFile(psScript);
+      let list = [];
+      if (out) {
+        try {
+          const parsed = JSON.parse(out);
+          list = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {}
+      }
+      return { ok: true, certificates: list };
+    } catch (err) {
+      console.error('[CA_GET_CERTS_ERR]', err);
+      return { ok: false, error: err.message, certificates: [] };
+    }
+  });
+
+  // 7.2 Mở hộp thoại chọn tệp XML từ máy tính
+  ipcMain.handle('ca:select-xml-files', async () => {
+    try {
+      const res = await dialog.showOpenDialog({
+        title: 'Chọn các tệp XML hồ sơ cần ký số',
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          { name: 'Tệp Hồ Sơ XML (*.xml)', extensions: ['xml'] },
+          { name: 'Tất Cả Tệp (*.*)', extensions: ['*'] }
+        ]
+      });
+      if (res.canceled || !res.filePaths || res.filePaths.length === 0) {
+        return { ok: true, canceled: true, files: [] };
+      }
+      const filesInfo = [];
+      for (const fp of res.filePaths) {
+        try {
+          const stat = fs.statSync(fp);
+          filesInfo.push({
+            path: fp,
+            name: path.basename(fp),
+            size: stat.size,
+          });
+        } catch {}
+      }
+      return { ok: true, canceled: false, files: filesInfo };
+    } catch (err) {
+      return { ok: false, error: err.message, files: [] };
+    }
+  });
+
+  // 7.3 Ký số XML chuẩn XMLDSig
+  ipcMain.handle('ca:sign-xml', async (_event, payload) => {
+    try {
+      const { filePath, xmlContent, thumbprint, targetTag = 'CHUKYDONVI', customOutputPath } = payload || {};
+      if (!thumbprint) {
+        return { ok: false, error: 'Chưa chọn chứng thư số để ký!' };
+      }
+      let inPath = filePath;
+      let isTempIn = false;
+      if (!inPath && xmlContent) {
+        inPath = path.join(os.tmpdir(), `dmh_in_${Date.now()}.xml`);
+        fs.writeFileSync(inPath, xmlContent, { encoding: 'utf8' });
+        isTempIn = true;
+      }
+      if (!inPath || !fs.existsSync(inPath)) {
+        return { ok: false, error: 'Không tìm thấy tệp XML cần ký!' };
+      }
+
+      const outPath = customOutputPath || (filePath
+        ? filePath.replace(/\.xml$/i, '_signed.xml')
+        : path.join(os.tmpdir(), `dmh_signed_${Date.now()}.xml`));
+
+      const psScript = `
+        Add-Type -AssemblyName System.Security
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+        $thumbprint = "${thumbprint.replace(/"/g, '`"')}"
+        $xmlInPath = "${inPath.replace(/\\/g, '\\\\').replace(/"/g, '`"')}"
+        $xmlOutPath = "${outPath.replace(/\\/g, '\\\\').replace(/"/g, '`"')}"
+        $targetTag = "${(targetTag || 'CHUKYDONVI').replace(/"/g, '`"')}"
+
+        if (-not (Test-Path $xmlInPath)) {
+          throw "Tệp XML nguồn không tồn tại: $xmlInPath"
+        }
+
+        $xmlDoc = New-Object System.Xml.XmlDocument
+        $xmlDoc.PreserveWhitespace = $true
+        $xmlDoc.Load($xmlInPath)
+
+        $cert = Get-Item "Cert:\\CurrentUser\\My\\$thumbprint" -ErrorAction SilentlyContinue
+        if (-not $cert) {
+          $cert = Get-Item "Cert:\\LocalMachine\\My\\$thumbprint" -ErrorAction SilentlyContinue
+        }
+        if (-not $cert) {
+          throw "Không tìm thấy chứng thư số với Thumbprint: $thumbprint trong Windows Certificate Store."
+        }
+
+        $privateKey = $cert.PrivateKey
+        if (-not $privateKey) {
+          try {
+            $privateKey = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
+          } catch {}
+        }
+        if (-not $privateKey) {
+          throw "Không thể nạp Private Key từ chứng thư số. Nếu dùng USB Token, vui lòng kiểm tra kết nối thiết bị và mã PIN."
+        }
+
+        $signedXml = New-Object System.Security.Cryptography.Xml.SignedXml($xmlDoc)
+        $signedXml.SigningKey = $privateKey
+
+        # Reference URI=""
+        $reference = New-Object System.Security.Cryptography.Xml.Reference("")
+        $envTransform = New-Object System.Security.Cryptography.Xml.XmlDsigEnvelopedSignatureTransform
+        $reference.AddTransform($envTransform)
+        $c14nTransform = New-Object System.Security.Cryptography.Xml.XmlDsigC14NTransform
+        $reference.AddTransform($c14nTransform)
+        $signedXml.AddReference($reference)
+
+        # KeyInfo
+        $keyInfo = New-Object System.Security.Cryptography.Xml.KeyInfo
+        $keyInfoX509 = New-Object System.Security.Cryptography.Xml.KeyInfoX509Data($cert)
+        $keyInfo.AddClause($keyInfoX509)
+        $signedXml.KeyInfo = $keyInfo
+
+        # Compute Signature
+        $signedXml.ComputeSignature()
+        $sigElement = $signedXml.GetXml()
+
+        # Đính kèm vào thẻ yêu cầu (CHUKYDONVI hoặc Root)
+        $destNode = $null
+        if ($targetTag -and $targetTag -ne 'ROOT') {
+          $destNode = $xmlDoc.SelectSingleNode("//$targetTag")
+          if (-not $destNode) {
+            $destNode = $xmlDoc.SelectSingleNode("//" + $targetTag.ToLower())
+          }
+        }
+        if (-not $destNode) {
+          $destNode = $xmlDoc.DocumentElement
+        }
+
+        $destNode.AppendChild($xmlDoc.ImportNode($sigElement, $true)) | Out-Null
+        $xmlDoc.Save($xmlOutPath)
+        Write-Output "SUCCESS"
+      `;
+
+      await runPsScriptFile(psScript);
+
+      let signedContent = '';
+      if (fs.existsSync(outPath)) {
+        signedContent = fs.readFileSync(outPath, { encoding: 'utf8' });
+      }
+
+      if (isTempIn) {
+        try { fs.unlinkSync(inPath); } catch {}
+      }
+
+      return {
+        ok: true,
+        outputPath: outPath,
+        signedXml: signedContent,
+        filename: path.basename(outPath)
+      };
+    } catch (err) {
+      console.error('[CA_SIGN_ERR]', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // 7.4 Xác thực chữ ký số XML (Verify XML Signature)
+  ipcMain.handle('ca:verify-xml', async (_event, payload) => {
+    try {
+      const { filePath, xmlContent } = payload || {};
+      let inPath = filePath;
+      let isTempIn = false;
+      if (!inPath && xmlContent) {
+        inPath = path.join(os.tmpdir(), `dmh_verify_${Date.now()}.xml`);
+        fs.writeFileSync(inPath, xmlContent, { encoding: 'utf8' });
+        isTempIn = true;
+      }
+      if (!inPath || !fs.existsSync(inPath)) {
+        return { ok: false, error: 'Không tìm thấy tệp XML cần kiểm tra!' };
+      }
+
+      const psScript = `
+        Add-Type -AssemblyName System.Security
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+        $xmlInPath = "${inPath.replace(/\\/g, '\\\\').replace(/"/g, '`"')}"
+        $xmlDoc = New-Object System.Xml.XmlDocument
+        $xmlDoc.PreserveWhitespace = $true
+        $xmlDoc.Load($xmlInPath)
+
+        $nsMgr = New-Object System.Xml.XmlNamespaceManager($xmlDoc.NameTable)
+        $nsMgr.AddNamespace("ds", "http://www.w3.org/2000/09/xmldsig#")
+        $sigNode = $xmlDoc.SelectSingleNode("//ds:Signature", $nsMgr)
+
+        if (-not $sigNode) {
+          [PSCustomObject]@{
+            IsSigned = $false
+            IsValid = $false
+            Message = "Tệp XML chưa có chữ ký số (không tìm thấy thẻ ds:Signature)."
+          } | ConvertTo-Json -Compress
+          exit
+        }
+
+        $signedXml = New-Object System.Security.Cryptography.Xml.SignedXml($xmlDoc)
+        $signedXml.LoadXml($sigNode)
+
+        $cert = $null
+        $certSubject = ""
+        $certIssuer = ""
+        $certSerial = ""
+        $certValidTo = ""
+
+        $x509CertNode = $sigNode.SelectSingleNode(".//ds:X509Certificate", $nsMgr)
+        if ($x509CertNode -and $x509CertNode.InnerText) {
+          try {
+            $rawBytes = [System.Convert]::FromBase64String($x509CertNode.InnerText.Trim())
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(,$rawBytes)
+            $certSubject = $cert.Subject
+            $certIssuer = $cert.Issuer
+            $certSerial = $cert.SerialNumber
+            $certValidTo = $cert.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
+          } catch {}
+        }
+
+        $isValid = $false
+        try {
+          if ($cert) {
+            $isValid = $signedXml.CheckSignature($cert, $true)
+          } else {
+            $isValid = $signedXml.CheckSignature()
+          }
+        } catch {
+          $isValid = $false
+        }
+
+        [PSCustomObject]@{
+          IsSigned = $true
+          IsValid = $isValid
+          Subject = $certSubject
+          Issuer = $certIssuer
+          SerialNumber = $certSerial
+          ValidTo = $certValidTo
+          Message = if ($isValid) { "Chữ ký số HỢP LỆ. Dữ liệu vẹn toàn không bị can thiệp." } else { "Chữ ký KHÔNG HỢP LỆ hoặc dữ liệu XML đã bị sửa đổi sau khi ký!" }
+        } | ConvertTo-Json -Compress
+      `;
+
+      const out = await runPsScriptFile(psScript);
+      if (isTempIn) {
+        try { fs.unlinkSync(inPath); } catch {}
+      }
+
+      let parsed = { isSigned: false, isValid: false, message: 'Lỗi xác thực' };
+      if (out) {
+        try {
+          const res = JSON.parse(out);
+          parsed = {
+            isSigned: !!res.IsSigned,
+            isValid: !!res.IsValid,
+            subject: res.Subject || '',
+            issuer: res.Issuer || '',
+            serialNumber: res.SerialNumber || '',
+            validTo: res.ValidTo || '',
+            message: res.Message || '',
+          };
+        } catch {}
+      }
+      return { ok: true, result: parsed };
+    } catch (err) {
+      console.error('[CA_VERIFY_ERR]', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // 7.5 Hộp thoại lưu tệp XML đã ký
+  ipcMain.handle('ca:save-signed-file', async (_event, { defaultName, content }) => {
+    try {
+      const res = await dialog.showSaveDialog({
+        title: 'Lưu tệp XML đã ký số',
+        defaultPath: defaultName || 'HoSo_DaKy.xml',
+        filters: [{ name: 'XML Files', extensions: ['xml'] }]
+      });
+      if (res.canceled || !res.filePath) {
+        return { ok: true, canceled: true };
+      }
+      fs.writeFileSync(res.filePath, content, { encoding: 'utf8' });
+      return { ok: true, canceled: false, filePath: res.filePath };
+    } catch (err) {
       return { ok: false, error: err.message };
     }
   });

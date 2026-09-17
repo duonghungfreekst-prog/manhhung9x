@@ -76,9 +76,12 @@ class EndoscopyHandler(BaseHTTPRequestHandler):
         pass  # Tắt access log mặc định
 
     def _cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # Chỉ cho phép localhost — tuân thủ Rule 3.4 (KHONG dung wildcard *)
+        self.send_header("Access-Control-Allow-Origin", "http://localhost")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
 
     def do_OPTIONS(self):
         self.send_response(200)
