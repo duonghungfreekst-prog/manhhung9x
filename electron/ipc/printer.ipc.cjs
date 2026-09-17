@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const { execFile, exec, execSync } = require('child_process');
 const { runPSToolScript, runElevatedPSToolScript } = require('../services/system/powerShellExecutor.cjs');
+const { downloadFileWithRedirect } = require('./system.ipc.cjs');
 const windowManager = require('../windows/windowManager.cjs');
 
 /**
@@ -2131,6 +2132,7 @@ pause
       $allPorts = @(Get-PrinterPort -ErrorAction SilentlyContinue | Sort-Object Name)
       $portsList = @()
       $detectedConnectedPort = ""
+      $candidatePorts = @()
 
       foreach ($p in $allPorts) {
         $pName = $p.Name
@@ -2150,9 +2152,7 @@ pause
                 if ($matched) {
                   $isConnected = $true
                   $devName = if ($matched.Name) { $matched.Name } else { "USB Printing Support" }
-                  if (-not $detectedConnectedPort) {
-                    $detectedConnectedPort = $pName
-                  }
+                  $candidatePorts += [PSCustomObject]@{ Name = $pName; AssignedCount = $assigned.Count }
                 }
               }
             }
@@ -2166,6 +2166,18 @@ pause
           DeviceId = $devId
           DeviceName = $devName
           AssignedPrinters = $assigned
+        }
+      }
+
+      # Tối ưu nhận định cổng cắm mới nhất & trống (chưa có máy in gán)
+      if ($candidatePorts.Count -gt 0) {
+        $freePorts = @($candidatePorts | Where-Object { $_.AssignedCount -eq 0 })
+        if ($freePorts.Count -gt 0) {
+          # Cắm vật lý + Không có máy in gán -> Lấy cổng USB cao nhất (VD: USB008 > USB007)
+          $detectedConnectedPort = ($freePorts | Sort-Object Name -Descending)[0].Name
+        } else {
+          # Tất cả đều đã có máy in -> Lấy cổng USB cao nhất đang cắm
+          $detectedConnectedPort = ($candidatePorts | Sort-Object Name -Descending)[0].Name
         }
       }
 
