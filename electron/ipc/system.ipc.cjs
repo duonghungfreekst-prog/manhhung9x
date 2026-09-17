@@ -106,6 +106,7 @@ function downloadFileWithRedirect(targetUrl, destPath, onProgress) {
         let lastPercent = -1;
 
         file = fs.createWriteStream(destPath);
+        res.pipe(file);
 
         res.on('data', (chunk) => {
           req.setTimeout(120000);
@@ -2632,7 +2633,7 @@ function registerSystemIPC() {
   }
 
   // 2. Tải và cài đặt module từ GitHub Releases (Bảo mật Whitelist & Sanitize)
-  ipcMain.handle('module:download-github', async (event, { moduleId, downloadUrl, assetName, expectedSha256 }) => {
+  ipcMain.handle('module:download-github', async (event, { moduleId, downloadUrl, assetName, expectedSha256, expectedSignature }) => {
     try {
       if (!moduleId || typeof moduleId !== 'string' || !/^[a-zA-Z0-9_.-]{1,64}$/.test(moduleId)) {
         return { ok: false, error: 'Tên moduleId không hợp lệ (chỉ chấp nhận ký tự a-z, 0-9, _, -, .)' };

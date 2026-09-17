@@ -18,6 +18,31 @@ const runPSToolScript = (psScript, timeoutMs = 60000, customEnv = {}) => {
       $OutputEncoding = [System.Text.Encoding]::UTF8
       ${psScript}
     `;
+    
+    // Nếu script dài hơn 8000 ký tự, dùng file .ps1 tạm để tránh ENAMETOOLONG
+    if (fullScript.length > 8000) {
+      const tmpFile = path.join(os.tmpdir(), `dmh_ps_${Date.now()}_${Math.random().toString(36).slice(2)}.ps1`);
+      try {
+        fs.writeFileSync(tmpFile, '\ufeff' + fullScript, { encoding: 'utf8' });
+        execFile('powershell.exe', [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy', 'Bypass',
+          '-File', tmpFile
+        ], { windowsHide: true, maxBuffer: 25 * 1024 * 1024, encoding: 'utf8', timeout: timeoutMs, env: { ...process.env, ...customEnv } }, (err, stdout, stderr) => {
+          try { fs.unlinkSync(tmpFile); } catch (_e) { /* intentional */ }
+          if (err) {
+            resolve({ ok: false, error: err.message || String(stderr) });
+          } else {
+            resolve({ ok: true, output: (stdout || '').trim() });
+          }
+        });
+        return;
+      } catch (fileErr) {
+        // Fallback to encoded command if file creation fails (though it might still hit ENAMETOOLONG)
+      }
+    }
+
     const buffer = Buffer.from(fullScript, 'utf16le');
     const b64 = buffer.toString('base64');
     execFile('powershell.exe', [
