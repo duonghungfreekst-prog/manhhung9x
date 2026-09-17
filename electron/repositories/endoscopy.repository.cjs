@@ -100,7 +100,7 @@ class EndoscopyRepository {
       // Đổi tên file cũ để đánh dấu hoàn tất an toàn
       try {
         fs.renameSync(jsonPath, jsonPath + '.migrated');
-      } catch {}
+      } catch (_e) { /* intentional: safe fallback */ }
     } catch (e) {
       this.db.exec('ROLLBACK;');
       console.error('[MIGRATION] Lỗi khi chuyển đổi dữ liệu:', e.message);

@@ -37,7 +37,7 @@ function hashKey(rawKey) {
 function execRegSafe(cmd) {
   try {
     return execSync(cmd, { stdio: ['pipe', 'pipe', 'ignore'], timeout: 3000 }).toString();
-  } catch {
+  } catch (_e) { /* intentional: registry command may fail */
     return '';
   }
 }
@@ -55,7 +55,7 @@ function readRegistryKey(fullKey, name) {
     const out = execRegSafe(`reg query "${fullKey}" /v "${name}"`);
     const match = out.match(new RegExp(`${name}\\s+REG_SZ\\s+(.*)`, 'i'));
     return match ? match[1].trim() : null;
-  } catch {
+  } catch (_e) { /* intentional: registry key may not exist */
     return null;
   }
 }
@@ -191,7 +191,7 @@ function getAppInstanceId(userDataPath) {
         return id;
       }
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 
   // Sinh instance ID mới cho phiên cài đặt này
   const newId = `INST-${crypto.randomBytes(6).toString('hex').toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
@@ -262,7 +262,7 @@ function encryptLicenseWithHwid(rawKey, hwid) {
     encrypted = Buffer.concat([encrypted, cipher.final()]);
     const tag = cipher.getAuthTag();
     return `ENC:${salt.toString('hex')}:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
-  } catch {
+  } catch (_e) { /* intentional: safe fallback */
     return rawKey;
   }
 }
@@ -283,7 +283,7 @@ function decryptLicenseWithHwid(encStr, hwid) {
     let decrypted = decipher.update(data);
     decrypted = Buffer.concat([decrypted, decipher.final()]);
     return decrypted.toString('utf8');
-  } catch {
+  } catch (_e) { /* intentional: safe fallback */
     return null;
   }
 }
@@ -305,7 +305,7 @@ function saveBackupKey(rawKey, hwid) {
     const vault = loadVaultState();
     vault.savedKey = cipherText;
     saveVaultState(vault);
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 }
 
 /**
@@ -319,7 +319,7 @@ function getBackupKey(hwid) {
       const dec = decryptLicenseWithHwid(regKey.trim(), hwid);
       if (dec) return dec;
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 
   // 2. Thử đọc từ ProgramData
   try {
@@ -328,7 +328,7 @@ function getBackupKey(hwid) {
       const dec = decryptLicenseWithHwid(vault.savedKey.trim(), hwid);
       if (dec) return dec;
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 
   return null;
 }
@@ -339,12 +339,12 @@ function getBackupKey(hwid) {
 function clearBackupKey() {
   try {
     execRegSafe(`reg delete "${REG_KEY}" /v "SavedKey" /f`);
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
   try {
     const vault = loadVaultState();
     delete vault.savedKey;
     saveVaultState(vault);
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 }
 
 /**
@@ -453,7 +453,7 @@ function verifyHWIDRecord(record) {
     const b = Buffer.from(expected, 'hex');
     if (a.length !== b.length) return false;
     return crypto.timingSafeEqual(a, b);
-  } catch {
+  } catch (_e) { /* intentional: safe fallback */
     return false;
   }
 }
@@ -485,11 +485,11 @@ function saveRecordToAllLayers(hwid, record) {
       try {
         execRegSafe(`attrib -h -s "${HWID_VAULT_FILE}"`);
         store = JSON.parse(fs.readFileSync(HWID_VAULT_FILE, 'utf8'));
-      } catch {}
+      } catch (_e) { /* intentional: safe fallback */ }
     }
     store[hwid] = record;
     fs.writeFileSync(HWID_VAULT_FILE, JSON.stringify(store, null, 2), 'utf8');
-    try { execRegSafe(`attrib +h "${HWID_VAULT_FILE}"`); } catch {}
+    try { execRegSafe(`attrib +h "${HWID_VAULT_FILE}"`); } catch (_e) { /* intentional: safe fallback */ }
   } catch (e) {
     console.error('[Vault] Lỗi lưu HWID ProgramData:', e.message);
   }
@@ -504,11 +504,11 @@ function saveRecordToAllLayers(hwid, record) {
       try {
         execRegSafe(`attrib -h -s "${PUBLIC_VAULT_FILE}"`);
         store = JSON.parse(fs.readFileSync(PUBLIC_VAULT_FILE, 'utf8'));
-      } catch {}
+      } catch (_e) { /* intentional: safe fallback */ }
     }
     store[hwid] = record;
     fs.writeFileSync(PUBLIC_VAULT_FILE, JSON.stringify(store, null, 2), 'utf8');
-    try { execRegSafe(`attrib +h "${PUBLIC_VAULT_FILE}"`); } catch {}
+    try { execRegSafe(`attrib +h "${PUBLIC_VAULT_FILE}"`); } catch (_e) { /* intentional: safe fallback */ }
   } catch (e) {
     console.error('[Vault] Lỗi lưu HWID Public:', e.message);
   }
@@ -522,7 +522,7 @@ function saveRecordToAllLayers(hwid, record) {
         saveVaultState(vault);
       }
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 }
 
 /**
@@ -545,7 +545,7 @@ function getHWIDTrialRecord(rawHwid) {
       const parsed = JSON.parse(Buffer.from(r1Hex, 'hex').toString('utf8'));
       if (parsed && parsed.hwid === hwid && verifyHWIDRecord(parsed)) records.push(parsed);
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 
   // 2. Đọc Tầng 2: Registry CLSID ẩn
   try {
@@ -554,7 +554,7 @@ function getHWIDTrialRecord(rawHwid) {
       const parsed = JSON.parse(Buffer.from(r2Hex, 'hex').toString('utf8'));
       if (parsed && parsed.hwid === hwid && verifyHWIDRecord(parsed)) records.push(parsed);
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 
   // 3. Đọc Tầng 3: ProgramData
   try {
@@ -564,7 +564,7 @@ function getHWIDTrialRecord(rawHwid) {
         records.push(store[hwid]);
       }
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 
   // 4. Đọc Tầng 4: Public Documents
   try {
@@ -574,7 +574,7 @@ function getHWIDTrialRecord(rawHwid) {
         records.push(store[hwid]);
       }
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 
   // 5. Fallback từ Vault cũ nếu có (chỉ áp dụng cho máy thật, bỏ qua mock test)
   try {
@@ -589,7 +589,7 @@ function getHWIDTrialRecord(rawHwid) {
         });
       }
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 
   let firstSeenSec = 0;
   let lastSeenSec = 0;

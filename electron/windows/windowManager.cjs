@@ -115,7 +115,7 @@ function createMainWindow() {
         console.warn('[MAIN] loadURL error, trying fallback loadFile:', err);
         win.loadFile(indexPath).catch(e => console.error('[MAIN] loadFile error:', e));
       });
-    } catch {
+    } catch (_e) { /* intentional: safe fallback */
       win.loadFile(indexPath).catch(e => console.error('[MAIN] loadFile error:', e));
     }
   }
@@ -144,7 +144,7 @@ function createMainWindow() {
     try {
       const parsed = new URL(url);
       if (parsed.origin !== 'null') shell.openExternal(url);
-    } catch {}
+    } catch (_e) { /* intentional: safe fallback */ }
     return { action: 'deny' };
   });
 

@@ -15,7 +15,7 @@ const isDev = app ? !app.isPackaged : true;
 function getModulesBaseDir() {
   const dir = path.join(app.getPath('userData'), 'dmh_modules');
   if (!fs.existsSync(dir)) {
-    try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_e) { /* intentional: dir may exist */ }
   }
   return dir;
 }
@@ -33,7 +33,7 @@ function resolveAssetPath(relPath) {
         if (fs.existsSync(subPath)) return subPath;
       }
     }
-  } catch {}
+  } catch (_e) { /* intentional: dir listing optional */ }
 
   if (!isDev && process.resourcesPath) {
     const inRes = path.join(process.resourcesPath, relPath);
@@ -53,12 +53,12 @@ function downloadFileWithRedirect(targetUrl, destPath, onProgress) {
 
     const cleanup = () => {
       if (file) {
-        try { file.destroy(); } catch {}
+        try { file.destroy(); } catch (_e) { /* intentional: stream may be destroyed */ }
         file = null;
       }
       try {
         if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-      } catch {}
+      } catch (_e) { /* intentional: file may not exist */ }
     };
 
     const makeReq = (curUrl, redirects = 0) => {
@@ -431,13 +431,13 @@ function registerSystemIPC() {
         fs.writeFileSync(probeFile, 'ok');
         fs.unlinkSync(probeFile);
         testDir = candidate;
-      } catch {
+      } catch (_e) { /* intentional: fallback to default testDir */
         testDir = path.join(os.tmpdir(), 'dmh_benchmark');
       }
     }
     try {
       if (!fs.existsSync(testDir)) fs.mkdirSync(testDir, { recursive: true });
-    } catch {
+    } catch (_e) { /* intentional: fallback to tmpdir */
       testDir = os.tmpdir();
     }
 
@@ -496,7 +496,7 @@ function registerSystemIPC() {
       // Dọn dẹp file test
       try {
         if (fs.existsSync(testFile)) fs.unlinkSync(testFile);
-      } catch { /* ignore */ }
+      } catch (_e) { /* intentional: test file may not exist */ }
     }
   });
 
@@ -519,7 +519,7 @@ function registerSystemIPC() {
             } else {
               Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
             }
-          } catch {}
+          } catch {} # intentional: file may be locked
         }
       }
 
@@ -533,14 +533,14 @@ function registerSystemIPC() {
               Remove-Item $_.FullName -Force -ErrorAction Stop
               $deletedFiles++
             }
-          } catch {}
+          } catch {} # intentional: file may be locked
         }
       }
 
       # 3. Dọn Recycle Bin
       try {
         Clear-RecycleBin -Force -ErrorAction SilentlyContinue
-      } catch {}
+      } catch {} # intentional: recycle bin may be empty
 
       [PSCustomObject]@{
         DeletedFiles = $deletedFiles
@@ -553,7 +553,7 @@ function registerSystemIPC() {
     try {
       const data = JSON.parse(res.output);
       return { ok: true, data };
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, data: { DeletedFiles: 0, FreedMB: 0 } };
     }
   });
@@ -583,7 +583,7 @@ function registerSystemIPC() {
     try {
       const data = JSON.parse(res.output);
       return { ok: true, data };
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, data: { FreedMB: 0 } };
     }
   });
@@ -1028,7 +1028,7 @@ function registerSystemIPC() {
     try {
       const data = JSON.parse(res.output);
       return { ok: true, data: Array.isArray(data) ? data : [data] };
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: false, error: 'Không thể phân tích dữ liệu người dùng' };
     }
   });
@@ -1128,7 +1128,7 @@ function registerSystemIPC() {
         } else {
           $battObj = @{ HasBattery = $false }
         }
-      } catch {
+      } catch { # intentional: battery may not exist
         $battObj = @{ HasBattery = $false }
       }
 
@@ -1138,7 +1138,7 @@ function registerSystemIPC() {
         $pDisks = Get-PhysicalDisk
         foreach ($pd in $pDisks) {
           $cnt = $null
-          try { $cnt = $pd | Get-StorageReliabilityCounter } catch {}
+          try { $cnt = $pd | Get-StorageReliabilityCounter } catch {} # intentional: counter may not exist
           $healthPct = 100
           if ($cnt -and $cnt.Wear -ne $null -and [int]$cnt.Wear -gt 0) {
             $healthPct = [math]::Max(0, 100 - [int]$cnt.Wear)
@@ -1163,7 +1163,7 @@ function registerSystemIPC() {
             SizeGB = [math]::Round($pd.Size / 1GB, 1)
           }
         }
-      } catch {}
+      } catch {} # intentional: disk health query optional
 
       # Dates & Serials
       $biosRaw = Get-CimInstance Win32_BIOS
@@ -1240,7 +1240,7 @@ function registerSystemIPC() {
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return { ok: true, data: JSON.parse(res.output) };
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: false, error: 'Không thể phân tích dữ liệu kiểm tra laptop' };
     }
   });
@@ -1396,7 +1396,7 @@ function registerSystemIPC() {
     try {
       const data = JSON.parse(res.output || '[]');
       return { ok: true, data: Array.isArray(data) ? data : (data ? [data] : []) };
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, data: [] };
     }
   });
@@ -1727,7 +1727,7 @@ function registerSystemIPC() {
     }
 
     if (!fs.existsSync(dest)) {
-      try { fs.mkdirSync(dest, { recursive: true }); } catch {}
+      try { fs.mkdirSync(dest, { recursive: true }); } catch (_e) { /* intentional: dir may exist */ }
     }
 
     const escapedPath = dest.replace(/\\/g, '\\\\').replace(/"/g, '`"');
@@ -1751,7 +1751,7 @@ function registerSystemIPC() {
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, targetDir: dest, message: `Đã sao lưu driver vào ${dest}!` };
     }
   });
@@ -1806,7 +1806,7 @@ function registerSystemIPC() {
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return { ok: true, data: JSON.parse(res.output) };
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: false, error: 'Không thể đọc Key bản quyền' };
     }
   });
@@ -1841,7 +1841,7 @@ function registerSystemIPC() {
             try {
               $hostEntry = [System.Net.Dns]::GetHostEntry($ip)
               $hostNameFound = $hostEntry.HostName
-            } catch {
+            } catch { # intentional: DNS lookup may fail
               $hostNameFound = "Thiết bị mạng ($ip)"
             }
             $devices += [PSCustomObject]@{
@@ -1882,7 +1882,7 @@ function registerSystemIPC() {
     try {
       const data = JSON.parse(res.output || '[]');
       return { ok: true, data: Array.isArray(data) ? data : [data] };
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, data: [] };
     }
   });
@@ -1895,7 +1895,7 @@ function registerSystemIPC() {
         Enable-ComputerRestore -Drive "C:\\" -ErrorAction SilentlyContinue
         Checkpoint-Computer -Description "${desc}" -RestorePointType "MODIFY_SETTINGS"
         "Đã tạo điểm phục hồi hệ thống [${desc}] thành công!"
-      } catch {
+      } catch { # intentional: restore point creation may fail
         "Lỗi tạo điểm phục hồi: " + $_.Exception.Message
       }
     `;
@@ -1934,7 +1934,7 @@ function registerSystemIPC() {
     try {
       const data = JSON.parse(res.output || '[]');
       return { ok: true, apps: Array.isArray(data) ? data : [data] };
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, apps: [] };
     }
   });
@@ -1984,7 +1984,7 @@ function registerSystemIPC() {
     try {
       const data = JSON.parse(res.output || '[]');
       return { ok: true, files: Array.isArray(data) ? data : [data] };
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, files: [] };
     }
   });
@@ -2162,7 +2162,7 @@ function registerSystemIPC() {
     try {
       const data = JSON.parse(res.output || '{}');
       return data;
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, message: 'Đã hoàn tất sao lưu dữ liệu người dùng!' };
     }
   });
@@ -2186,7 +2186,7 @@ function registerSystemIPC() {
             } else {
               Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
             }
-          } catch {}
+          } catch {} # intentional: file may be locked
         }
       }
 
@@ -2200,7 +2200,7 @@ function registerSystemIPC() {
               Remove-Item $_.FullName -Force -ErrorAction Stop
               $deletedFiles++
             }
-          } catch {}
+          } catch {} # intentional: file may be locked
         }
       }
 
@@ -2212,7 +2212,7 @@ function registerSystemIPC() {
             $freedTrashBytes += $_.Length
             Remove-Item $_.FullName -Force -ErrorAction Stop
             $deletedFiles++
-          } catch {}
+          } catch {} # intentional: file may be locked
         }
       }
 
@@ -2228,7 +2228,7 @@ function registerSystemIPC() {
             } else {
               Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
             }
-          } catch {}
+          } catch {} # intentional: file may be locked
         }
       }
 
@@ -2266,7 +2266,7 @@ function registerSystemIPC() {
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, message: 'Đã hoàn tất tối ưu thần tốc!' };
     }
   });
@@ -2334,7 +2334,7 @@ function registerSystemIPC() {
     try {
       const data = JSON.parse(res.output || '[]');
       return { ok: true, services: Array.isArray(data) ? data : [data], message: 'Đã sửa chữa và phục hồi trạng thái cho toàn bộ 8 dịch vụ hệ thống!' };
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, message: 'Đã hoàn tất khôi phục dịch vụ hệ thống!' };
     }
   });
@@ -2352,7 +2352,7 @@ function registerSystemIPC() {
           try {
             Remove-Item $_.FullName -Force -ErrorAction Stop
             $clearedFiles++
-          } catch {}
+          } catch {} # intentional: file may be locked
         }
       }
       Start-Service -Name "Spooler" -ErrorAction SilentlyContinue
@@ -2368,7 +2368,7 @@ function registerSystemIPC() {
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, message: 'Đã hoàn tất xóa kẹt lệnh in!' };
     }
   });
@@ -2392,7 +2392,7 @@ function registerSystemIPC() {
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true };
     }
   });
@@ -2412,7 +2412,7 @@ function registerSystemIPC() {
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, message: 'Đã hoàn tất cài đặt Visual C++!' };
     }
   });
@@ -2442,7 +2442,7 @@ function registerSystemIPC() {
         if ($_.DriverDate) {
           try { 
             $dDate = ([Management.ManagementDateTimeConverter]::ToDateTime($_.DriverDate)).ToString('yyyy-MM-dd') 
-          } catch { 
+          } catch { # intentional: date format fallback
             $dDate = $_.DriverDate.ToString() 
           }
         }
@@ -2488,7 +2488,7 @@ function registerSystemIPC() {
     `;
     const res = await runPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { /* intentional: fallback to default */ return { ok: true }; }
   });
 
   // 39. Hộp thoại chọn thư mục sao lưu Driver
@@ -2535,7 +2535,7 @@ function registerSystemIPC() {
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) { /* intentional: fallback to default */
       return { ok: true, message: 'Đã hoàn tất cài đặt driver!' };
     }
   });
@@ -2552,7 +2552,7 @@ function registerSystemIPC() {
     `;
     const res = await runPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { /* intentional: fallback to default */ return { ok: true }; }
   });
 
   // ── PRINTER SUITE: Tự động trích xuất Event Log lỗi in ấn & SMB từ Windows Event Viewer ──
@@ -2599,7 +2599,7 @@ function registerSystemIPC() {
             return total;
           };
           sizeOnDisk = calcDirSize(modFolder);
-        } catch {}
+        } catch (_e) { /* intentional: dir size calc optional */ }
       }
 
       result[mod.id] = {
@@ -2626,7 +2626,7 @@ function registerSystemIPC() {
         host === 'github-releases.githubusercontent.com' ||
         host.endsWith('.githubusercontent.com')
       );
-    } catch {
+    } catch (_e) { /* intentional: invalid URL returns false */
       return false;
     }
   }
@@ -2666,7 +2666,7 @@ function registerSystemIPC() {
                 totalBytes: progress.totalBytes
               });
             }
-          } catch {}
+          } catch (_e) { /* intentional: sender may be destroyed */ }
         });
 
         // Kiểm tra tính toàn vẹn SHA-256 nếu có mã đối soát
@@ -2674,7 +2674,7 @@ function registerSystemIPC() {
           const fileBuf = fs.readFileSync(destExe);
           const actualHash = crypto.createHash('sha256').update(fileBuf).digest('hex').toLowerCase();
           if (actualHash !== expectedSha256.trim().toLowerCase()) {
-            try { fs.unlinkSync(destExe); } catch {}
+            try { fs.unlinkSync(destExe); } catch (_e) { /* intentional: file may not exist */ }
             return { ok: false, error: 'Mã băm SHA-256 không khớp! Tệp có dấu hiệu bị can thiệp hoặc tải không trọn vẹn.' };
           }
         }
@@ -2692,11 +2692,11 @@ function registerSystemIPC() {
             const sigBuf = Buffer.from(expectedSignature, 'base64url');
             const isSigValid = crypto.verify(null, fileBuf, pubKeyObj, sigBuf);
             if (!isSigValid) {
-              try { fs.unlinkSync(destExe); } catch {}
+              try { fs.unlinkSync(destExe); } catch (_e) { /* intentional: file may not exist */ }
               return { ok: false, error: 'Chữ ký số Ed25519 của bộ cài đặt không hợp lệ! Từ chối thực thi để bảo vệ hệ thống.' };
             }
           } catch (sigErr) {
-            try { fs.unlinkSync(destExe); } catch {}
+            try { fs.unlinkSync(destExe); } catch (_e) { /* intentional: file may not exist */ }
             return { ok: false, error: 'Lỗi xác minh chữ ký số của nhà phát hành: ' + sigErr.message };
           }
         }
@@ -2719,7 +2719,7 @@ function registerSystemIPC() {
               totalBytes: progress.totalBytes
             });
           }
-        } catch {}
+        } catch (_e) { /* intentional: sender may be destroyed */ }
       });
 
       // Kiểm tra tính toàn vẹn SHA-256 của gói ZIP trước khi giải nén
@@ -2727,7 +2727,7 @@ function registerSystemIPC() {
         const fileBuf = fs.readFileSync(tempZip);
         const actualHash = crypto.createHash('sha256').update(fileBuf).digest('hex').toLowerCase();
         if (actualHash !== expectedSha256.trim().toLowerCase()) {
-          try { fs.unlinkSync(tempZip); } catch {}
+          try { fs.unlinkSync(tempZip); } catch (_e) { /* intentional: temp file may not exist */ }
           return { ok: false, error: 'Mã băm SHA-256 của gói module không khớp! Đã hủy cài đặt.' };
         }
       }
@@ -2746,7 +2746,7 @@ function registerSystemIPC() {
           '-DestinationPath', modFolder,
           '-Force'
         ], (err) => {
-          try { fs.unlinkSync(tempZip); } catch {}
+          try { fs.unlinkSync(tempZip); } catch (_e) { /* intentional: temp file may not exist */ }
           if (err) return reject(new Error('Giải nén module thất bại: ' + err.message));
           resolve();
         });
@@ -2854,7 +2854,7 @@ function registerSystemIPC() {
           if (_mainWin && !_mainWin.isDestroyed()) {
             _mainWin.hide();
           }
-        } catch {}
+        } catch (_e) { /* intentional: window may be destroyed */ }
       }, 1500);
 
       // Đóng ứng dụng sau 4s để bộ cài đặt tiến hành ghi đè file

@@ -24,7 +24,7 @@ function resolveAssetPath(relPath) {
         if (fs.existsSync(subPath)) return subPath;
       }
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 
   if (!isDev && process.resourcesPath) {
     const inRes = path.join(process.resourcesPath, relPath);
@@ -137,7 +137,7 @@ async function ensureTtsServer() {
                 cb(msg.ok === true);
               }
             }
-          } catch {}
+          } catch (_e) { /* intentional: safe fallback */ }
         }
       });
 
@@ -168,7 +168,7 @@ async function ensureTtsServer() {
       } else {
         proc.kill();
       }
-    } catch {
+    } catch (_e) { /* intentional: safe fallback */
       // Thử tiếp lệnh tiếp theo
     }
   }
@@ -187,7 +187,7 @@ async function speakWithPiper(text, voice = 'default') {
     try {
       const msg = JSON.stringify({ cmd: 'speak', id, text, voice }) + '\n';
       _ttsProc.stdin.write(msg, 'utf8');
-    } catch {
+    } catch (_e) { /* intentional: safe fallback */
       _ttsCallbacks.delete(id);
       resolve(false);
     }
@@ -202,7 +202,7 @@ async function speakWithPiper(text, voice = 'default') {
 
 function stopTtsServer() {
   if (_ttsProc && !_ttsProc.killed) {
-    try { _ttsProc.stdin.write(JSON.stringify({ cmd: 'exit' }) + '\n'); } catch {}
+    try { _ttsProc.stdin.write(JSON.stringify({ cmd: 'exit' }) + '\n'); } catch (_e) { /* intentional: safe fallback */ }
     setTimeout(() => { if (_ttsProc && !_ttsProc.killed) _ttsProc.kill(); }, 500);
   }
 }

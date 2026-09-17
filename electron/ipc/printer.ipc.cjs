@@ -31,7 +31,7 @@ function registerPrinterIPC() {
         try {
           const parsed = JSON.parse(stdout.trim());
           resolve(Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []));
-        } catch {
+        } catch (_e) {
           resolve([]);
         }
       });
@@ -174,7 +174,7 @@ function registerPrinterIPC() {
     if (!res.ok) return { ok: false, error: res.error, logs: [], count: 0, stuckJobs: [] };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: true, logs: [], count: 0, stuckJobs: [] };
     }
   });
@@ -304,7 +304,7 @@ function registerPrinterIPC() {
     if (!res.ok) return { ok: false, error: res.error, host: cleanHost, sharedPrinters: [] };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: true, host: cleanHost, sharedPrinters: [] };
     }
   });
@@ -450,7 +450,7 @@ function registerPrinterIPC() {
     `;
     const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true, success: true }; }
   });
 
   // ── PRINTER SUITE: Mở khóa kết nối mạng IPC$ chuyên biệt siêu tốc (1-2 giây) ──
@@ -520,7 +520,7 @@ function registerPrinterIPC() {
     }
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: true, host: cleanHost, ipcAccessOk: true, sharedPrinters: [] };
     }
   });
@@ -574,7 +574,7 @@ function registerPrinterIPC() {
     `;
     const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true, success: true }; }
   });
 
   // ── PRINTER SUITE: Mở nhanh Windows Credential Manager (control keymgr.dll) ──
@@ -697,7 +697,7 @@ function registerPrinterIPC() {
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: true, success: true, message: 'Đã hoàn tất cấu hình sửa lỗi máy in LAN.' };
     }
   });
@@ -844,7 +844,7 @@ function registerPrinterIPC() {
     `;
     const res = await runPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error, issueCount: 0, issues: [] };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: false, issueCount: 0, issues: [] }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: false, issueCount: 0, issues: [] }; }
   });
 
   // ── PRINTER SUITE: Đặc Trị Toàn Diện Lỗi 0x00000709 Từ A-Z (1-Click) ──
@@ -977,7 +977,7 @@ function registerPrinterIPC() {
     `;
     const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true, success: true }; }
   });
 
   // ── PRINTER SUITE: Đặc trị lỗi 0x00000709 khi Đặt Máy In Mặc Định (Set Default Printer) ──
@@ -1023,7 +1023,7 @@ function registerPrinterIPC() {
     `;
     const res = await runPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true, success: true }; }
   });
 
   // ── PRINTER SUITE: Xuất File Script Sửa Lỗi 709 Đóng Gói Cho Máy Chủ Cắm Máy In ──
@@ -1177,7 +1177,7 @@ pause
     try {
       const data = JSON.parse(res.output || '{}');
       return { ok: true, drivers: Array.isArray(data.drivers) ? data.drivers : (data.drivers ? [data.drivers] : []) };
-    } catch {
+    } catch (_e) {
       return { ok: false, drivers: [] };
     }
   });
@@ -1306,7 +1306,7 @@ pause
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: true, success: true, message: 'Đã hoàn tất thêm máy in qua Local Port.' };
     }
   });
@@ -1333,7 +1333,7 @@ pause
     if (!res.ok) return { ok: false, isFixed: false };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: false, isFixed: false };
     }
   });
@@ -1350,7 +1350,7 @@ pause
     `;
     const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true }; }
   });
 
   ipcMain.handle('printer:restart-pc', async () => {
@@ -1363,7 +1363,7 @@ pause
     `;
     const res = await runPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true }; }
   });
 
   // Khắc phục lỗi 0x00000bcb & Gỡ bỏ chính sách chặn Driver Point and Print
@@ -1388,7 +1388,7 @@ pause
     `;
     const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true, success: true }; }
   });
 
   // Khắc phục lỗi máy in mạng bị báo "Offline" do SNMP
@@ -1418,7 +1418,7 @@ pause
     `;
     const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true, success: true }; }
   });
 
   // Bật Network Discovery, File & Printer Sharing trên Firewall và dịch vụ mạng
@@ -1445,7 +1445,7 @@ pause
     `;
     const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true, success: true }; }
   });
 
   // Khắc phục Print Spooler tự tắt / crash & Phân quyền lại thư mục PRINTERS
@@ -1470,7 +1470,7 @@ pause
     `;
     const res = await runElevatedPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true, success: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true, success: true }; }
   });
 
   // Thao tác trực tiếp trên một máy in cụ thể
@@ -1533,7 +1533,7 @@ pause
     `;
     const res = await runPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true }; }
   });
 
   ipcMain.handle('printer:set-default', async (_event, printerName) => {
@@ -1546,7 +1546,7 @@ pause
     `;
     const res = await runPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true }; }
   });
 
   ipcMain.handle('printer:resume-printer', async (_event, printerName) => {
@@ -1560,7 +1560,7 @@ pause
     `;
     const res = await runPSToolScript(ps);
     if (!res.ok) return { ok: false, error: res.error };
-    try { return JSON.parse(res.output || '{}'); } catch { return { ok: true }; }
+    try { return JSON.parse(res.output || '{}'); } catch (_e) { return { ok: true }; }
   });
 
   ipcMain.handle('printer:open-queue', async (_event, printerName) => {
@@ -1627,7 +1627,7 @@ pause
     if (!res.ok) return { ok: false, jobs: [] };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: false, jobs: [] };
     }
   });
@@ -1677,7 +1677,7 @@ pause
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: true, message: 'Đã xóa lệnh in.' };
     }
   });
@@ -1733,7 +1733,7 @@ pause
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: true, message: 'Đã xóa hàng đợi in thành công.' };
     }
   });
@@ -1846,7 +1846,7 @@ pause
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: true, message: `Đã gỡ bỏ tận gốc máy in ${safePrinter}.` };
     }
   });
@@ -1967,7 +1967,7 @@ pause
     if (!res.ok) return { ok: false, error: res.error, printers: [], issueCount: 0 };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: false, printers: [], issueCount: 0 };
     }
   });
@@ -2106,7 +2106,7 @@ pause
     if (!res.ok) return { ok: false, error: res.error };
     try {
       return JSON.parse(res.output || '{}');
-    } catch {
+    } catch (_e) {
       return { ok: true, success: true, message: 'Đã hoàn tất sửa tự động toàn bộ lỗi.' };
     }
   });
@@ -2186,7 +2186,7 @@ pause
         detectedConnectedPort: data.detectedConnectedPort || "",
         activeUsbCount: data.activeUsbCount || 0
       };
-    } catch {
+    } catch (_e) {
       return { ok: true, ports: [], detectedConnectedPort: "" };
     }
   });
@@ -2214,7 +2214,7 @@ pause
         if (sender && !sender.isDestroyed()) {
           sender.send('printer:driver-install-progress', { step, total, text, status });
         }
-      } catch {}
+      } catch (_e) { /* intentional: sender may be destroyed */ }
       console.log(`[AutoDriverInstall Step ${step}/${total}] ${text}`);
     };
 
@@ -2274,7 +2274,7 @@ pause
           const uPath = new URL(downloadTargetUrl).pathname;
           const leaf = path.basename(uPath);
           if (leaf && leaf !== 'uc' && leaf !== 'download') fileName = leaf;
-        } catch {}
+        } catch (_e) { /* intentional: fallback to default filename */ }
         if (!fileName.includes('.')) fileName += '.tmp';
         const targetDownloadPath = path.join(tempDir, fileName);
 
@@ -2299,7 +2299,7 @@ pause
         else if (buf[0] === 0x52 && buf[1] === 0x61 && buf[2] === 0x72 && buf[3] === 0x21) detectedType = 'rar';
         else if (buf[0] === 0x37 && buf[1] === 0x7A && buf[2] === 0xBC && buf[3] === 0xAF) detectedType = '7z';
         else if (buf[0] === 0x4D && buf[1] === 0x5A) detectedType = 'exe';
-      } catch {}
+      } catch (_e) { /* intentional: fallback to extension detection */ }
 
       if (detectedType === 'unknown') {
         const ext = path.extname(installerPath).toLowerCase().replace('.', '');
@@ -2312,7 +2312,7 @@ pause
         try {
           fs.renameSync(installerPath, properPath);
           installerPath = properPath;
-        } catch {}
+        } catch (_e) { /* intentional: rename optional */ }
       }
 
       // Xác thực SHA-256 nếu có cấu hình
@@ -2377,7 +2377,7 @@ pause
         `;
         const extRes = await runPSToolScript(extractPs);
         let extData = {};
-        try { extData = JSON.parse(extRes.output || '{}'); } catch {}
+        try { extData = JSON.parse(extRes.output || '{}'); } catch (_e) { /* intentional: fallback to default */ }
 
         if (extData.fileCount > 0) {
           sendLog(2, 4, `Giải nén thành công (${extData.fileCount} tệp tin trong gói driver).`, 'ok');
@@ -2779,7 +2779,7 @@ public class Win32Helper {
 
       const installRes = await runElevatedPSToolScript(installPs);
       let installData = {};
-      try { installData = JSON.parse(installRes.output || '{}'); } catch {}
+      try { installData = JSON.parse(installRes.output || '{}'); } catch (_e) { /* intentional: fallback to default */ }
 
       const detectedPrinterName = installData.printerName || '';
       const autoCreated = !!installData.autoCreated;
@@ -2856,7 +2856,7 @@ public class Win32Helper {
 
         const testRes = await runPSToolScript(testPs);
         let testData = {};
-        try { testData = JSON.parse(testRes.output || '{}'); } catch {}
+        try { testData = JSON.parse(testRes.output || '{}'); } catch (_e) { /* intentional: fallback to default */ }
 
         if (testData.printed && testData.target) {
           testPrintSent = true;
@@ -2873,7 +2873,7 @@ public class Win32Helper {
       // Dọn dẹp thư mục tạm
       try {
         fs.rmSync(tempDir, { recursive: true, force: true });
-      } catch {}
+      } catch (_e) { /* intentional: temp dir may already be removed */ }
 
       return {
         ok: true,

@@ -22,7 +22,7 @@ async function getSystemHwid() {
       _cachedHwid = m[1].trim().toUpperCase();
       return _cachedHwid;
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 
   try {
     const script = `
@@ -45,7 +45,7 @@ async function getSystemHwid() {
     // Lưu đệm vào Registry để máy lag lúc khởi động sau này không bao giờ bị timeout
     try {
       execSync(`reg add "HKCU\\Software\\DMH_Tools\\License" /v "HardwareID" /t REG_SZ /d "${_cachedHwid}" /f`, { stdio: 'ignore' });
-    } catch {}
+    } catch (_e) { /* intentional: safe fallback */ }
 
     return _cachedHwid;
   } catch (e) {
@@ -135,7 +135,7 @@ function registerLicenseIPC() {
     try {
       const targetHwid = hwid || await getSystemHwid();
       return licenseVault.getPersistentTrialInit(targetHwid);
-    } catch {
+    } catch (_e) { /* intentional: safe fallback */
       return 0;
     }
   });
@@ -144,7 +144,7 @@ function registerLicenseIPC() {
     try {
       const targetHwid = hwid || await getSystemHwid();
       return licenseVault.savePersistentTrialInit(sec, targetHwid);
-    } catch {
+    } catch (_e) { /* intentional: safe fallback */
       return 0;
     }
   });

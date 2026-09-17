@@ -18,7 +18,7 @@ function getLogDirectory() {
   const userData = app ? app.getPath('userData') : process.cwd();
   logDir = path.join(userData, 'logs');
   if (!fs.existsSync(logDir)) {
-    try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
+    try { fs.mkdirSync(logDir, { recursive: true }); } catch (_e) { /* intentional: safe fallback */ }
   }
   return logDir;
 }

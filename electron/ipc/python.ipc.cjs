@@ -58,7 +58,7 @@ function resolveAssetPath(relPath) {
         if (fs.existsSync(subPath)) return subPath;
       }
     }
-  } catch {}
+  } catch (_e) { /* intentional: safe fallback */ }
 
   if (!isDev && process.resourcesPath) {
     const inRes = path.join(process.resourcesPath, relPath);
@@ -362,7 +362,7 @@ function registerPythonIPC() {
     try {
       const stat = fs.statSync(filePath);
       return stat.size <= 100 * 1024 * 1024; // Tối đa 100MB
-    } catch {
+    } catch (_e) { /* intentional: safe fallback */
       return false;
     }
   }

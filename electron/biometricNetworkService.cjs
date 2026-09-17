@@ -42,7 +42,7 @@ function probeTcpPort(ip, port, timeoutMs = 1500) {
 
     try {
       socket.connect(port, ip);
-    } catch {
+    } catch (_e) { /* intentional: connection failure returns false */
       resolve(false);
     }
   });
@@ -153,7 +153,7 @@ async function testBiometricConnection(ip, port = 4370, timeoutMs = 4000) {
 
     const timeoutPromise = new Promise((_, reject) => {
       timer = setTimeout(() => {
-        try { zk.disconnect(); } catch {}
+        try { zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
         reject(new Error(`Quá thời gian phản hồi từ máy chấm công (${timeoutMs}ms).`));
       }, timeoutMs);
     });
@@ -169,7 +169,7 @@ async function testBiometricConnection(ip, port = 4370, timeoutMs = 4000) {
     let info = {};
     try {
       info = await zk.getInfo() || {};
-    } catch {
+    } catch (_e) { /* intentional: info query optional */
       info = { note: 'Đã kết nối thành công, không lấy được chi tiết info.' };
     }
 
@@ -179,11 +179,11 @@ async function testBiometricConnection(ip, port = 4370, timeoutMs = 4000) {
       if (usersRes && Array.isArray(usersRes.data)) {
         usersCount = usersRes.data.length;
       }
-    } catch {}
+    } catch (_e) { /* intentional: user count optional */ }
 
     try {
       await zk.disconnect();
-    } catch {}
+    } catch (_e) { /* intentional: device may be disconnected */ }
 
     return {
       ok: true,
@@ -198,7 +198,7 @@ async function testBiometricConnection(ip, port = 4370, timeoutMs = 4000) {
   } catch (err) {
     clearTimeout(timer);
     if (zk) {
-      try { await zk.disconnect(); } catch {}
+      try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
     }
     return {
       ok: false,
@@ -232,7 +232,7 @@ async function pullBiometricAttendanceLogs(ip, port = 4370, timeoutMs = 15000) {
 
     const timeoutPromise = new Promise((_, reject) => {
       timer = setTimeout(() => {
-        try { zk.disconnect(); } catch {}
+        try { zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
         reject(new Error(`Hết thời gian chờ lấy dữ liệu (${timeoutMs}ms).`));
       }, timeoutMs);
     });
@@ -275,7 +275,7 @@ async function pullBiometricAttendanceLogs(ip, port = 4370, timeoutMs = 15000) {
       // 3. Đóng socket an toàn
       try {
         await zk.disconnect();
-      } catch {}
+      } catch (_e) { /* intentional: device may be disconnected */ }
 
       return { userMap, usersList, attLogs };
     };
@@ -358,7 +358,7 @@ async function pullBiometricAttendanceLogs(ip, port = 4370, timeoutMs = 15000) {
   } catch (err) {
     clearTimeout(timer);
     if (zk) {
-      try { await zk.disconnect(); } catch {}
+      try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
     }
     return {
       ok: false,
@@ -421,7 +421,7 @@ async function getDeviceFullStatus(ip, port = 4370, timeoutMs = 5000) {
     let info = {};
     try {
       info = await zk.getInfo() || {};
-    } catch {}
+    } catch (_e) { /* intentional: info query optional */ }
 
     let deviceTime = null;
     let diffSeconds = 0;
@@ -433,7 +433,7 @@ async function getDeviceFullStatus(ip, port = 4370, timeoutMs = 5000) {
         deviceTime = devDate.toISOString();
         diffSeconds = Math.round((Date.now() - devDate.getTime()) / 1000);
       }
-    } catch {}
+    } catch (_e) { /* intentional: time query optional */ }
 
     await zk.disconnect();
 
@@ -451,7 +451,7 @@ async function getDeviceFullStatus(ip, port = 4370, timeoutMs = 5000) {
     };
   } catch (err) {
     if (zk) {
-      try { await zk.disconnect(); } catch {}
+      try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
     }
     return { ok: false, error: err.message || 'Lỗi đọc trạng thái máy chấm công.' };
   }
@@ -483,7 +483,7 @@ async function syncDeviceTime(ip, port = 4370, timeoutMs = 5000) {
         const timeVal = timeReply.readUInt32LE(8);
         verifiedTime = decodeZKTime(timeVal).toISOString();
       }
-    } catch {}
+    } catch (_e) { /* intentional: time verify optional */ }
 
     await zk.disconnect();
 
@@ -494,7 +494,7 @@ async function syncDeviceTime(ip, port = 4370, timeoutMs = 5000) {
     };
   } catch (err) {
     if (zk) {
-      try { await zk.disconnect(); } catch {}
+      try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
     }
     return { ok: false, error: err.message || 'Lỗi đồng bộ thời gian sang máy chấm công.' };
   }
@@ -525,7 +525,7 @@ async function testDeviceVoice(ip, port = 4370, timeoutMs = 5000) {
     };
   } catch (err) {
     if (zk) {
-      try { await zk.disconnect(); } catch {}
+      try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
     }
     return { ok: false, error: err.message || 'Lỗi gửi lệnh thử loa máy chấm công.' };
   }
@@ -544,7 +544,7 @@ async function rebootDevice(ip, port = 4370, timeoutMs = 5000) {
     zk = new ZKLib(ip, port, timeoutMs, 4000);
     await zk.createSocket();
     await zk.executeCmd(1004, ''); // CMD_RESTART
-    try { await zk.disconnect(); } catch {}
+    try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
 
     return {
       ok: true,
@@ -552,7 +552,7 @@ async function rebootDevice(ip, port = 4370, timeoutMs = 5000) {
     };
   } catch (err) {
     if (zk) {
-      try { await zk.disconnect(); } catch {}
+      try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
     }
     return { ok: false, error: err.message || 'Lỗi gửi lệnh khởi động lại máy chấm công.' };
   }
@@ -580,7 +580,7 @@ async function clearDeviceAdmin(ip, port = 4370, timeoutMs = 5000) {
     };
   } catch (err) {
     if (zk) {
-      try { await zk.disconnect(); } catch {}
+      try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
     }
     return { ok: false, error: err.message || 'Lỗi gửi lệnh xóa quyền admin máy chấm công.' };
   }
@@ -612,7 +612,7 @@ async function unlockDeviceDoor(ip, port = 4370, durationSeconds = 5, timeoutMs 
     };
   } catch (err) {
     if (zk) {
-      try { await zk.disconnect(); } catch {}
+      try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
     }
     return { ok: false, error: err.message || 'Lỗi gửi lệnh mở khóa cửa.' };
   }
@@ -652,7 +652,7 @@ async function getDeviceUsersList(ip, port = 4370, timeoutMs = 10000) {
     };
   } catch (err) {
     if (zk) {
-      try { await zk.disconnect(); } catch {}
+      try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
     }
     return { ok: false, error: err.message || 'Lỗi tải danh sách nhân viên từ máy chấm công.' };
   }
@@ -685,7 +685,7 @@ async function deleteDeviceUser(ip, port = 4370, uid, timeoutMs = 5000) {
     };
   } catch (err) {
     if (zk) {
-      try { await zk.disconnect(); } catch {}
+      try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
     }
     return { ok: false, error: err.message || 'Lỗi khi xóa nhân sự trên máy chấm công.' };
   }
@@ -712,7 +712,7 @@ async function clearDeviceAttendanceLogs(ip, port = 4370, timeoutMs = 8000) {
     };
   } catch (err) {
     if (zk) {
-      try { await zk.disconnect(); } catch {}
+      try { await zk.disconnect(); } catch (_e) { /* intentional: device may be disconnected */ }
     }
     return { ok: false, error: err.message || 'Lỗi khi dọn dẹp bộ nhớ máy chấm công.' };
   }

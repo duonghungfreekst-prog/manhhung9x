@@ -17,7 +17,7 @@ function getDbPath() {
   const userData = app ? app.getPath('userData') : process.cwd();
   const dbDir = path.join(userData, 'database');
   if (!fs.existsSync(dbDir)) {
-    try { fs.mkdirSync(dbDir, { recursive: true }); } catch {}
+    try { fs.mkdirSync(dbDir, { recursive: true }); } catch (_e) { /* intentional: safe fallback */ }
   }
   return path.join(dbDir, 'dmh_endoscopy.db');
 }

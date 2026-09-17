@@ -40,7 +40,7 @@ const isProcessElevated = () => {
   try {
     execSync('net session', { stdio: 'ignore' });
     return true;
-  } catch {
+  } catch (_e) { /* intentional: safe fallback */
     return false;
   }
 };
@@ -67,7 +67,7 @@ const runElevatedPSToolScript = (psScript) => {
         if ($jsonOut) {
           [System.IO.File]::WriteAllText('${tempOutPath.replace(/\\/g, '\\\\')}', $jsonOut.ToString(), [System.Text.Encoding]::UTF8)
         }
-      } catch {
+      } catch (_e) { /* intentional: safe fallback */
         $errObj = [PSCustomObject]@{ ok = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
         [System.IO.File]::WriteAllText('${tempOutPath.replace(/\\/g, '\\\\')}', $errObj, [System.Text.Encoding]::UTF8)
       }
@@ -96,7 +96,7 @@ const runElevatedPSToolScript = (psScript) => {
         if (fs.existsSync(tempScriptPath)) {
           fs.unlinkSync(tempScriptPath);
         }
-      } catch {}
+      } catch (_e) { /* intentional: safe fallback */ }
 
       if (output) {
         resolve({ ok: true, output });
@@ -117,7 +117,7 @@ const runPsScriptFile = (scriptContent, timeoutMs = 45000) => {
     execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tmpFile],
       { timeout: timeoutMs, encoding: 'utf8', maxBuffer: 15 * 1024 * 1024 },
       (err, stdout, stderr) => {
-        try { fs.unlinkSync(tmpFile); } catch {}
+        try { fs.unlinkSync(tmpFile); } catch (_e) { /* intentional: safe fallback */ }
         if (err) {
           return reject(new Error(stderr || stdout || err.message));
         }

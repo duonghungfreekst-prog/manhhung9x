@@ -47,7 +47,7 @@ function registerCaIPC() {
         try {
           const parsed = JSON.parse(out);
           list = Array.isArray(parsed) ? parsed : [parsed];
-        } catch {}
+        } catch (_e) { /* intentional: safe fallback */ }
       }
       return { ok: true, certificates: list };
     } catch (err) {
@@ -79,7 +79,7 @@ function registerCaIPC() {
             name: path.basename(fp),
             size: stat.size,
           });
-        } catch {}
+        } catch (_e) { /* intentional: safe fallback */ }
       }
       return { ok: true, canceled: false, files: filesInfo };
     } catch (err) {
@@ -150,7 +150,7 @@ function registerCaIPC() {
         if (-not $privateKey) {
           try {
             $privateKey = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
-          } catch {}
+          } catch (_e) { /* intentional: safe fallback */ }
         }
         if (-not $privateKey) {
           throw "Không thể nạp Private Key từ chứng thư số. Nếu dùng USB Token, vui lòng kiểm tra kết nối thiết bị và mã PIN."
@@ -202,7 +202,7 @@ function registerCaIPC() {
       }
 
       if (isTempIn) {
-        try { fs.unlinkSync(inPath); } catch {}
+        try { fs.unlinkSync(inPath); } catch (_e) { /* intentional: safe fallback */ }
       }
 
       return {
@@ -274,7 +274,7 @@ function registerCaIPC() {
             $certIssuer = $cert.Issuer
             $certSerial = $cert.SerialNumber
             $certValidTo = $cert.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
-          } catch {}
+          } catch (_e) { /* intentional: safe fallback */ }
         }
 
         $isValid = $false
@@ -284,7 +284,7 @@ function registerCaIPC() {
           } else {
             $isValid = $signedXml.CheckSignature()
           }
-        } catch {
+        } catch (_e) { /* intentional: safe fallback */
           $isValid = $false
         }
 
@@ -301,7 +301,7 @@ function registerCaIPC() {
 
       const out = await runPsScriptFile(psScript);
       if (isTempIn) {
-        try { fs.unlinkSync(inPath); } catch {}
+        try { fs.unlinkSync(inPath); } catch (_e) { /* intentional: safe fallback */ }
       }
 
       let parsed = { isSigned: false, isValid: false, message: 'Lỗi xác thực' };
@@ -317,7 +317,7 @@ function registerCaIPC() {
             validTo: res.ValidTo || '',
             message: res.Message || '',
           };
-        } catch {}
+        } catch (_e) { /* intentional: safe fallback */ }
       }
       return { ok: true, result: parsed };
     } catch (err) {

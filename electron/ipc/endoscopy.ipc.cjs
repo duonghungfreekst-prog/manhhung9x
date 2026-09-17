@@ -101,18 +101,18 @@ function registerEndoscopyIPC() {
         if (fs.existsSync(rootPath)) {
           const dataFolder = path.join(rootPath, 'DMH_Endoscopy_Images');
           if (!fs.existsSync(dataFolder)) {
-            try { fs.mkdirSync(dataFolder, { recursive: true }); } catch {}
+            try { fs.mkdirSync(dataFolder, { recursive: true }); } catch (_e) { /* intentional: safe fallback */ }
           }
           if (fs.existsSync(dataFolder)) {
             console.log(`[EndoStorage] Đã chọn ổ lưu trữ dữ liệu ảnh nội soi: ${dataFolder}`);
             return dataFolder;
           }
         }
-      } catch {}
+      } catch (_e) { /* intentional: safe fallback */ }
     }
     const fallback = path.join(app.getPath('pictures'), 'DMH_Endoscopy_Images');
     if (!fs.existsSync(fallback)) {
-      try { fs.mkdirSync(fallback, { recursive: true }); } catch {}
+      try { fs.mkdirSync(fallback, { recursive: true }); } catch (_e) { /* intentional: safe fallback */ }
     }
     return fallback;
   }
@@ -249,7 +249,7 @@ function registerEndoscopyIPC() {
       const sendLog = (line) => {
         try {
           if (!sender.isDestroyed()) sender.send('endoscopy:driver-log', line);
-        } catch {}
+        } catch (_e) { /* intentional: safe fallback */ }
       };
 
       const tmpScript = path.join(os.tmpdir(), 'dmh_cam_install.ps1');

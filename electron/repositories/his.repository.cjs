@@ -191,7 +191,7 @@ class HisRepository {
       await transaction.commit();
       return { ok: true };
     } catch (err) {
-      try { await transaction.rollback(); } catch {}
+      try { await transaction.rollback(); } catch (_e) { /* intentional: safe fallback */ }
       throw err;
     }
   }

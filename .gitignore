@@ -56,3 +56,6 @@ data/*.sqlite-wal
 data/*.sqlite-shm
 *.sqlite
 
+
+bfg.jar
+bfg-replacements.txt

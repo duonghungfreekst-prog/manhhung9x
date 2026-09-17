@@ -25,7 +25,7 @@ class HISConnectionManager {
       }
       try {
         await existing.close();
-      } catch {}
+      } catch (_e) { /* intentional: safe fallback */ }
       this.pools.delete(key);
     }
 
@@ -86,7 +86,7 @@ class HISConnectionManager {
       const pool = this.pools.get(key);
       try {
         await pool.close();
-      } catch {}
+      } catch (_e) { /* intentional: safe fallback */ }
       this.pools.delete(key);
     }
   }
@@ -95,7 +95,7 @@ class HISConnectionManager {
     for (const [, pool] of this.pools.entries()) {
       try {
         await pool.close();
-      } catch {}
+      } catch (_e) { /* intentional: safe fallback */ }
     }
     this.pools.clear();
   }
