@@ -2679,20 +2679,48 @@ public class Win32Helper {
               }
             } catch {}
 
-            # ── BƯỚC B: TỰ ĐỘNG BẤM QUA CÁC BƯỚC WIZARD SETUP TRUNG GIAN (Next, Install, Enter, OK) ──
-            if (([DateTime]::Now - $lastAutoClick).TotalSeconds -ge 1.2) {
+            # ── BƯỚC B: TỰ ĐỘNG BẤM QUA CÁC BƯỚC WIZARD SETUP TRUNG GIAN MÀ KHÔNG CƯỚP CHUỘT ──
+            if (([DateTime]::Now - $lastAutoClick).TotalSeconds -ge 1.0) {
               $lastAutoClick = [DateTime]::Now
               $wizProcs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-                $_.MainWindowTitle -match '(?i)(setup|installer|install wizard)' -and
+                $_.MainWindowTitle -match '(?i)(setup|installer|install wizard|xprinter|printer driver)' -and
                 $_.MainWindowTitle -notmatch '(?i)(dmh|visual studio|code|powershell|chrome|edge|browser)'
               })
               foreach ($wp in $wizProcs) {
                 try {
-                  [Microsoft.VisualBasic.Interaction]::AppActivate($wp.Id)
-                  Start-Sleep -Milliseconds 100
-                  [System.Windows.Forms.SendKeys]::SendWait("%i") # Alt+I (Install)
-                  Start-Sleep -Milliseconds 100
-                  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+                  $hWiz = $wp.MainWindowHandle
+                  if ($hWiz -ne [IntPtr]::Zero) {
+                    $wizChildren = [System.Collections.Generic.List[PSCustomObject]]::new()
+                    [Win32Helper]::EnumChildWindows($hWiz, {
+                      param($hc, $lp)
+                      $sb = [System.Text.StringBuilder]::new(256)
+                      [Win32Helper]::GetWindowText($hc, $sb, 256) | Out-Null
+                      $txt = $sb.ToString()
+                      if ($txt) {
+                        $wizChildren.Add([PSCustomObject]@{ Handle = $hc; Text = $txt })
+                      }
+                      return $true
+                    }, [IntPtr]::Zero)
+
+                    # Bấm chọn Accept License
+                    $acceptBtn = $wizChildren | Where-Object { 
+                      $cleanText = $_.Text -replace '&', ''
+                      $cleanText -match '(?i)(accept the agreement|chấp nhận|đồng ý)' 
+                    } | Select-Object -First 1
+                    if ($acceptBtn) {
+                      [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                    }
+
+                    # Bấm Next, Install, OK
+                    $nextBtn = $wizChildren | Where-Object { 
+                      $cleanText = $_.Text -replace '&', ''
+                      $cleanText -match '^(?i)(Next >|Next|Tiếp tục|Tiếp|Install|Cài đặt|OK|Yes|Có)$' 
+                    } | Select-Object -First 1
+                    if ($nextBtn) {
+                      Start-Sleep -Milliseconds 150
+                      [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                    }
+                  }
                 } catch {}
               }
             }
