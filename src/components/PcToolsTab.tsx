@@ -135,14 +135,22 @@ export type SubTabId =
   | 'laptop_check'        // Chẩn Đoán Tính Toàn Vẹn
   | 'cpu_main_lookup'     // Tra Cứu Tương Thích Socket
   | 'peripherals_test'    // Kiểm Thử Thiết Bị Ngoại Vi
+  | 'data_recovery'       // Khôi Phục Dữ Liệu
   | 'network_wifi'        // Mật Khẩu Wi-Fi & Sửa Mạng LAN
   | 'windows_shortcuts'   // Lối Tắt Cứu Hộ Windows
   | 'office_installer'    // Cài Đặt Microsoft Office
   | 'app_downloader'      // Kho Ứng Dụng Thiết Yếu
   | 'custom_app_installer'// Trình Cài Đặt Silent App
   | 'vietnamese_fonts'    // Thư Viện Font Tiếng Việt
+  | 'os_installer'        // Cài Win Tự Động / Khởi ISO
+  | 'windows_activation'  // Kích Hoạt Bản Quyền
+  | 'advanced_uninstaller'// Gỡ Cài Đặt Phần Mềm Tận Gốc
+  | 'vm_creator'          // Tạo Máy Ảo Tự Động
   | 'system_optimizer'    // Dọn Rác & Tối Ưu RAM
-  | 'windows_tweaks';     // Tinh Chỉnh Hiệu Năng Windows
+  | 'windows_tweaks'      // Tinh Chỉnh Hiệu Năng Windows
+  | 'disk_partitioning'   // Quản Lý Phân Vùng Ổ Cứng
+  | 'backup_restore'      // Sao Lưu & Phục Hồi (Ghost)
+  | 'bitlocker_efs';      // Tắt BitLocker & Quản Lý EFS
 
 interface MenuItem {
   id: SubTabId;
@@ -172,6 +180,7 @@ const DMH_MENU_GROUPS: MenuGroup[] = [
       { id: 'laptop_check', label: 'Chẩn Đoán Tính Toàn Vẹn', icon: Search },
       { id: 'cpu_main_lookup', label: 'Tra Cứu Tương Thích Socket', icon: Cpu },
       { id: 'peripherals_test', label: 'Kiểm Thử Thiết Bị Ngoại Vi', icon: Keyboard },
+      { id: 'data_recovery', label: 'Khôi Phục Dữ Liệu', icon: FolderSearch },
     ]
   },
   {
@@ -183,6 +192,10 @@ const DMH_MENU_GROUPS: MenuGroup[] = [
       { id: 'app_downloader', label: 'Kho Ứng Dụng Thiết Yếu', icon: DownloadCloud },
       { id: 'custom_app_installer', label: 'Trình Cài Đặt Silent App', icon: Box },
       { id: 'vietnamese_fonts', label: 'Thư Viện Font Tiếng Việt', icon: Type },
+      { id: 'os_installer', label: 'Cài Win Tự Động / Khởi ISO', icon: Box },
+      { id: 'windows_activation', label: 'Kích Hoạt Bản Quyền', icon: Key },
+      { id: 'advanced_uninstaller', label: 'Gỡ Cài Đặt Tận Gốc', icon: Trash2 },
+      { id: 'vm_creator', label: 'Tạo Máy Ảo Tự Động', icon: Tv },
     ]
   },
   {
@@ -194,6 +207,9 @@ const DMH_MENU_GROUPS: MenuGroup[] = [
       { id: 'windows_shortcuts', label: 'Lối Tắt Cứu Hộ Windows', icon: Terminal },
       { id: 'system_optimizer', label: 'Dọn Rác & Tối Ưu RAM', tag: 'Boost', icon: Rocket },
       { id: 'windows_tweaks', label: 'Tinh Chỉnh Hiệu Năng Windows', icon: Settings },
+      { id: 'disk_partitioning', label: 'Quản Lý Phân Vùng Ổ Cứng', icon: HardDrive },
+      { id: 'backup_restore', label: 'Sao Lưu & Phục Hồi (Ghost)', icon: History },
+      { id: 'bitlocker_efs', label: 'Tắt BitLocker & Quản Lý EFS', icon: ShieldAlert },
     ]
   }
 ];
@@ -603,6 +619,10 @@ export function PcToolsTab() {
   const [pingError, setPingError] = useState<string | null>(null);
   const [isEnablingLanSharing, setIsEnablingLanSharing] = useState(false);
   const [lanSharingMsg, setLanSharingMsg] = useState<string | null>(null);
+
+  // ── Extended Tools State ──
+  const [licenseInfo, setLicenseInfo] = useState<any>(null);
+  const [isCheckingLicense, setIsCheckingLicense] = useState(false);
 
   // ── Battery Report State ──
   const [isGeneratingBatteryReport, setIsGeneratingBatteryReport] = useState(false);
@@ -1404,6 +1424,25 @@ export function PcToolsTab() {
       setVcRedistMsg(`Lỗi: ${e.message}`);
     } finally {
       setIsInstallingVcRedist(false);
+    }
+  };
+
+  // ── Extended Tools Handlers ──
+  const handleCheckWinLicense = async () => {
+    setIsCheckingLicense(true);
+    try {
+      const eAPI = (window as any).electronAPI;
+      const res = await eAPI?.pcTools?.checkLicense();
+      if (res && res.ok) {
+        setLicenseInfo(res.data);
+      } else {
+        showToast.error('Không thể kiểm tra bản quyền. Vui lòng chạy ứng dụng bằng quyền Admin.');
+      }
+    } catch (e: any) {
+      console.error(e);
+      showToast.error('Lỗi kiểm tra bản quyền: ' + e.message);
+    } finally {
+      setIsCheckingLicense(false);
     }
   };
 
@@ -6678,6 +6717,242 @@ export function PcToolsTab() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* 14. CÀI WIN TỰ ĐỘNG */}
+      {activeSubTab === 'os_installer' && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24, maxWidth: 900 }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Box size={18} color="#1d4ed8" />
+            Trình Cài Đặt OS & Khởi tạo ISO Tự Động
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
+            Hỗ trợ cài Win tự động (Unattended), Mount ISO và tạo USB Boot cứu hộ WinPE.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Tạo USB Cài Đặt / WinPE</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>Sử dụng công cụ diskpart hoặc gọi script tự động tạo USB Boot cứu hộ.</div>
+              <button onClick={() => handleLaunchWinTool('cmd')} className="btn-secondary" style={{ width: '100%', padding: 8, fontSize: 12 }}>Mở Script Tạo USB</button>
+            </div>
+            <div style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Cài Đặt Windows Không Cần USB</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>Giải nén file ISO trực tiếp ra ổ cứng và chạy Setup tự động (WinNTSetup).</div>
+              <button onClick={() => handleLaunchWinTool('cmd')} className="btn-primary" style={{ width: '100%', padding: 8, fontSize: 12, background: '#1d4ed8' }}>Chạy Script Khởi Tạo ISO</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 15. KÍCH HOẠT BẢN QUYỀN */}
+      {activeSubTab === 'windows_activation' && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24, maxWidth: 900 }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Key size={18} color="#1d4ed8" />
+            Kiểm Tra & Kích Hoạt Bản Quyền (Windows / Office)
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
+            Hệ thống nhận diện bản quyền kỹ thuật số (Digital License) và KMS.
+          </div>
+          
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+            <button
+              onClick={handleCheckWinLicense}
+              disabled={isCheckingLicense}
+              className="btn-primary"
+              style={{ padding: '9px 20px', fontSize: 13, background: '#1d4ed8', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <RefreshCw size={14} className={isCheckingLicense ? 'spin' : ''} />
+              {isCheckingLicense ? 'Đang thẩm định...' : 'Kiểm Tra Bản Quyền Hiện Tại'}
+            </button>
+            <button
+              onClick={() => handleLaunchWinTool('cmd')}
+              className="btn-secondary"
+              style={{ padding: '9px 20px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+              title="Mở Script MAS hoặc Kích hoạt KMS"
+            >
+              <Terminal size={14} /> Chạy Script Kích Hoạt Nâng Cao
+            </button>
+          </div>
+
+          {licenseInfo && (
+            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <CheckCircle2 size={16} color={licenseInfo.isActivated ? '#16a34a' : '#dc2626'} />
+                Trạng thái: {licenseInfo.isActivated ? 'Đã Kích Hoạt Bản Quyền' : 'Chưa Kích Hoạt / Hết Hạn'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+                <div>
+                  <div style={{ color: '#64748b', marginBottom: 4 }}>Phiên bản Windows:</div>
+                  <div style={{ fontWeight: 600 }}>{licenseInfo.edition}</div>
+                </div>
+                <div>
+                  <div style={{ color: '#64748b', marginBottom: 4 }}>Kênh cấp phép (Channel):</div>
+                  <div style={{ fontWeight: 600 }}>{licenseInfo.channel}</div>
+                </div>
+                {licenseInfo.partialKey && (
+                  <div>
+                    <div style={{ color: '#64748b', marginBottom: 4 }}>Product Key (5 số cuối):</div>
+                    <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{licenseInfo.partialKey}</div>
+                  </div>
+                )}
+                {licenseInfo.errorMsg && (
+                  <div style={{ gridColumn: 'span 2', color: '#dc2626', marginTop: 8 }}>
+                    Lỗi: {licenseInfo.errorMsg}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 16. PHÂN VÙNG Ổ CỨNG */}
+      {activeSubTab === 'disk_partitioning' && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24, maxWidth: 900 }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <HardDrive size={18} color="#1d4ed8" />
+            Quản Lý Phân Vùng Ổ Cứng
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
+            Chia ổ, gộp ổ, định dạng phân vùng và chuyển đổi MBR sang GPT an toàn dữ liệu.
+          </div>
+          <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: 16, marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, color: '#0369a1', marginBottom: 4 }}>Windows Disk Management</div>
+                <div style={{ fontSize: 12, color: '#0c4a6e' }}>Công cụ chia ổ cứng gốc của Windows (an toàn nhất, không cần cài thêm app).</div>
+              </div>
+              <button onClick={() => handleLaunchWinTool('diskmgmt')} className="btn-primary" style={{ padding: '8px 16px', fontSize: 13, background: '#0284c7' }}>
+                Mở Disk Management
+              </button>
+            </div>
+          </div>
+          <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, color: '#be123c', marginBottom: 4 }}>Phần Mềm Quản Lý Ổ Cứng Bên Thứ 3 (AOMEI / MiniTool)</div>
+                <div style={{ fontSize: 12, color: '#881337' }}>Phục hồi phân vùng lỗi, di chuyển HĐH (Migrate OS to SSD).</div>
+              </div>
+              <button onClick={() => handleLaunchWinTool('cmd')} className="btn-secondary" style={{ padding: '8px 16px', fontSize: 13 }}>
+                Khởi chạy Portable App
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 17. SAO LƯU - PHỤC HỒI */}
+      {activeSubTab === 'backup_restore' && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24, maxWidth: 900 }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <History size={18} color="#1d4ed8" />
+            Sao Lưu & Phục Hồi Dữ Liệu
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
+            Tạo bản sao lưu hệ điều hành (Ghost), cấu hình điểm khôi phục (Restore Point) phòng chống rủi ro.
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>System Restore Point</div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>Quản lý và khôi phục hệ thống Windows về thời điểm an toàn.</div>
+              </div>
+              <button onClick={() => handleLaunchWinTool('recovery')} className="btn-primary" style={{ padding: '8px 16px', fontSize: 12, background: '#1d4ed8' }}>Mở System Restore</button>
+            </div>
+            
+            <div style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Windows Backup (Thư Mục Cá Nhân)</div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>Sao lưu các thư mục quan trọng Desktop, Documents, Downloads.</div>
+              </div>
+              <button onClick={() => {
+                const eAPI = (window as any).electronAPI;
+                if (eAPI?.pcTools?.backupUserData) eAPI.pcTools.backupUserData();
+              }} className="btn-secondary" style={{ padding: '8px 16px', fontSize: 12 }}>Tiến Hành Sao Lưu</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 18. KHÔI PHỤC DỮ LIỆU */}
+      {activeSubTab === 'data_recovery' && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24, maxWidth: 900 }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FolderSearch size={18} color="#1d4ed8" />
+            Khôi Phục Dữ Liệu
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
+            Công cụ quét phân vùng cấp thấp để cứu file đã xóa nhầm/format nhầm (Khuyên dùng Recuva hoặc EaseUS).
+          </div>
+          <div style={{ padding: 20, textAlign: 'center', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8 }}>
+            <FolderSearch size={32} color="#94a3b8" style={{ margin: '0 auto 12px' }} />
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Khởi chạy công cụ cứu dữ liệu chuyên dụng</div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>Do đặc thù quét mức sector, cần chạy phần mềm riêng biệt có quyền Admin cao nhất.</div>
+            <button onClick={() => handleLaunchWinTool('cmd')} className="btn-primary" style={{ padding: '8px 16px', fontSize: 13 }}>Mở Windows File Recovery (CMD)</button>
+          </div>
+        </div>
+      )}
+
+      {/* 19. TẮT BITLOCKER */}
+      {activeSubTab === 'bitlocker_efs' && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24, maxWidth: 900 }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ShieldAlert size={18} color="#1d4ed8" />
+            Quản Lý Mã Hóa Ổ Đĩa (BitLocker)
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
+            Mở khóa mã hóa BitLocker để tránh bị khóa ổ cứng đột ngột hoặc lấy Recovery Key.
+          </div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button onClick={() => handleLaunchWinTool('bitlocker')} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#b91c1c' }}>
+              <Shield size={14} /> Mở Trình Quản Lý BitLocker
+            </button>
+            <button onClick={() => handleLaunchWinTool('powershell')} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Terminal size={14} /> Mở PowerShell (manage-bde)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 20. GỠ CÀI ĐẶT NÂNG CAO */}
+      {activeSubTab === 'advanced_uninstaller' && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24, maxWidth: 900 }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Trash2 size={18} color="#1d4ed8" />
+            Gỡ Cài Đặt Tận Gốc
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
+            Gỡ bỏ phần mềm tận gốc bao gồm cả registry rác và file tạm ẩn sâu trong AppData.
+          </div>
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>Windows Programs and Features</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Mở danh sách phần mềm đã cài đặt của Windows (appwiz.cpl).</div>
+            </div>
+            <button onClick={() => handleLaunchWinTool('appwiz')} className="btn-primary" style={{ padding: '8px 16px', fontSize: 12, background: '#1d4ed8' }}>Mở AppWiz</button>
+          </div>
+        </div>
+      )}
+
+      {/* 21. TẠO MÁY ẢO TỰ ĐỘNG */}
+      {activeSubTab === 'vm_creator' && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24, maxWidth: 900 }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Tv size={18} color="#1d4ed8" />
+            Tạo Máy Ảo Tự Động (Hyper-V / VMware)
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
+            Kích hoạt Windows Hyper-V hoặc mở trình quản lý máy ảo nhanh chóng.
+          </div>
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>Microsoft Hyper-V Manager</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Trình quản lý máy ảo gốc của Windows 10/11 Pro.</div>
+            </div>
+            <button onClick={() => handleLaunchWinTool('hyperv')} className="btn-primary" style={{ padding: '8px 16px', fontSize: 12, background: '#1d4ed8' }}>Mở Hyper-V Manager</button>
           </div>
         </div>
       )}

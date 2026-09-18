@@ -1499,11 +1499,21 @@ function registerSystemIPC() {
       powershell: 'powershell.exe',
       sysdm: 'sysdm.cpl',
       firewall: 'firewall.cpl',
-      appwiz: 'appwiz.cpl'
+      appwiz: 'appwiz.cpl',
+      bitlocker: 'control.exe /name Microsoft.BitLockerDriveEncryption',
+      hyperv: 'virtmgmt.msc',
+      winupdate: 'control.exe update',
+      recovery: 'rstrui.exe'
     };
     const cmd = toolMap[toolId];
     if (!cmd) return { ok: false, error: 'Không tìm thấy công cụ yêu cầu' };
-    execFile('cmd.exe', ['/c', 'start', '', cmd], { windowsHide: true }, (err) => {
+    
+    // Xử lý đặc biệt cho các lệnh có argument
+    const parts = cmd.split(' ');
+    const exe = parts[0];
+    const args = parts.slice(1);
+    
+    execFile('cmd.exe', ['/c', 'start', '', exe, ...args], { windowsHide: true }, (err) => {
       if (err) console.error('[ENGINE] launch-tool error:', err.message);
     });
     return { ok: true, message: `Đã kích hoạt ${cmd}` };
