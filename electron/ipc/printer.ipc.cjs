@@ -2599,7 +2599,7 @@ pause
           } else {
             $silentArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /S /v/qn /quiet /silent'
           }
-          $proc = Start-Process -FilePath $targetExe -ArgumentList $silentArgs -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
+          $proc = Start-Process -FilePath $targetExe -ArgumentList $silentArgs -WindowStyle Normal -PassThru -ErrorAction SilentlyContinue
           $executedExes++
           
           # (Tiến trình giám sát và auto-click phía dưới vẫn giữ lại như fallback đề phòng bộ cài không hỗ trợ silent mode)
@@ -2660,9 +2660,10 @@ public class Win32Helper {
                 $sb = [System.Text.StringBuilder]::new(256)
                 [Win32Helper]::GetWindowText($h, $sb, 256) | Out-Null
                 $t = $sb.ToString()
-                if ($t -match '(?i)(Install Configuration|Xprinter|Printer Driver Setup|POS Printer|Receipt Printer|Install Wizard)') {
+                if ($t -match '(?i)(Install Configuration|Xprinter|XPrinter|XP-|Printer Driver Setup|POS Printer|Receipt Printer|Install Wizard|Port Installer|PortInstall|Driver Install|USB.*Printer|Printer.*USB)') {
                   $xpWindows.Add($h)
                 }
+                # Bắt cả cửa sổ trống hoặc ẩn tiêu đề nhưng có nhiều nút USB/Model
                 return $true
               }, [IntPtr]::Zero)
 
@@ -2680,8 +2681,9 @@ public class Win32Helper {
                 }, [IntPtr]::Zero)
 
                 # 1. Bấm chọn radio "USB" (tránh bị chọn nhầm Other)
-                $usbBtn = $children | Where-Object { $_.Text -match '(?i)^USB' } | Select-Object -First 1
+                $usbBtn = $children | Where-Object { $_.Text -match '(?i)^(USB|USB Port|USB Interface)' } | Select-Object -First 1
                 if ($usbBtn) {
+                  [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
                   [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                 }
 
@@ -2689,15 +2691,17 @@ public class Win32Helper {
                 $is58 = $drvName -match '58'
                 $modelBtn = $children | Where-Object { 
                   if ($is58) { $_.Text -match '(?i)(58|XP-58|POS-58)' }
-                  else { $_.Text -match '(?i)(80|XP-80|POS-80)' }
+                  else { $_.Text -match '(?i)(80|XP-80|POS-80|XP-80C)' }
                 } | Select-Object -First 1
                 if ($modelBtn) {
+                  [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
                   [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                 }
 
                 # 3. Tự động bấm nút "Install Now" hoặc "Cài đặt"
-                $installNowBtn = $children | Where-Object { $_.Text -match '(?i)(Install Now|Install|Cài đặt|Cai dat)' } | Select-Object -First 1
-                if ($installNowBtn) {
+                Start-Sleep -Milliseconds 300
+                $installNowBtn = $children | Where-Object { $_.Text -match '(?i)(Install Now|InstallNow|Install!|Install$|Cài đặt|Cai dat|Setup)' } | Select-Object -First 1
+                if ($installNowBtn -and [Win32Helper]::IsWindowEnabled($installNowBtn.Handle)) {
                   Start-Sleep -Milliseconds 250
                   [Win32Helper]::SendMessage($installNowBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                 }
