@@ -87,7 +87,7 @@ export function ModernToastItem({
   return (
     <div
       className="modern-toast"
-      style={{ borderLeftColor: theme.accent }}
+      style={{ '--toast-accent': theme.accent } as React.CSSProperties}
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
