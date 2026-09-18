@@ -1500,36 +1500,43 @@ pause
       Set-Printer -Name $p.Name -WorkOffline $false -ErrorAction SilentlyContinue
       Resume-PrintJob -PrinterName $p.Name -ErrorAction SilentlyContinue
 
-      # 3. Gửi lệnh in trang thử nghiệm trực tiếp qua CIM / WMI đến đúng máy in này
-      $wmiRes = Invoke-CimMethod -InputObject $p -MethodName PrintTestPage -ErrorAction SilentlyContinue
+      # 3. Gửi lệnh in trang thử nghiệm:
+      # Ưu tiên số 1: rundll32 printui.dll,PrintUIEntry /k /n "..."
+      # Đây chính xác là phương thức Windows Printer Properties sử dụng khi in tay, hỗ trợ 100% các dòng máy in nhiệt/POS khổ nhỏ
+      $printedOk = $false
+      try {
+        $pArgs = 'printui.dll,PrintUIEntry /k /n "' + $p.Name + '"'
+        Start-Process -FilePath 'rundll32.exe' -ArgumentList $pArgs -NoNewWindow -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+        $printedOk = $true
+      } catch {}
 
-      if ($wmiRes -and $wmiRes.ReturnValue -eq 0) {
+      # Ưu tiên số 2: Thử thêm qua WMI / CIM nếu lệnh trên bị chặn
+      if (-not $printedOk) {
+        $wmiRes = Invoke-CimMethod -InputObject $p -MethodName PrintTestPage -ErrorAction SilentlyContinue
+        if ($wmiRes -and $wmiRes.ReturnValue -eq 0) {
+          $printedOk = $true
+        } else {
+          try {
+            $inst = Get-WmiObject -Class Win32_Printer -Filter "Name='$($p.Name)'" -ErrorAction SilentlyContinue
+            if ($inst) {
+              $wmiRet = $inst.PrintTestPage()
+              $printedOk = ($wmiRet.ReturnValue -eq 0)
+            }
+          } catch {}
+        }
+      }
+
+      if ($printedOk) {
         [PSCustomObject]@{
           ok = $true
-          message = "Đã gửi lệnh in trang thử nghiệm trực tiếp đến máy in [$($p.Name)] (Cổng: $($p.PortName))!"
+          message = "Đã gửi lệnh in trang thử nghiệm thành công đến máy in [$($p.Name)] (Cổng: $($p.PortName))!"
         } | ConvertTo-Json -Compress
       } else {
-        # Dự phòng bằng phương thức WMI Win32_Printer trực tiếp
-        $retCode = -1
-        try {
-          $inst = Get-WmiObject -Class Win32_Printer -Filter "Name='$($p.Name)'" -ErrorAction SilentlyContinue
-          if ($inst) {
-            $wmiRet = $inst.PrintTestPage()
-            $retCode = $wmiRet.ReturnValue
-          }
-        } catch {}
-
-        if ($retCode -eq 0) {
-          [PSCustomObject]@{
-            ok = $true
-            message = "Đã gửi lệnh in trang thử nghiệm đến máy in [$($p.Name)] (Cổng: $($p.PortName))!"
-          } | ConvertTo-Json -Compress
-        } else {
-          [PSCustomObject]@{
-            ok = $false
-            error = "Không thể gửi lệnh in thử đến máy in [$($p.Name)] (Cổng: $($p.PortName)). Vui lòng kiểm tra cáp kết nối hoặc bật nguồn máy in!"
-          } | ConvertTo-Json -Compress
-        }
+        [PSCustomObject]@{
+          ok = $false
+          error = "Không thể gửi lệnh in thử đến máy in [$($p.Name)] (Cổng: $($p.PortName)). Vui lòng kiểm tra cáp kết nối hoặc bật nguồn máy in!"
+        } | ConvertTo-Json -Compress
       }
     `;
     const res = await runPSToolScript(ps);
@@ -3034,18 +3041,29 @@ public class Win32Item {
               Set-Printer -Name $p.Name -WorkOffline $false -ErrorAction SilentlyContinue
               Resume-PrintJob -PrinterName $p.Name -ErrorAction SilentlyContinue
 
-              # Gọi trực tiếp method PrintTestPage của đúng máy in này qua WMI / CIM:
-              $wmiRes = Invoke-CimMethod -InputObject $p -MethodName PrintTestPage -ErrorAction SilentlyContinue
-              $printedOk = ($wmiRes -and $wmiRes.ReturnValue -eq 0)
+              # Ưu tiên số 1: Dùng lệnh in test chính thức của Windows (printui.dll)
+              $printedOk = $false
+              try {
+                $pArgs = 'printui.dll,PrintUIEntry /k /n "' + $p.Name + '"'
+                Start-Process -FilePath 'rundll32.exe' -ArgumentList $pArgs -NoNewWindow -ErrorAction SilentlyContinue
+                Start-Sleep -Milliseconds 500
+                $printedOk = $true
+              } catch {}
 
+              # Ưu tiên số 2: Fallback qua WMI / CIM nếu lệnh trên bị chặn
               if (-not $printedOk) {
-                try {
-                  $inst = Get-WmiObject -Class Win32_Printer -Filter "Name='$($p.Name)'" -ErrorAction SilentlyContinue
-                  if ($inst) {
-                    $wmiRet = $inst.PrintTestPage()
-                    $printedOk = ($wmiRet.ReturnValue -eq 0)
-                  }
-                } catch {}
+                $wmiRes = Invoke-CimMethod -InputObject $p -MethodName PrintTestPage -ErrorAction SilentlyContinue
+                $printedOk = ($wmiRes -and $wmiRes.ReturnValue -eq 0)
+
+                if (-not $printedOk) {
+                  try {
+                    $inst = Get-WmiObject -Class Win32_Printer -Filter "Name='$($p.Name)'" -ErrorAction SilentlyContinue
+                    if ($inst) {
+                      $wmiRet = $inst.PrintTestPage()
+                      $printedOk = ($wmiRet.ReturnValue -eq 0)
+                    }
+                  } catch {}
+                }
               }
 
               Start-Sleep -Milliseconds 600
