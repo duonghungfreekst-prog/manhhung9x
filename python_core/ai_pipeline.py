@@ -128,11 +128,35 @@ class AIImagePipeline:
             meta["steps"].append("sharpen")
             meta["time_ms"]["sharpen"] = round((time.time() - t) * 1000)
 
+        # 5. Thêm Watermark Y tế (Chống ngáo / AI Hallucination rủi ro)
+        if "real_esrgan_x4" in meta["steps"]:
+            self._add_medical_watermark(img)
+
         h_f, w_f = img.shape[:2]
         meta["final_resolution"] = f"{w_f}x{h_f}"
         meta["time_ms"]["total"] = round((time.time() - t_total) * 1000)
         logger.info(f"[AI] Done: {meta['steps']} | {meta['time_ms']}")
         return img, meta
+
+    def _add_medical_watermark(self, img: np.ndarray):
+        """Đóng dấu cảnh báo y tế lên ảnh AI để tránh chẩn đoán sai (AI Hallucination)"""
+        text = "AI ENHANCED - CAUTION: NOT FOR PRIMARY DIAGNOSIS"
+        h, w = img.shape[:2]
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = max(0.5, min(w, h) / 1000.0)
+        thickness = max(1, int(font_scale * 2))
+        
+        text_size, _ = cv2.getTextSize(text, font, font_scale, thickness)
+        text_w, text_h = text_size
+        
+        margin = int(20 * font_scale)
+        x = w - text_w - margin
+        y = h - margin
+        
+        # Vẽ viền đen (outline)
+        cv2.putText(img, text, (x, y), font, font_scale, (0, 0, 0), thickness + 2, cv2.LINE_AA)
+        # Vẽ chữ vàng cảnh báo
+        cv2.putText(img, text, (x, y), font, font_scale, (0, 255, 255), thickness, cv2.LINE_AA)
 
     def make_thumbnail(self, img: np.ndarray, max_size: int = 400) -> np.ndarray:
         h, w = img.shape[:2]

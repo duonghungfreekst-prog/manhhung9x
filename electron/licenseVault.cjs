@@ -356,18 +356,36 @@ function checkKeyRevocation(rawKey, userDataPath) {
   const currentInstanceId = getAppInstanceId(userDataPath);
   const vault = loadVaultState();
 
-  // A. Đã nằm trong danh sách đen bị thu hồi
-  if (vault.revokedKeys.includes(kHash)) {
-    return {
-      revoked: true,
-      reason: 'ALREADY_REVOKED',
-      message: 'Mã Key này đã hết hiệu lực do ứng dụng đã từng bị xóa hoặc gỡ cài đặt khỏi máy tính. Vui lòng liên hệ Admin để được cấp mã mới!'
-    };
-  }
-
   // B. Nếu phiên cài đặt (Instance ID) thay đổi (do chạy quyền Admin hoặc update phiên bản mới):
   // Tự động cập nhật lại Instance ID hiện tại mà TUYỆT ĐỐI KHÔNG khóa key của người dùng!
   const existingBind = vault.instances[kHash];
+  
+  // A. Đã nằm trong danh sách đen bị thu hồi
+  if (vault.revokedKeys.includes(kHash)) {
+    // 🌟 RESCUE TỰ ĐỘNG CẬP NHẬT (AUTO-UPDATE AMNESTY):
+    // Do bản v1.0.2 trở về trước có lỗi trong installer.nsh (chạy uninstaller revoke key cả khi auto-update)
+    // Nếu AppData không bị xoá (dmh_instance.id giữ nguyên), tức là đây là Update chứ không phải gỡ cài đặt thực sự.
+    if (existingBind && existingBind.instanceId === currentInstanceId) {
+      // Phục hồi key (Unrevoke)
+      vault.revokedKeys = vault.revokedKeys.filter(h => h !== kHash);
+      saveVaultState(vault);
+      // Xoá registry RevokedKeys nếu trống
+      if (vault.revokedKeys.length === 0) {
+        try { execRegSafe(`reg delete "${REG_KEY}" /v "RevokedKeys" /f`); } catch {}
+      } else {
+        writeRegistryValue('RevokedKeys', vault.revokedKeys.join(','));
+      }
+      try { execRegSafe(`reg delete "${REG_KEY}" /v "Status" /f`); } catch {}
+      console.log(`[Vault] Tự động phục hồi Key do nhầm lẫn Uninstall trong quá trình Auto-Update.`);
+    } else {
+      return {
+        revoked: true,
+        reason: 'ALREADY_REVOKED',
+        message: 'Mã Key này đã hết hiệu lực do ứng dụng đã từng bị xóa hoặc gỡ cài đặt khỏi máy tính. Vui lòng liên hệ Admin để được cấp mã mới!'
+      };
+    }
+  }
+
   if (existingBind && existingBind.instanceId && existingBind.instanceId !== currentInstanceId) {
     existingBind.instanceId = currentInstanceId;
     existingBind.updatedAt = Date.now();

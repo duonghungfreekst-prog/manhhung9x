@@ -27,7 +27,7 @@ import { UpdateNotificationModal } from './components/UpdateNotificationModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { TabLoadingSkeleton } from './components/TabLoadingSkeleton';
 import { GlobalTopProgressBar, HeaderProcessingIndicator } from './components/GlobalLoadingIndicator';
-import { startGlobalLoading, stopGlobalLoading } from './utils/globalLoading';
+import { startGlobalLoading, stopGlobalLoading, clearAllGlobalLoading } from './utils/globalLoading';
 import { AutoRefreshControl } from './components/AutoRefreshControl';
 import { AutoRefreshManager, registerTabRefreshHandler, triggerGlobalSmartRefresh } from './utils/autoRefreshManager';
 
@@ -148,9 +148,21 @@ function App() {
       });
     }
 
+    let unsubCrash: (() => void) | undefined;
+    if (w.electronAPI?.endoscopy?.onServerCrashed) {
+      unsubCrash = w.electronAPI.endoscopy.onServerCrashed((payload: any) => {
+        const srvName = payload.server === 'endoscopy' ? 'Nội Soi AI 4K' 
+                      : payload.server === 'xml3176' ? 'Giải mã XML' 
+                      : payload.server === 'compare' ? 'Đối chiếu hồ sơ' : payload.server;
+        showToast.error('Máy chủ Python bị sập ngầm!', `Dịch vụ ${srvName} đã bị tắt đột ngột (Lỗi: ${payload.error || payload.code || 'OOM'}). Hãy khởi động lại tính năng hoặc F5 để khôi phục.`);
+        clearAllGlobalLoading(); // Giải cứu UI khỏi trạng thái loading vĩnh viễn (Zombie)
+      });
+    }
+
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       if (unsubIpc) unsubIpc();
+      if (unsubCrash) unsubCrash();
     };
   }, []);
 

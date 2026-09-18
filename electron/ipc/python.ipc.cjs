@@ -1,10 +1,18 @@
-const { ipcMain, app } = require('electron');
+const { ipcMain, app, BrowserWindow } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { logAudit } = require('../security/auditLogger.cjs');
+
+function notifyRenderer(channel, payload) {
+  BrowserWindow.getAllWindows().forEach(w => {
+    if (!w.isDestroyed()) {
+      w.webContents.send(channel, payload);
+    }
+  });
+}
 
 const isDev = app ? !app.isPackaged : true;
 
@@ -130,9 +138,15 @@ async function startPythonServer() {
       }
     });
 
-    _pythonProc.on('exit', () => { _serverStatus = 'stopped'; _pythonProc = null; });
+    _pythonProc.on('exit', (code) => { 
+      _serverStatus = 'stopped'; 
+      _pythonProc = null; 
+      notifyRenderer('python:server-crashed', { server: 'endoscopy', code });
+    });
     _pythonProc.on('error', (err) => {
-      _serverStatus = 'error'; _pythonProc = null;
+      _serverStatus = 'error'; 
+      _pythonProc = null;
+      notifyRenderer('python:server-crashed', { server: 'endoscopy', error: err.message });
       if (!resolved) { resolved = true; resolve({ ok: false, status: 'error', error: err.message }); }
     });
 
@@ -206,9 +220,15 @@ async function startXml3176Server() {
         resolve({ ok: true, status: 'running', port: _xml3176Port });
       }
     });
-    _xml3176Proc.on('exit', () => { _xml3176Status = 'stopped'; _xml3176Proc = null; });
+    _xml3176Proc.on('exit', (code) => { 
+      _xml3176Status = 'stopped'; 
+      _xml3176Proc = null; 
+      notifyRenderer('python:server-crashed', { server: 'xml3176', code });
+    });
     _xml3176Proc.on('error', (err) => {
-      _xml3176Status = 'error'; _xml3176Proc = null;
+      _xml3176Status = 'error'; 
+      _xml3176Proc = null;
+      notifyRenderer('python:server-crashed', { server: 'xml3176', error: err.message });
       if (!resolved) { resolved = true; resolve({ ok: false, status: 'error', error: err.message }); }
     });
     setTimeout(() => {
@@ -295,9 +315,15 @@ async function startCompareServer() {
         resolve({ ok: true, status: 'running', port: _comparePort });
       }
     });
-    _compareProc.on('exit', () => { _compareStatus = 'stopped'; _compareProc = null; });
+    _compareProc.on('exit', (code) => { 
+      _compareStatus = 'stopped'; 
+      _compareProc = null; 
+      notifyRenderer('python:server-crashed', { server: 'compare', code });
+    });
     _compareProc.on('error', (err) => {
-      _compareStatus = 'error'; _compareProc = null;
+      _compareStatus = 'error'; 
+      _compareProc = null;
+      notifyRenderer('python:server-crashed', { server: 'compare', error: err.message });
       if (!resolved) { resolved = true; resolve({ ok: false, error: err.message }); }
     });
     setTimeout(() => {

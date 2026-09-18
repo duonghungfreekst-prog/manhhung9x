@@ -36,6 +36,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openDriverUrl: (url) => ipcRenderer.invoke('endoscopy:open-driver-url', url),
     getSources: () => ipcRenderer.invoke('endoscopy:get-sources'),
     recognizeImage: (b64) => ipcRenderer.invoke('endoscopy:recognize-image', b64),
+    onServerCrashed: (cb) => {
+      const handler = (_e, payload) => cb(payload);
+      ipcRenderer.on('python:server-crashed', handler);
+      return () => ipcRenderer.removeListener('python:server-crashed', handler);
+    },
   },
   license: {
     verify: (rawKey) => ipcRenderer.invoke('license:verify', rawKey),

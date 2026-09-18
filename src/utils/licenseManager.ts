@@ -430,9 +430,14 @@ export async function validateLicenseKey(
 
     // Kiểm tra khóa theo phần cứng (Hardware Lock)
     const machineHwid   = currentHwid || await getDeviceHardwareId();
-    const shortMachineHwid = machineHwid.slice(0, 16);
+    const cleanMachine = machineHwid.replace(/[^A-Z0-9]/ig, '').toUpperCase();
     const targetHwid    = parsed.targetHwid || 'ALL';
-    const hwidMatched   = (targetHwid === 'ALL') || (machineHwid.includes(targetHwid) || shortMachineHwid.includes(targetHwid));
+    const cleanTarget  = targetHwid.replace(/[^A-Z0-9]/ig, '').toUpperCase();
+    
+    // Khôi phục check HWID
+    const hwidMatched   = (targetHwid === 'ALL') || 
+                          cleanMachine.includes(cleanTarget) || 
+                          cleanTarget.includes(cleanMachine.slice(0, 16));
 
     if (!hwidMatched) {
       return FAIL(`Key bản quyền này được cấp cho máy tính khác (Khóa HWID: ${targetHwid}). Vui lòng liên hệ nhà phát hành để cấp lại!`);
