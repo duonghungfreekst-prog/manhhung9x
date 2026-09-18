@@ -2584,7 +2584,21 @@ pause
           $targetExe = $targetExeFile.FullName
           
           # TỰ ĐỘNG HÓA 100% - CHẠY NGẦM BỘ CÀI HÃNG (SILENT INSTALL)
-          $silentArgs = if ($targetExe -match '(?i)(xprinter|pos|receipt|label|barcode|printer)') { "/S" } else { "/S /v/qn /quiet /silent" }
+          # Phát hiện loại installer (Inno Setup / NSIS / MSI) để dùng cờ silent đúng
+          $exeBytes = $null
+          try { $exeBytes = [System.IO.File]::ReadAllBytes($targetExe) } catch {}
+          $exeStr = ''
+          if ($exeBytes) { try { $exeStr = [System.Text.Encoding]::ASCII.GetString($exeBytes, 0, [Math]::Min($exeBytes.Length, 524288)) } catch {} }
+          $isInnoSetup = $exeStr -match 'Inno Setup' -or $exeStr -match 'JR.Inno.Setup' -or $exeStr -match 'iscc' -or $targetExe -match '(?i)xprinter'
+          $isNSIS = $exeStr -match 'Nullsoft' -or $exeStr -match 'NSIS'
+          
+          if ($isInnoSetup) {
+            $silentArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-'
+          } elseif ($isNSIS) {
+            $silentArgs = '/S'
+          } else {
+            $silentArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /S /v/qn /quiet /silent'
+          }
           $proc = Start-Process -FilePath $targetExe -ArgumentList $silentArgs -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
           $executedExes++
           
@@ -2612,7 +2626,18 @@ public class Win32Helper {
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindowEnabled(IntPtr hWnd);
+
     public const uint BM_CLICK = 0x00F5;
+    public const uint BM_SETCHECK = 0x00F1;
+    public const uint BM_GETCHECK = 0x00F0;
+    public const int BST_CHECKED = 1;
+    public const int BST_UNCHECKED = 0;
 }
 "@ -ErrorAction SilentlyContinue
 
@@ -2702,22 +2727,33 @@ public class Win32Helper {
                       return $true
                     }, [IntPtr]::Zero)
 
-                    # Bấm chọn Accept License
+                    # Bấm chọn Accept License (Inno Setup dùng radio button)
+                    # Bước 1: Tìm nút "I do not accept" và BỎ CHỌN nó
+                    $doNotAcceptBtn = $wizChildren | Where-Object { 
+                      $cleanText = $_.Text -replace '&', ''
+                      $cleanText -match '(?i)(do not accept|don''t accept|không đồng ý|không chấp nhận)'
+                    } | Select-Object -First 1
+                    if ($doNotAcceptBtn) {
+                      [Win32Helper]::SendMessage($doNotAcceptBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_UNCHECKED), [IntPtr]::Zero) | Out-Null
+                    }
+
+                    # Bước 2: Tìm nút "I accept" và CHỌN nó
                     $acceptBtn = $wizChildren | Where-Object { 
                       $cleanText = $_.Text -replace '&', ''
-                      $cleanText -match '(?i)(accept the agreement|chấp nhận|đồng ý)' -and $cleanText -notmatch '(?i)(do not|don''t|không)'
+                      $cleanText -match '(?i)(I accept|accept the agreement|chấp nhận|đồng ý)' -and $cleanText -notmatch '(?i)(do not|don''t|không)'
                     } | Select-Object -First 1
                     if ($acceptBtn) {
+                      [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
                       [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                     }
 
-                    # Bấm Next, Install, OK, Finish
+                    # Bấm Next, Install, OK, Finish (chờ 300ms sau khi chọn Accept để UI cập nhật trạng thái nút Next)
+                    Start-Sleep -Milliseconds 300
                     $nextBtn = $wizChildren | Where-Object { 
                       $cleanText = $_.Text -replace '&', ''
-                      $cleanText -match '^(?i)(Next >|Next|Tiếp tục|Tiếp|Install|Cài đặt|OK|Yes|Có|Finish|Hoàn tất)$' 
+                      $cleanText -match '^(?i)(Next >|Next|Tiếp tục|Tiếp|Install|Cài đặt|OK|Yes|Có|Finish|Hoàn tất|Close|Đóng)$' 
                     } | Select-Object -First 1
-                    if ($nextBtn) {
-                      Start-Sleep -Milliseconds 150
+                    if ($nextBtn -and [Win32Helper]::IsWindowEnabled($nextBtn.Handle)) {
                       [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                     }
                   }

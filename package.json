@@ -1,7 +1,7 @@
 {
   "name": "dmh-tools",
   "productName": "DMH_Tools",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "DMH_Tools CT1.0.0 - Kiến Trúc Doanh Nghiệp, Bản Quyền Ed25519 & Bảo Mật Toàn Diện",
   "type": "module",
   "main": "electron/main.cjs",
