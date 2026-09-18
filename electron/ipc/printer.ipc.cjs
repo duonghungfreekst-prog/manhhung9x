@@ -2656,6 +2656,9 @@ public class Win32Helper {
     [DllImport("user32.dll")]
     public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, IntPtr dwExtraInfo);
 
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessDPIAware();
+
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     public const uint MOUSEEVENTF_LEFTUP = 0x0004;
 
@@ -2666,6 +2669,8 @@ public class Win32Helper {
 
           Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
           Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
+
+          try { [Win32Helper]::SetProcessDPIAware() | Out-Null } catch {}
 
           $debugLogPath = Join-Path $env:TEMP "dmh_install_debug.log"
           function Write-DbgLog($msg) {
