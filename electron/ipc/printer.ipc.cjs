@@ -2871,7 +2871,7 @@ public class Win32Helper {
         } | ConvertTo-Json -Compress
       `;
 
-      const installRes = await runElevatedPSToolScript(installPs);
+      const installRes = await runElevatedPSToolScript(installPs, 170000);
       let installData = {};
       try { installData = JSON.parse(installRes.output || '{}'); } catch (_e) { /* intentional: fallback to default */ }
 

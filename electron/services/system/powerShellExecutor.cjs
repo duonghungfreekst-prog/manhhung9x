@@ -71,9 +71,9 @@ const isProcessElevated = () => {
 };
 
 // Chạy PowerShell script với quyền Administrator (tự động kích hoạt UAC nếu cần)
-const runElevatedPSToolScript = (psScript) => {
+const runElevatedPSToolScript = (psScript, timeoutMs = 60000) => {
   if (isProcessElevated()) {
-    return runPSToolScript(psScript);
+    return runPSToolScript(psScript, timeoutMs);
   }
   return new Promise((resolve) => {
     const tempScriptPath = path.join(app.getPath('temp'), `dmh_admin_${Date.now()}.ps1`);
@@ -101,7 +101,7 @@ const runElevatedPSToolScript = (psScript) => {
     try {
       fs.writeFileSync(tempScriptPath, wrappedScript, 'utf8');
     } catch (e) {
-      return resolve(runPSToolScript(psScript));
+      return resolve(runPSToolScript(psScript, timeoutMs));
     }
 
     const launcher = `Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${tempScriptPath.replace(/'/g, "''")}' -Verb RunAs -Wait -WindowStyle Hidden`;
@@ -111,7 +111,7 @@ const runElevatedPSToolScript = (psScript) => {
       '-NonInteractive',
       '-ExecutionPolicy', 'Bypass',
       '-Command', launcher
-    ], { windowsHide: true, timeout: 60000 }, (err) => {
+    ], { windowsHide: true, timeout: timeoutMs }, (err) => {
       let output = '';
       try {
         if (fs.existsSync(tempOutPath)) {
@@ -128,7 +128,7 @@ const runElevatedPSToolScript = (psScript) => {
       } else if (err) {
         resolve({ ok: false, error: 'Cần quyền Administrator để thực hiện thao tác hệ thống này: ' + err.message });
       } else {
-        resolve(runPSToolScript(psScript));
+        resolve(runPSToolScript(psScript, timeoutMs));
       }
     });
   });
