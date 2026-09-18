@@ -2659,6 +2659,13 @@ public class Win32Helper {
     [DllImport("user32.dll")]
     public static extern bool SetProcessDPIAware();
 
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, IntPtr dwExtraInfo);
+
+    public const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
+    public const uint KEYEVENTF_KEYUP = 0x0002;
+    public const byte VK_MENU = 0x12;
+
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     public const uint MOUSEEVENTF_LEFTUP = 0x0004;
 
@@ -2692,6 +2699,16 @@ public class Win32Helper {
 
           function Get-RadioChecked($handle) {
             return ([Win32Helper]::SendMessage($handle, [Win32Helper]::BM_GETCHECK, [IntPtr]::Zero, [IntPtr]::Zero)).ToInt32() -eq [Win32Helper]::BST_CHECKED
+          }
+
+          function Invoke-AltKey($vkCode) {
+            [Win32Helper]::keybd_event([Win32Helper]::VK_MENU, 0, 0, [IntPtr]::Zero)
+            Start-Sleep -Milliseconds 20
+            [Win32Helper]::keybd_event($vkCode, 0, 0, [IntPtr]::Zero)
+            Start-Sleep -Milliseconds 20
+            [Win32Helper]::keybd_event($vkCode, 0, [Win32Helper]::KEYEVENTF_KEYUP, [IntPtr]::Zero)
+            Start-Sleep -Milliseconds 20
+            [Win32Helper]::keybd_event([Win32Helper]::VK_MENU, 0, [Win32Helper]::KEYEVENTF_KEYUP, [IntPtr]::Zero)
           }
 
           # TIẾN TRÌNH GIÁM SÁT (WATCHER LOOP): Lắng nghe máy in mới xuất hiện trong tối đa 120s
@@ -2791,8 +2808,17 @@ public class Win32Helper {
                       Start-Sleep -Milliseconds 150
 
                       if (-not (Get-RadioChecked $acceptBtn.Handle)) {
-                        # Bước 2: message-based không ăn -> click chuột thật
-                        Write-DbgLog "  message-click khong an, thu real-click"
+                        # Bước 2: message-based không ăn -> thử phím tắt Alt+A
+                        Write-DbgLog "  message-click khong an, thu Alt+A"
+                        [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
+                        Start-Sleep -Milliseconds 100
+                        Invoke-AltKey 0x41 # 0x41 là phím A
+                        Start-Sleep -Milliseconds 150
+                      }
+
+                      if (-not (Get-RadioChecked $acceptBtn.Handle)) {
+                        # Bước 3: message-based và Alt+A không ăn -> click chuột thật
+                        Write-DbgLog "  Alt+A khong an, thu real-click"
                         [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
                         Start-Sleep -Milliseconds 100
                         Invoke-RealClick $acceptBtn.Handle | Out-Null
@@ -2815,7 +2841,11 @@ public class Win32Helper {
                     if ($nextBtn) {
                       [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                       Start-Sleep -Milliseconds 100
-                      # Next cũng có thể là control tuỳ biến -> fallback real-click nếu wizard chưa chuyển trang
+                      # Fallback 1: Alt+N
+                      [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
+                      Invoke-AltKey 0x4E # 0x4E là phím N
+                      Start-Sleep -Milliseconds 100
+                      # Fallback 2: Next cũng có thể là control tuỳ biến -> fallback real-click nếu wizard chưa chuyển trang
                       [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
                       Invoke-RealClick $nextBtn.Handle | Out-Null
                       Write-DbgLog "  da bam Next/Install/Finish: '$($nextBtn.Text)'"
