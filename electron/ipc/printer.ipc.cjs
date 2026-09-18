@@ -2583,8 +2583,8 @@ pause
         if ($targetExeFile) {
           $targetExe = $targetExeFile.FullName
           
-          # TỰ ĐỘNG HÓA 100% - CHẠY NGẦM BỘ CÀI HÃNG (SILENT INSTALL)
-          # Phát hiện loại installer (Inno Setup / NSIS / MSI) để dùng cờ silent đúng
+          # TỰ ĐỘNG HÓA 100% - CHẠY BỘ CÀI HÃNG VÀ TỰ ĐỘNG BẤM QUA CÁC BƯỚC WIZARD
+          # Phát hiện loại installer (Inno Setup / NSIS) để chọn chế độ chạy phù hợp
           $exeBytes = $null
           try { $exeBytes = [System.IO.File]::ReadAllBytes($targetExe) } catch {}
           $exeStr = ''
@@ -2593,7 +2593,10 @@ pause
           $isNSIS = $exeStr -match 'Nullsoft' -or $exeStr -match 'NSIS'
           
           if ($isInnoSetup) {
-            $silentArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-'
+            # XPrinter dùng Inno Setup: KHÔNG dùng /VERYSILENT vì sẽ bỏ qua trang "Install Configuration"
+            # (trang có nút "Install Now" - nếu bỏ qua thì driver được cài nhưng KHÔNG tạo printer queue!)
+            # Thay vào đó: chạy wizard bình thường + auto-click xử lý từng bước
+            $silentArgs = '/NORESTART /SP-'
           } elseif ($isNSIS) {
             $silentArgs = '/S'
           } else {
@@ -2652,114 +2655,97 @@ public class Win32Helper {
           while ($sw.ElapsedMilliseconds -lt 120000) {
             Start-Sleep -Seconds 1
 
-            # ── BƯỚC A: TỰ ĐỘNG CẤU HÌNH & BẤM "Install Now" TRÊN CỬA SỔ "Install Configuration" CỦA XPRINTER ──
-            try {
-              $xpWindows = [System.Collections.Generic.List[IntPtr]]::new()
+
+
+            # ── BƯỚC B: QUÉT TẤT CẢ CỬA SỔ WIZARD VÀ TỰ ĐỘNG BẤM ĐÚNG NÚT ──
+            if (([DateTime]::Now - $lastAutoClick).TotalSeconds -ge 1.0) {
+              $lastAutoClick = [DateTime]::Now
+              
+              # Lấy tất cả cửa sổ top-level liên quan đến việc cài đặt máy in
+              $allSetupWindows = [System.Collections.Generic.List[PSCustomObject]]::new()
               [Win32Helper]::EnumWindows({
                 param($h, $lp)
-                $sb = [System.Text.StringBuilder]::new(256)
-                [Win32Helper]::GetWindowText($h, $sb, 256) | Out-Null
+                $sb = [System.Text.StringBuilder]::new(512)
+                [Win32Helper]::GetWindowText($h, $sb, 512) | Out-Null
                 $t = $sb.ToString()
-                if ($t -match '(?i)(Install Configuration|Xprinter|XPrinter|XP-|Printer Driver Setup|POS Printer|Receipt Printer|Install Wizard|Port Installer|PortInstall|Driver Install|USB.*Printer|Printer.*USB)') {
-                  $xpWindows.Add($h)
+                if ($t -match '(?i)(setup|installer|install wizard|xprinter|xp-|printer driver|install configuration|port installer|driver install)' -and
+                    $t -notmatch '(?i)(dmh|visual studio|code|powershell|chrome|edge|browser|windows explorer)') {
+                  $allSetupWindows.Add([PSCustomObject]@{ Handle = $h; Title = $t })
                 }
-                # Bắt cả cửa sổ trống hoặc ẩn tiêu đề nhưng có nhiều nút USB/Model
                 return $true
               }, [IntPtr]::Zero)
 
-              foreach ($hXp in $xpWindows) {
-                $children = [System.Collections.Generic.List[PSCustomObject]]::new()
-                [Win32Helper]::EnumChildWindows($hXp, {
-                  param($hc, $lp)
-                  $sb = [System.Text.StringBuilder]::new(256)
-                  [Win32Helper]::GetWindowText($hc, $sb, 256) | Out-Null
-                  $txt = $sb.ToString()
-                  if ($txt) {
-                    $children.Add([PSCustomObject]@{ Handle = $hc; Text = $txt })
-                  }
-                  return $true
-                }, [IntPtr]::Zero)
-
-                # 1. Bấm chọn radio "USB" (tránh bị chọn nhầm Other)
-                $usbBtn = $children | Where-Object { $_.Text -match '(?i)^(USB|USB Port|USB Interface)' } | Select-Object -First 1
-                if ($usbBtn) {
-                  [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
-                  [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-                }
-
-                # 2. Bấm chọn Model máy in (XP-80C hoặc XP-58 theo tên driver)
-                $is58 = $drvName -match '58'
-                $modelBtn = $children | Where-Object { 
-                  if ($is58) { $_.Text -match '(?i)(58|XP-58|POS-58)' }
-                  else { $_.Text -match '(?i)(80|XP-80|POS-80|XP-80C)' }
-                } | Select-Object -First 1
-                if ($modelBtn) {
-                  [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
-                  [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-                }
-
-                # 3. Tự động bấm nút "Install Now" hoặc "Cài đặt"
-                Start-Sleep -Milliseconds 300
-                $installNowBtn = $children | Where-Object { $_.Text -match '(?i)(Install Now|InstallNow|Install!|Install$|Cài đặt|Cai dat|Setup)' } | Select-Object -First 1
-                if ($installNowBtn -and [Win32Helper]::IsWindowEnabled($installNowBtn.Handle)) {
-                  Start-Sleep -Milliseconds 250
-                  [Win32Helper]::SendMessage($installNowBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-                }
-              }
-            } catch {}
-
-            # ── BƯỚC B: TỰ ĐỘNG BẤM QUA CÁC BƯỚC WIZARD SETUP TRUNG GIAN MÀ KHÔNG CƯỚP CHUỘT ──
-            if (([DateTime]::Now - $lastAutoClick).TotalSeconds -ge 1.0) {
-              $lastAutoClick = [DateTime]::Now
-              $wizProcs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-                $_.MainWindowTitle -match '(?i)(setup|installer|install wizard|xprinter|printer driver)' -and
-                $_.MainWindowTitle -notmatch '(?i)(dmh|visual studio|code|powershell|chrome|edge|browser)'
-              })
-              foreach ($wp in $wizProcs) {
+              foreach ($win in $allSetupWindows) {
                 try {
-                  $hWiz = $wp.MainWindowHandle
-                  if ($hWiz -ne [IntPtr]::Zero) {
-                    $wizChildren = [System.Collections.Generic.List[PSCustomObject]]::new()
-                    [Win32Helper]::EnumChildWindows($hWiz, {
-                      param($hc, $lp)
-                      $sb = [System.Text.StringBuilder]::new(256)
-                      [Win32Helper]::GetWindowText($hc, $sb, 256) | Out-Null
-                      $txt = $sb.ToString()
-                      if ($txt) {
-                        $wizChildren.Add([PSCustomObject]@{ Handle = $hc; Text = $txt })
-                      }
-                      return $true
-                    }, [IntPtr]::Zero)
+                  $hWin = $win.Handle
+                  $winTitle = $win.Title
+                  $allChildren = [System.Collections.Generic.List[PSCustomObject]]::new()
+                  [Win32Helper]::EnumChildWindows($hWin, {
+                    param($hc, $lp)
+                    $sb = [System.Text.StringBuilder]::new(512)
+                    [Win32Helper]::GetWindowText($hc, $sb, 512) | Out-Null
+                    $txt = $sb.ToString()
+                    # Lấy cả controls không có text (để lọc radio/button theo class sau)
+                    $allChildren.Add([PSCustomObject]@{ Handle = $hc; Text = ($txt -replace '\s+', ' ').Trim() })
+                    return $true
+                  }, [IntPtr]::Zero)
+                  $children = $allChildren | Where-Object { $_.Text -ne '' }
 
-                    # Bấm chọn Accept License (Inno Setup dùng radio button)
-                    # Bước 1: Tìm nút "I do not accept" và BỎ CHỌN nó
-                    $doNotAcceptBtn = $wizChildren | Where-Object { 
-                      $cleanText = $_.Text -replace '&', ''
-                      $cleanText -match '(?i)(do not accept|don''t accept|không đồng ý|không chấp nhận)'
-                    } | Select-Object -First 1
-                    if ($doNotAcceptBtn) {
-                      [Win32Helper]::SendMessage($doNotAcceptBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_UNCHECKED), [IntPtr]::Zero) | Out-Null
+                  # ── XỬ LÝ CỬA SỔ "INSTALL CONFIGURATION" (CỬA SỔ XPRINTER RIÊNG) ──
+                  $isInstallConfig = $winTitle -match '(?i)(install configuration|port installer|xprinter.*install)'
+                  if ($isInstallConfig) {
+                    # 1. Chọn USB
+                    $usbBtn = $children | Where-Object { $_.Text -match '(?i)^(USB|USB Port|USB Interface)' } | Select-Object -First 1
+                    if ($usbBtn) {
+                      [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
+                      [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                     }
+                    # 2. Chọn Model (58 hoặc 80)
+                    $is58 = $drvName -match '58'
+                    $modelBtn = $children | Where-Object { 
+                      if ($is58) { $_.Text -match '(?i)(58mm|XP-58|POS-58)' }
+                      else { $_.Text -match '(?i)(80mm|XP-80|POS-80|XP-80C)' }
+                    } | Select-Object -First 1
+                    if ($modelBtn) {
+                      [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
+                      [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                    }
+                    # 3. Bấm Install Now
+                    Start-Sleep -Milliseconds 400
+                    $installNowBtn = $children | Where-Object { $_.Text -match '(?i)^(Install Now|InstallNow|Install!|Install$|Cài đặt ngay)$' } | Select-Object -First 1
+                    if ($installNowBtn -and [Win32Helper]::IsWindowEnabled($installNowBtn.Handle)) {
+                      [Win32Helper]::SendMessage($installNowBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                    }
+                    continue  # Xử lý xong cửa sổ này, qua cửa sổ tiếp theo
+                  }
 
-                    # Bước 2: Tìm nút "I accept" và CHỌN nó
-                    $acceptBtn = $wizChildren | Where-Object { 
-                      $cleanText = $_.Text -replace '&', ''
-                      $cleanText -match '(?i)(I accept|accept the agreement|chấp nhận|đồng ý)' -and $cleanText -notmatch '(?i)(do not|don''t|không)'
-                    } | Select-Object -First 1
-                    if ($acceptBtn) {
-                      [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
-                      [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-                    }
+                  # ── XỬ LÝ WIZARD INNO SETUP (License, Next, Finish...) ──
+                  
+                  # 1. Bỏ chọn "I do not accept"
+                  $doNotAcceptBtn = $children | Where-Object { 
+                    ($_.Text -replace '&', '') -match '(?i)(do not accept|don''t accept|không đồng ý|không chấp nhận)'
+                  } | Select-Object -First 1
+                  if ($doNotAcceptBtn) {
+                    [Win32Helper]::SendMessage($doNotAcceptBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_UNCHECKED), [IntPtr]::Zero) | Out-Null
+                  }
 
-                    # Bấm Next, Install, OK, Finish (chờ 300ms sau khi chọn Accept để UI cập nhật trạng thái nút Next)
-                    Start-Sleep -Milliseconds 300
-                    $nextBtn = $wizChildren | Where-Object { 
-                      $cleanText = $_.Text -replace '&', ''
-                      $cleanText -match '^(?i)(Next >|Next|Tiếp tục|Tiếp|Install|Cài đặt|OK|Yes|Có|Finish|Hoàn tất|Close|Đóng)$' 
-                    } | Select-Object -First 1
-                    if ($nextBtn -and [Win32Helper]::IsWindowEnabled($nextBtn.Handle)) {
-                      [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-                    }
+                  # 2. Chọn "I accept"
+                  $acceptBtn = $children | Where-Object { 
+                    $t = ($_.Text -replace '&', '')
+                    $t -match '(?i)(I accept|accept the agreement|chấp nhận|đồng ý)' -and $t -notmatch '(?i)(do not|don''t|không)'
+                  } | Select-Object -First 1
+                  if ($acceptBtn) {
+                    [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
+                    [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                  }
+
+                  # 3. Bấm Next / Install / Finish — ưu tiên theo thứ tự
+                  Start-Sleep -Milliseconds 300
+                  $nextBtn = $children | Where-Object { 
+                    ($_.Text -replace '&', '') -match '^(?i)(Next >|Next|Tiếp tục|Tiếp theo|Install|Cài đặt|OK|Yes|Có|Finish|Hoàn tất|Close|Đóng|Done)$'
+                  } | Where-Object { [Win32Helper]::IsWindowEnabled($_.Handle) } | Select-Object -First 1
+                  if ($nextBtn) {
+                    [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                   }
                 } catch {}
               }
