@@ -2671,6 +2671,42 @@ public class Win32Helper {
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+
+    public static System.Collections.Generic.List<Win32Item> GetTopWindows() {
+        var list = new System.Collections.Generic.List<Win32Item>();
+        EnumWindows((h, l) => {
+            var sb = new StringBuilder(512);
+            GetWindowText(h, sb, 512);
+            var title = sb.ToString();
+            var sbClass = new StringBuilder(256);
+            GetClassName(h, sbClass, 256);
+            if (!string.IsNullOrEmpty(title) || sbClass.ToString().IndexOf("Wizard", StringComparison.OrdinalIgnoreCase) >= 0) {
+                list.Add(new Win32Item { Handle = h, Title = title, ClassName = sbClass.ToString() });
+            }
+            return true;
+        }, IntPtr.Zero);
+        return list;
+    }
+
+    public static System.Collections.Generic.List<Win32Item> GetControls(IntPtr parent) {
+        var list = new System.Collections.Generic.List<Win32Item>();
+        EnumChildWindows(parent, (h, l) => {
+            var sb = new StringBuilder(512);
+            GetWindowText(h, sb, 512);
+            var sbClass = new StringBuilder(256);
+            GetClassName(h, sbClass, 256);
+            list.Add(new Win32Item { Handle = h, Text = sb.ToString(), ClassName = sbClass.ToString() });
+            return true;
+        }, IntPtr.Zero);
+        return list;
+    }
+}
+
+public class Win32Item {
+    public IntPtr Handle;
+    public string Title;
+    public string ClassName;
+    public string Text;
 }
 "@ -ErrorAction SilentlyContinue
 
@@ -2683,6 +2719,7 @@ public class Win32Helper {
           function Write-DbgLog($msg) {
             try { Add-Content -Path $debugLogPath -Value "[$(Get-Date -Format 'HH:mm:ss.fff')] $msg" -Encoding UTF8 } catch {}
           }
+          Write-DbgLog "=== Khoi dong watcher loop kiem soat cai dat driver ==="
 
           function Invoke-RealClick($handle) {
             $rect = New-Object Win32Helper+RECT
@@ -2716,45 +2753,33 @@ public class Win32Helper {
           $sw = [System.Diagnostics.Stopwatch]::StartNew()
           $lastAutoClick = [DateTime]::MinValue
 
-
           while ($sw.ElapsedMilliseconds -lt 120000) {
             Start-Sleep -Seconds 1
-
-
 
             # ── BƯỚC B: QUÉT TẤT CẢ CỬA SỔ WIZARD VÀ TỰ ĐỘNG BẤM ĐÚNG NÚT ──
             if (([DateTime]::Now - $lastAutoClick).TotalSeconds -ge 1.0) {
               $lastAutoClick = [DateTime]::Now
               
-              # Lấy tất cả cửa sổ top-level liên quan đến việc cài đặt máy in
-              $allSetupWindows = [System.Collections.Generic.List[PSCustomObject]]::new()
-              [Win32Helper]::EnumWindows({
-                param($h, $lp)
-                $sb = [System.Text.StringBuilder]::new(512)
-                [Win32Helper]::GetWindowText($h, $sb, 512) | Out-Null
-                $t = $sb.ToString()
-                if ($t -match '(?i)(setup|installer|install wizard|xprinter|xp-|printer driver|install configuration|port installer|driver install)' -and
-                    $t -notmatch '(?i)(dmh|visual studio|code|powershell|chrome|edge|browser|windows explorer)') {
-                  $allSetupWindows.Add([PSCustomObject]@{ Handle = $h; Title = $t })
-                }
-                return $true
-              }, [IntPtr]::Zero)
+              # DÙNG HÀM NATIVE C# ĐỂ QUÉT TẤT CẢ CỬA SỔ SETUP (KHÔNG DÙNG SCRIPTBLOCK POWERSHELL VÌ BỊ LỖI P/INVOKE DELEGATE)
+              $allSetupWindows = @([Win32Helper]::GetTopWindows() | Where-Object {
+                $t = $_.Title
+                $c = $_.ClassName
+                ($t -match '(?i)(setup|installer|install wizard|xprinter|xp-|printer driver|install configuration|port installer|driver install)' -or
+                 $c -match '(?i)(TWizardForm|TInstallForm)') -and
+                $t -notmatch '(?i)(dmh|visual studio|code|powershell|chrome|edge|browser|windows explorer)'
+              })
+
+              if ($allSetupWindows.Count -gt 0) {
+                Write-DbgLog "Tim thay $($allSetupWindows.Count) cua so lien quan: $($allSetupWindows | ForEach-Object { $_.Title + ' [' + $_.ClassName + ']' } | Out-String)"
+              }
 
               foreach ($win in $allSetupWindows) {
                 try {
                   $hWin = $win.Handle
                   $winTitle = $win.Title
-                  $allChildren = [System.Collections.Generic.List[PSCustomObject]]::new()
-                  [Win32Helper]::EnumChildWindows($hWin, {
-                    param($hc, $lp)
-                    $sb = [System.Text.StringBuilder]::new(512)
-                    [Win32Helper]::GetWindowText($hc, $sb, 512) | Out-Null
-                    $txt = $sb.ToString()
-                    # Lấy cả controls không có text (để lọc radio/button theo class sau)
-                    $allChildren.Add([PSCustomObject]@{ Handle = $hc; Text = ($txt -replace '\s+', ' ').Trim() })
-                    return $true
-                  }, [IntPtr]::Zero)
-                  $children = $allChildren | Where-Object { $_.Text -ne '' }
+                  # LẤY TẤT CẢ CONTROLS CON BẰNG NATIVE C#
+                  $allChildren = @([Win32Helper]::GetControls($hWin))
+                  $children = @($allChildren | Where-Object { $_.Text -ne '' })
 
                   # ── XỬ LÝ CỬA SỔ "INSTALL CONFIGURATION" (CỬA SỔ XPRINTER RIÊNG) ──
                   $isInstallConfig = $winTitle -match '(?i)(install configuration|port installer|xprinter.*install)'
@@ -2802,25 +2827,26 @@ public class Win32Helper {
                   if ($acceptBtn) {
                     $already = Get-RadioChecked $acceptBtn.Handle
                     if (-not $already) {
-                      # Bước 1: thử message-based click (nhanh, không cần đưa cửa sổ lên trước)
+                      # Mang cửa sổ lên Foreground trước
+                      [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
+                      Start-Sleep -Milliseconds 80
+
+                      # Tầng 1: Win32 Message
                       [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
                       [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-                      Start-Sleep -Milliseconds 150
+                      Start-Sleep -Milliseconds 120
 
                       if (-not (Get-RadioChecked $acceptBtn.Handle)) {
-                        # Bước 2: message-based không ăn -> thử phím tắt Alt+A
+                        # Tầng 2: Phím tắt Alt+A qua keybd_event & SendKeys
                         Write-DbgLog "  message-click khong an, thu Alt+A"
-                        [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
-                        Start-Sleep -Milliseconds 100
-                        Invoke-AltKey 0x41 # 0x41 là phím A
+                        Invoke-AltKey 0x41 # Phím A
+                        try { [System.Windows.Forms.SendKeys]::SendWait("%a") } catch {}
                         Start-Sleep -Milliseconds 150
                       }
 
                       if (-not (Get-RadioChecked $acceptBtn.Handle)) {
-                        # Bước 3: message-based và Alt+A không ăn -> click chuột thật
+                        # Tầng 3: Chuột thật Real Click (DPI-aware)
                         Write-DbgLog "  Alt+A khong an, thu real-click"
-                        [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
-                        Start-Sleep -Milliseconds 100
                         Invoke-RealClick $acceptBtn.Handle | Out-Null
                         Start-Sleep -Milliseconds 150
                       }
@@ -2834,19 +2860,21 @@ public class Win32Helper {
                   # Chỉ bấm Next nếu: không có accept radio (trang khác) HOẶC đã accept thành công
                   $canProceed = (-not $acceptBtn) -or (Get-RadioChecked $acceptBtn.Handle)
                   if ($canProceed) {
-                    Start-Sleep -Milliseconds 200
+                    Start-Sleep -Milliseconds 150
                     $nextBtn = $children | Where-Object {
                       ($_.Text -replace '&', '') -match '^(?i)(Next >|Next|Tiếp tục|Tiếp theo|Install|Cài đặt|OK|Yes|Có|Finish|Hoàn tất|Close|Đóng|Done)$'
                     } | Where-Object { [Win32Helper]::IsWindowEnabled($_.Handle) } | Select-Object -First 1
                     if ($nextBtn) {
+                      [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
+                      # Tầng 1: Win32 BM_CLICK
                       [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                       Start-Sleep -Milliseconds 100
-                      # Fallback 1: Alt+N
-                      [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
-                      Invoke-AltKey 0x4E # 0x4E là phím N
+                      # Tầng 2: Alt+N & ENTER qua SendKeys
+                      Invoke-AltKey 0x4E # Phím N
+                      try { [System.Windows.Forms.SendKeys]::SendWait("%n") } catch {}
+                      try { [System.Windows.Forms.SendKeys]::SendWait("{ENTER}") } catch {}
                       Start-Sleep -Milliseconds 100
-                      # Fallback 2: Next cũng có thể là control tuỳ biến -> fallback real-click nếu wizard chưa chuyển trang
-                      [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
+                      # Tầng 3: Real Click
                       Invoke-RealClick $nextBtn.Handle | Out-Null
                       Write-DbgLog "  da bam Next/Install/Finish: '$($nextBtn.Text)'"
                     }
