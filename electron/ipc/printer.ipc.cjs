@@ -2643,16 +2643,57 @@ public class Win32Helper {
     public const int BST_UNCHECKED = 0;
     public const uint WM_LBUTTONDOWN = 0x0201;
     public const uint WM_LBUTTONUP = 0x0202;
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int X, int Y);
+
+    [DllImport("user32.dll")]
+    public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, IntPtr dwExtraInfo);
+
+    public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
 }
 "@ -ErrorAction SilentlyContinue
 
           Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
           Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
 
+          $debugLogPath = Join-Path $env:TEMP "dmh_install_debug.log"
+          function Write-DbgLog($msg) {
+            try { Add-Content -Path $debugLogPath -Value "[$(Get-Date -Format 'HH:mm:ss.fff')] $msg" -Encoding UTF8 } catch {}
+          }
+
+          function Invoke-RealClick($handle) {
+            $rect = New-Object Win32Helper+RECT
+            if (-not [Win32Helper]::GetWindowRect($handle, [ref]$rect)) { return $false }
+            $cx = [int](($rect.Left + $rect.Right) / 2)
+            $cy = [int](($rect.Top + $rect.Bottom) / 2)
+            [Win32Helper]::SetCursorPos($cx, $cy) | Out-Null
+            Start-Sleep -Milliseconds 40
+            [Win32Helper]::mouse_event([Win32Helper]::MOUSEEVENTF_LEFTDOWN, 0, 0, 0, [IntPtr]::Zero)
+            Start-Sleep -Milliseconds 40
+            [Win32Helper]::mouse_event([Win32Helper]::MOUSEEVENTF_LEFTUP, 0, 0, 0, [IntPtr]::Zero)
+            return $true
+          }
+
+          function Get-RadioChecked($handle) {
+            return ([Win32Helper]::SendMessage($handle, [Win32Helper]::BM_GETCHECK, [IntPtr]::Zero, [IntPtr]::Zero)).ToInt32() -eq [Win32Helper]::BST_CHECKED
+          }
+
           # TIẾN TRÌNH GIÁM SÁT (WATCHER LOOP): Lắng nghe máy in mới xuất hiện trong tối đa 120s
           # TÍCH HỢP TỰ ĐỘNG HÓA 100% CỬA SỔ "Install Configuration" & WIZARD SETUP (TỰ CHỌN USB, MODEL, BẤM INSTALL NOW)
           $sw = [System.Diagnostics.Stopwatch]::StartNew()
           $lastAutoClick = [DateTime]::MinValue
+
 
           while ($sw.ElapsedMilliseconds -lt 120000) {
             Start-Sleep -Seconds 1
@@ -2728,38 +2769,52 @@ public class Win32Helper {
                   }
 
                   # ── XỬ LÝ WIZARD INNO SETUP (License, Next, Finish...) ──
-                  
-                  # 1. Bỏ chọn "I do not accept"
-                  $doNotAcceptBtn = $children | Where-Object { 
-                    ($_.Text -replace '&', '') -match '(?i)(do not accept|don''t accept|không đồng ý|không chấp nhận)'
-                  } | Select-Object -First 1
-                  if ($doNotAcceptBtn) {
-                    [Win32Helper]::SendMessage($doNotAcceptBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_UNCHECKED), [IntPtr]::Zero) | Out-Null
-                  }
+                  Write-DbgLog "Window: '$winTitle' | children: $($children.Count)"
+                  foreach ($c in $children) { Write-DbgLog "  child: [$($c.Text)]" }
 
-                  # 2. Chọn "I accept"
-                  $acceptBtn = $children | Where-Object { 
+                  $acceptBtn = $children | Where-Object {
                     $t = ($_.Text -replace '&', '')
                     $t -match '(?i)(I accept|accept the agreement|chấp nhận|đồng ý)' -and $t -notmatch '(?i)(do not|don''t|không)'
                   } | Select-Object -First 1
+
                   if ($acceptBtn) {
-                    # Gửi cả BM_SETCHECK, BM_CLICK, và mô phỏng click chuột thật (WM_LBUTTONDOWN/UP) với toạ độ X=5, Y=5 (lParam=327685)
-                    # vì Inno Setup (Delphi) đôi khi bỏ qua BM_CLICK trên TNewRadioButton
-                    [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
-                    [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::WM_LBUTTONDOWN, [IntPtr]::new(1), [IntPtr]::new(327685)) | Out-Null
-                    [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::WM_LBUTTONUP, [IntPtr]::Zero, [IntPtr]::new(327685)) | Out-Null
-                    [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                    $already = Get-RadioChecked $acceptBtn.Handle
+                    if (-not $already) {
+                      # Bước 1: thử message-based click (nhanh, không cần đưa cửa sổ lên trước)
+                      [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
+                      [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                      Start-Sleep -Milliseconds 150
+
+                      if (-not (Get-RadioChecked $acceptBtn.Handle)) {
+                        # Bước 2: message-based không ăn -> click chuột thật
+                        Write-DbgLog "  message-click khong an, thu real-click"
+                        [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
+                        Start-Sleep -Milliseconds 100
+                        Invoke-RealClick $acceptBtn.Handle | Out-Null
+                        Start-Sleep -Milliseconds 150
+                      }
+                    }
+                    $ok = Get-RadioChecked $acceptBtn.Handle
+                    Write-DbgLog "  accept radio checked = $ok"
+                  } else {
+                    Write-DbgLog "  KHONG TIM THAY accept radio trong cua so nay"
                   }
 
-                  # 3. Bấm Next / Install / Finish — ưu tiên theo thứ tự
-                  Start-Sleep -Milliseconds 300
-                  $nextBtn = $children | Where-Object { 
-                    ($_.Text -replace '&', '') -match '^(?i)(Next >|Next|Tiếp tục|Tiếp theo|Install|Cài đặt|OK|Yes|Có|Finish|Hoàn tất|Close|Đóng|Done)$'
-                  } | Where-Object { [Win32Helper]::IsWindowEnabled($_.Handle) } | Select-Object -First 1
-                  if ($nextBtn) {
-                    [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::WM_LBUTTONDOWN, [IntPtr]::new(1), [IntPtr]::new(327685)) | Out-Null
-                    [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::WM_LBUTTONUP, [IntPtr]::Zero, [IntPtr]::new(327685)) | Out-Null
-                    [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                  # Chỉ bấm Next nếu: không có accept radio (trang khác) HOẶC đã accept thành công
+                  $canProceed = (-not $acceptBtn) -or (Get-RadioChecked $acceptBtn.Handle)
+                  if ($canProceed) {
+                    Start-Sleep -Milliseconds 200
+                    $nextBtn = $children | Where-Object {
+                      ($_.Text -replace '&', '') -match '^(?i)(Next >|Next|Tiếp tục|Tiếp theo|Install|Cài đặt|OK|Yes|Có|Finish|Hoàn tất|Close|Đóng|Done)$'
+                    } | Where-Object { [Win32Helper]::IsWindowEnabled($_.Handle) } | Select-Object -First 1
+                    if ($nextBtn) {
+                      [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+                      Start-Sleep -Milliseconds 100
+                      # Next cũng có thể là control tuỳ biến -> fallback real-click nếu wizard chưa chuyển trang
+                      [Win32Helper]::SetForegroundWindow($hWin) | Out-Null
+                      Invoke-RealClick $nextBtn.Handle | Out-Null
+                      Write-DbgLog "  da bam Next/Install/Finish: '$($nextBtn.Text)'"
+                    }
                   }
                 } catch {}
               }
