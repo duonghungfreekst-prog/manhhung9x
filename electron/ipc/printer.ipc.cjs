@@ -2635,7 +2635,7 @@ public class Win32Helper {
                 $sb = [System.Text.StringBuilder]::new(256)
                 [Win32Helper]::GetWindowText($h, $sb, 256) | Out-Null
                 $t = $sb.ToString()
-                if ($t -like "*Install Configuration*" -or $t -like "*Xprinter*") {
+                if ($t -match '(?i)(Install Configuration|Xprinter|Printer Driver Setup|POS Printer|Receipt Printer|Install Wizard)') {
                   $xpWindows.Add($h)
                 }
                 return $true
@@ -2655,20 +2655,23 @@ public class Win32Helper {
                 }, [IntPtr]::Zero)
 
                 # 1. Bấm chọn radio "USB" (tránh bị chọn nhầm Other)
-                $usbBtn = $children | Where-Object { $_.Text -eq "USB" } | Select-Object -First 1
+                $usbBtn = $children | Where-Object { $_.Text -match '(?i)^USB' } | Select-Object -First 1
                 if ($usbBtn) {
                   [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                 }
 
                 # 2. Bấm chọn Model máy in (XP-80C hoặc XP-58 theo tên driver)
-                $modelToPick = if ($drvName -match '58') { 'XP-58' } else { 'XP-80C' }
-                $modelBtn = $children | Where-Object { $_.Text -eq $modelToPick -or $_.Text -like "$modelToPick*" } | Select-Object -First 1
+                $is58 = $drvName -match '58'
+                $modelBtn = $children | Where-Object { 
+                  if ($is58) { $_.Text -match '(?i)(58|XP-58|POS-58)' }
+                  else { $_.Text -match '(?i)(80|XP-80|POS-80)' }
+                } | Select-Object -First 1
                 if ($modelBtn) {
                   [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                 }
 
-                # 3. Tự động bấm nút "Install Now"
-                $installNowBtn = $children | Where-Object { $_.Text -match 'Install Now' } | Select-Object -First 1
+                # 3. Tự động bấm nút "Install Now" hoặc "Cài đặt"
+                $installNowBtn = $children | Where-Object { $_.Text -match '(?i)(Install Now|Install|Cài đặt|Cai dat)' } | Select-Object -First 1
                 if ($installNowBtn) {
                   Start-Sleep -Milliseconds 250
                   [Win32Helper]::SendMessage($installNowBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
@@ -2710,15 +2713,23 @@ public class Win32Helper {
               break
             }
 
-            # Nếu tiến trình bộ cài đã đóng mà chưa có máy in, chờ thêm 2 giây quét lần cuối
+            # Nếu tiến trình bộ cài CHÍNH đã đóng, ta cần chờ xem có tiến trình SETUP CON nào đang chạy không
             if ($proc -and $proc.HasExited) {
-              Start-Sleep -Seconds 2
-              $finalPrinters = @(Get-Printer -ErrorAction SilentlyContinue)
-              $finalNew = @($finalPrinters | Where-Object { $beforePrinters -notcontains $_.Name })
-              if ($finalNew.Count -gt 0) {
-                $detectedName = $finalNew[0].Name
+              $childSetup = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                ($_.ProcessName -match '(?i)(setup|install|drv|printer|xprinter)' -or $_.MainWindowTitle -match '(?i)(setup|install|xprinter|printer|driver)') -and
+                $_.Id -ne $PID -and
+                $_.ProcessName -notmatch '(?i)(dmh|code|powershell|chrome|edge|browser|explorer)'
               }
-              break
+              if (-not $childSetup) {
+                # Không còn tiến trình cài đặt nào đang chạy (cả chính lẫn con), chờ thêm 2 giây quét lần cuối rồi thoát loop
+                Start-Sleep -Seconds 2
+                $finalPrinters = @(Get-Printer -ErrorAction SilentlyContinue)
+                $finalNew = @($finalPrinters | Where-Object { $beforePrinters -notcontains $_.Name })
+                if ($finalNew.Count -gt 0) {
+                  $detectedName = $finalNew[0].Name
+                }
+                break
+              }
             }
           }
         }
