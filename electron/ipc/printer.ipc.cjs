@@ -2641,6 +2641,8 @@ public class Win32Helper {
     public const uint BM_GETCHECK = 0x00F0;
     public const int BST_CHECKED = 1;
     public const int BST_UNCHECKED = 0;
+    public const uint WM_LBUTTONDOWN = 0x0201;
+    public const uint WM_LBUTTONUP = 0x0202;
 }
 "@ -ErrorAction SilentlyContinue
 
@@ -2698,6 +2700,8 @@ public class Win32Helper {
                     $usbBtn = $children | Where-Object { $_.Text -match '(?i)^(USB|USB Port|USB Interface)' } | Select-Object -First 1
                     if ($usbBtn) {
                       [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
+                      [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::WM_LBUTTONDOWN, [IntPtr]::new(1), [IntPtr]::new(327685)) | Out-Null
+                      [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::WM_LBUTTONUP, [IntPtr]::Zero, [IntPtr]::new(327685)) | Out-Null
                       [Win32Helper]::SendMessage($usbBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                     }
                     # 2. Chọn Model (58 hoặc 80)
@@ -2708,12 +2712,16 @@ public class Win32Helper {
                     } | Select-Object -First 1
                     if ($modelBtn) {
                       [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
+                      [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::WM_LBUTTONDOWN, [IntPtr]::new(1), [IntPtr]::new(327685)) | Out-Null
+                      [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::WM_LBUTTONUP, [IntPtr]::Zero, [IntPtr]::new(327685)) | Out-Null
                       [Win32Helper]::SendMessage($modelBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                     }
                     # 3. Bấm Install Now
                     Start-Sleep -Milliseconds 400
                     $installNowBtn = $children | Where-Object { $_.Text -match '(?i)^(Install Now|InstallNow|Install!|Install$|Cài đặt ngay)$' } | Select-Object -First 1
                     if ($installNowBtn -and [Win32Helper]::IsWindowEnabled($installNowBtn.Handle)) {
+                      [Win32Helper]::SendMessage($installNowBtn.Handle, [Win32Helper]::WM_LBUTTONDOWN, [IntPtr]::new(1), [IntPtr]::new(327685)) | Out-Null
+                      [Win32Helper]::SendMessage($installNowBtn.Handle, [Win32Helper]::WM_LBUTTONUP, [IntPtr]::Zero, [IntPtr]::new(327685)) | Out-Null
                       [Win32Helper]::SendMessage($installNowBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                     }
                     continue  # Xử lý xong cửa sổ này, qua cửa sổ tiếp theo
@@ -2735,7 +2743,11 @@ public class Win32Helper {
                     $t -match '(?i)(I accept|accept the agreement|chấp nhận|đồng ý)' -and $t -notmatch '(?i)(do not|don''t|không)'
                   } | Select-Object -First 1
                   if ($acceptBtn) {
+                    # Gửi cả BM_SETCHECK, BM_CLICK, và mô phỏng click chuột thật (WM_LBUTTONDOWN/UP) với toạ độ X=5, Y=5 (lParam=327685)
+                    # vì Inno Setup (Delphi) đôi khi bỏ qua BM_CLICK trên TNewRadioButton
                     [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_SETCHECK, [IntPtr]::new([Win32Helper]::BST_CHECKED), [IntPtr]::Zero) | Out-Null
+                    [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::WM_LBUTTONDOWN, [IntPtr]::new(1), [IntPtr]::new(327685)) | Out-Null
+                    [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::WM_LBUTTONUP, [IntPtr]::Zero, [IntPtr]::new(327685)) | Out-Null
                     [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                   }
 
@@ -2745,6 +2757,8 @@ public class Win32Helper {
                     ($_.Text -replace '&', '') -match '^(?i)(Next >|Next|Tiếp tục|Tiếp theo|Install|Cài đặt|OK|Yes|Có|Finish|Hoàn tất|Close|Đóng|Done)$'
                   } | Where-Object { [Win32Helper]::IsWindowEnabled($_.Handle) } | Select-Object -First 1
                   if ($nextBtn) {
+                    [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::WM_LBUTTONDOWN, [IntPtr]::new(1), [IntPtr]::new(327685)) | Out-Null
+                    [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::WM_LBUTTONUP, [IntPtr]::Zero, [IntPtr]::new(327685)) | Out-Null
                     [Win32Helper]::SendMessage($nextBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                   }
                 } catch {}
