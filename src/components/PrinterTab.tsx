@@ -584,6 +584,8 @@ export default function PrinterTab() {
     items?: string[];
     message?: string;
     actionTip?: string;
+    showLocalDriverBtn?: boolean;
+    showTestPrintBtn?: boolean;
   }
   const [resultModal, setResultModal] = useState<ResultModalState | null>(null);
 
@@ -643,7 +645,8 @@ export default function PrinterTab() {
 
   const showResultModal = (
     rawMsg: string,
-    overrideType?: 'success' | 'warning' | 'error' | 'info'
+    overrideType?: 'success' | 'warning' | 'error' | 'info',
+    options?: { showLocalDriverBtn?: boolean, showTestPrintBtn?: boolean }
   ) => {
     const rawLines = rawMsg.split('\n').map(l => l.trim()).filter(Boolean);
     let title = rawLines[0] || 'Thông Báo Bác Sĩ Máy In';
@@ -693,6 +696,8 @@ export default function PrinterTab() {
       items: items.length > 0 ? items : undefined,
       message: textLines.length > 0 ? textLines.join('\n') : undefined,
       actionTip,
+      showLocalDriverBtn: options?.showLocalDriverBtn || (actionTip && actionTip.includes('Cài từ tệp trên máy')) ? true : false,
+      showTestPrintBtn: options?.showTestPrintBtn !== undefined ? options.showTestPrintBtn : (type === 'success'),
     });
   };
 
@@ -6219,47 +6224,85 @@ net stop Spooler && net start Spooler`}
               justifyContent: 'space-between',
               gap: 10,
             }}>
-              {/* Nút in thử nếu có máy in khả dụng */}
-              {printers.length > 0 ? (
-                <button
-                  onClick={() => {
-                    const targetPrinter = selectedPrinter || printers[0]?.Name;
-                    if (targetPrinter) {
-                      handlePrintTestPage(targetPrinter);
-                    }
-                  }}
-                  title="Gửi lệnh in một trang thử nghiệm để xác nhận máy in hoạt động tốt"
-                  style={{
-                    padding: '8px 14px',
-                    borderRadius: 8,
-                    border: '1px solid #cbd5e1',
-                    background: '#f8fafc',
-                    color: '#334155',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    transition: 'all 0.15s ease',
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.background = '#e2e8f0';
-                    e.currentTarget.style.borderColor = '#94a3b8';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.background = '#f8fafc';
-                    e.currentTarget.style.borderColor = '#cbd5e1';
-                  }}
-                >
-                  <Printer size={14} color="#059669" />
-                  <span>In Trang Thử (Test Page)</span>
-                </button>
-              ) : (
-                <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-                  DMH Tools • Bác Sĩ Máy In v6.9.5
-                </div>
-              )}
+              {/* Các nút hành động phụ (bên trái) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {resultModal.showLocalDriverBtn && (
+                  <button
+                    onClick={() => {
+                      setResultModal(null);
+                      handleSelectAndInstallLocalDriver();
+                    }}
+                    title="Chọn bộ cài (.exe, .zip, .rar, .7z, .inf) đã có sẵn trên máy để cài đặt tự động ngầm"
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 8,
+                      border: '1px solid #0284c7',
+                      background: '#e0f2fe',
+                      color: '#0369a1',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = '#bae6fd';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = '#e0f2fe';
+                    }}
+                  >
+                    <FolderOpen size={14} color="#0284c7" />
+                    <span>Cài từ tệp trên máy</span>
+                  </button>
+                )}
+
+                {/* Nút in thử nếu có máy in khả dụng và modal cho phép */}
+                {(resultModal.showTestPrintBtn !== false && printers.length > 0) && (
+                  <button
+                    onClick={() => {
+                      const targetPrinter = selectedPrinter || printers[0]?.Name;
+                      if (targetPrinter) {
+                        handlePrintTestPage(targetPrinter);
+                      }
+                    }}
+                    title="Gửi lệnh in một trang thử nghiệm để xác nhận máy in hoạt động tốt"
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 8,
+                      border: '1px solid #cbd5e1',
+                      background: '#f8fafc',
+                      color: '#334155',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = '#e2e8f0';
+                      e.currentTarget.style.borderColor = '#94a3b8';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = '#f8fafc';
+                      e.currentTarget.style.borderColor = '#cbd5e1';
+                    }}
+                  >
+                    <Printer size={14} color="#059669" />
+                    <span>In Trang Thử (Test Page)</span>
+                  </button>
+                )}
+
+                {(!resultModal.showLocalDriverBtn && (resultModal.showTestPrintBtn === false || printers.length === 0)) && (
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                    DMH Tools • Bác Sĩ Máy In v6.9.5
+                  </div>
+                )}
+              </div>
 
               {/* Nút xác nhận chính */}
               <button

@@ -2705,16 +2705,16 @@ public class Win32Helper {
                     # Bấm chọn Accept License
                     $acceptBtn = $wizChildren | Where-Object { 
                       $cleanText = $_.Text -replace '&', ''
-                      $cleanText -match '(?i)(accept the agreement|chấp nhận|đồng ý)' 
+                      $cleanText -match '(?i)(accept the agreement|chấp nhận|đồng ý)' -and $cleanText -notmatch '(?i)(do not|don''t|không)'
                     } | Select-Object -First 1
                     if ($acceptBtn) {
                       [Win32Helper]::SendMessage($acceptBtn.Handle, [Win32Helper]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
                     }
 
-                    # Bấm Next, Install, OK
+                    # Bấm Next, Install, OK, Finish
                     $nextBtn = $wizChildren | Where-Object { 
                       $cleanText = $_.Text -replace '&', ''
-                      $cleanText -match '^(?i)(Next >|Next|Tiếp tục|Tiếp|Install|Cài đặt|OK|Yes|Có)$' 
+                      $cleanText -match '^(?i)(Next >|Next|Tiếp tục|Tiếp|Install|Cài đặt|OK|Yes|Có|Finish|Hoàn tất)$' 
                     } | Select-Object -First 1
                     if ($nextBtn) {
                       Start-Sleep -Milliseconds 150
